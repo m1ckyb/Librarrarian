@@ -78,6 +78,41 @@ def get_cluster_status():
 
     return nodes, failures, db_error
 
+def get_failed_files_list():
+    """Fetches the detailed list of failed files from the database."""
+    db = get_db()
+    files = []
+    db_error = None
+
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return files, db_error
+    
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT filename, reason, reported_at FROM failed_files ORDER BY reported_at DESC")
+            files = cur.fetchall()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+
+    return files, db_error
+
+def clear_failed_files():
+    """Clears all entries from the failed_files table."""
+    db = get_db()
+    db_error = None
+
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return db_error
+    
+    try:
+        with db.cursor() as cur:
+            cur.execute("TRUNCATE TABLE failed_files")
+        db.commit()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+    return db_error
 # ===========================
 # Flask Routes
 # ===========================
@@ -126,6 +161,22 @@ def api_status():
         db_error=db_error,
         last_updated=datetime.now().strftime('%H:%M:%S')
     )
+
+@app.route('/api/failures', methods=['GET'])
+def api_failures():
+    """Returns the list of failed files as JSON."""
+    files, db_error = get_failed_files_list()
+    for file in files:
+        file['reported_at'] = file['reported_at'].strftime('%Y-%m-%d %H:%M:%S')
+    return jsonify(files=files, db_error=db_error)
+
+@app.route('/api/failures/clear', methods=['POST'])
+def api_clear_failures():
+    """Clears the failed_files table."""
+    db_error = clear_failed_files()
+    if db_error:
+        return jsonify(success=False, error=db_error), 500
+    return jsonify(success=True, message="Failed files log has been cleared.")
 
 if __name__ == '__main__':
     # Use host='0.0.0.0' to make the app accessible on your network
