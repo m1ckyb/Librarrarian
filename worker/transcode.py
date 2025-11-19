@@ -71,32 +71,44 @@ class DatabaseHandler:
             return None
 
     def init_tables(self):
-        commands = [
-            """
-            CREATE TABLE IF NOT EXISTS active_nodes (
-                hostname VARCHAR(255) PRIMARY KEY,
-                file TEXT,
-                codec VARCHAR(50),
-                percent INTEGER,
-                speed VARCHAR(50),
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                version VARCHAR(50)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS failed_files (
-                filename TEXT PRIMARY KEY,
-                reason TEXT,
-                reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                log TEXT
-            )
-            """
-        ]
+        """Creates tables if they don't exist and runs schema migrations for existing tables."""
         conn = self.get_conn()
         if conn:
             with conn.cursor() as cur:
-                for cmd in commands:
-                    cur.execute(cmd)
+                # Create tables if they don't exist
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS active_nodes (
+                        hostname VARCHAR(255) PRIMARY KEY,
+                        file TEXT,
+                        codec VARCHAR(50),
+                        percent INTEGER,
+                        speed VARCHAR(50),
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS failed_files (
+                        filename TEXT PRIMARY KEY,
+                        reason TEXT,
+                        reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # --- Schema Migrations ---
+                # Add 'version' column to 'active_nodes' if it doesn't exist
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='active_nodes' AND column_name='version') THEN
+                            ALTER TABLE active_nodes ADD COLUMN version VARCHAR(50);
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='failed_files' AND column_name='log') THEN
+                            ALTER TABLE failed_files ADD COLUMN log TEXT;
+                        END IF;
+                    END;
+                    $$
+                """)
+
             conn.close()
 
     def update_heartbeat(self, filename, codec, percent, speed, version):
