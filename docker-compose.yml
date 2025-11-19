@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/m1ckyb/transcode-dashboard:latest
+    build: ./dashboard
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -14,6 +14,21 @@ services:
       - DB_NAME=${POSTGRES_DB}
     depends_on:
       - db
+
+  # The transcoding worker service
+  worker:
+    build: ./worker
+    restart: unless-stopped # or "on-failure" if you prefer
+    depends_on:
+      - db
+    environment:
+      - DB_HOST=db
+      - DB_USER=${POSTGRES_USER}
+      - DB_PASSWORD=${POSTGRES_PASSWORD}
+      - DB_NAME=${POSTGRES_DB}
+    volumes:
+      - ./media:/media
+    command: ["python", "transcode.py", "/media", "-R", "--min", "0.5"]
 
   # The PostgreSQL database service
   db:

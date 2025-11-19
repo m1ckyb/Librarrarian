@@ -3,7 +3,7 @@ import sys
 import time
 from datetime import datetime
 from flask import Flask, render_template, g
-
+from flask import jsonify
 # Check for Postgres Driver
 try:
     import psycopg2
@@ -21,11 +21,12 @@ except ImportError:
 app = Flask(__name__)
 
 # Use the same DB config as the worker script
+# It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
-    "host": "192.168.10.120", 
-    "user": "transcode",
-    "password": "password",
-    "dbname": "transcode_cluster"
+    "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "user": os.environ.get("DB_USER", "transcode"),
+    "password": os.environ.get("DB_PASSWORD"),
+    "dbname": os.environ.get("DB_NAME", "transcode_cluster")
 }
 
 # ===========================
@@ -100,6 +101,28 @@ def dashboard():
         'index.html', 
         nodes=nodes, 
         fail_count=fail_count, 
+        db_error=db_error,
+        last_updated=datetime.now().strftime('%H:%M:%S')
+    )
+
+@app.route('/api/status')
+def api_status():
+    """Returns cluster status data as JSON."""
+    nodes, fail_count, db_error = get_cluster_status()
+    
+    # Add the color key for the frontend to use
+    for node in nodes:
+        codec = node.get('codec', '')
+        if 'nvenc' in codec:
+            node['color'] = 'success' # Green
+        elif 'vaapi' in codec or 'qsv' in codec:
+            node['color'] = 'primary' # Blue
+        else:
+            node['color'] = 'warning' # Yellow
+
+    return jsonify(
+        nodes=nodes,
+        fail_count=fail_count,
         db_error=db_error,
         last_updated=datetime.now().strftime('%H:%M:%S')
     )

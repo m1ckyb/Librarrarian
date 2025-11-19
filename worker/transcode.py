@@ -30,11 +30,12 @@ HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 
 # --- USER CONFIGURATION SECTION ---
+# Read DB config from environment variables, with fallbacks for local testing
 DB_CONFIG = {
-    "host": "192.168.10.120", 
-    "user": "transcode",
-    "password": "password",
-    "dbname": "transcode_cluster"
+    "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "user": os.environ.get("DB_USER", "transcode"),
+    "password": os.environ.get("DB_PASSWORD"),
+    "dbname": os.environ.get("DB_NAME", "transcode_cluster")
 }
 
 CONFIG = {

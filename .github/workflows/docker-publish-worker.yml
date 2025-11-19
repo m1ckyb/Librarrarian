@@ -1,20 +1,15 @@
-# This is a basic workflow to help you get started with Actions
+name: Docker Publish Worker
 
-name: Docker Publish
-
-# This action triggers on every push to the 'main' branch
 on:
   push:
     branches: [ "main" ]
 
 env:
-  # The name of the Docker image you want to build
-  IMAGE_NAME: transcode-dashboard
+  IMAGE_NAME: transcode-worker
 
 jobs:
-  build-and-push:
+  build-and-push-worker:
     runs-on: ubuntu-latest
-    # Permissions are needed to read the repo and write to the container registry
     permissions:
       contents: read
       packages: write
@@ -27,14 +22,12 @@ jobs:
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          # This uses a special token that GitHub Actions provides automatically
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
-          context: ./dashboard
+          context: ./worker
           push: true
-          # This creates a tag like: ghcr.io/your-github-username/transcode-dashboard:latest
           tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest

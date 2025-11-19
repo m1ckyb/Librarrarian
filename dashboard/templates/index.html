@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en" data-bs-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Transcode Cluster Dashboard</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        .progress {
+            height: 25px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h1>Transcode Cluster</h1>
+            <div>
+                <span class="badge text-bg-danger fs-6" id="fail-count-badge">
+                    {{ fail_count }} Failed
+                </span>
+                <span class="badge text-bg-secondary fs-6">
+                    Updated: <span id="last-updated">{{ last_updated }}</span>
+                </span>
+            </div>
+        </div>
+
+        <div id="db-error-alert" class="alert alert-danger {{ 'd-none' if not db_error }}">
+            <strong>Database Error:</strong> {{ db_error }}
+        </div>
+
+        <div id="nodes-container">
+            {% if nodes %}
+                {% for node in nodes %}
+                <div class="card text-bg-dark mb-3">
+                    <div class="card-header fs-5">{{ node.hostname }}</div>
+                    <div class="card-body">
+                        <p class="card-text text-white-50 mb-2" style="font-family: monospace;">{{ node.file }}</p>
+                        <div class="progress" role="progressbar">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-{{ node.color }}" style="width: {{ node.percent }}%">
+                                <b>{{ node.percent }}%</b>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card-footer text-end">
+                        <span class="badge text-bg-light me-2">Speed: {{ node.speed }}x</span>
+                        <span class="badge text-bg-{{ node.color }}">Codec: {{ node.codec }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="text-center p-5">
+                    <p class="text-muted">No active nodes found.</p>
+                </div>
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        // Function to create an HTML element for a single node
+        function createNodeCard(node) {
+            return `
+            <div class="card text-bg-dark mb-3">
+                <div class="card-header fs-5">${node.hostname}</div>
+                <div class="card-body">
+                    <p class="card-text text-white-50 mb-2" style="font-family: monospace;">${node.file || 'N/A'}</p>
+                    <div class="progress" role="progressbar">
+                        <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-${node.color}" style="width: ${node.percent}%">
+                            <b>${node.percent}%</b>
+                        </div>
+                    </div>
+                </div>
+                <div class="card-footer text-end">
+                    <span class="badge text-bg-light me-2">Speed: ${node.speed}x</span>
+                    <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
+                </div>
+            </div>`;
+        }
+
+        // Main function to fetch data and update the DOM
+        async function updateStatus() {
+            try {
+                const response = await fetch('/api/status');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+
+                // Update summary badges
+                document.getElementById('fail-count-badge').innerText = `${data.fail_count} Failed`;
+                document.getElementById('last-updated').innerText = data.last_updated;
+
+                // Update DB error alert
+                const errorAlert = document.getElementById('db-error-alert');
+                if (data.db_error) {
+                    errorAlert.innerHTML = `<strong>Database Error:</strong> ${data.db_error}`;
+                    errorAlert.classList.remove('d-none');
+                } else {
+                    errorAlert.classList.add('d-none');
+                }
+
+                // Update nodes list
+                const nodesContainer = document.getElementById('nodes-container');
+                if (data.nodes && data.nodes.length > 0) {
+                    nodesContainer.innerHTML = data.nodes.map(createNodeCard).join('');
+                } else {
+                    nodesContainer.innerHTML = `
+                    <div class="text-center p-5">
+                        <p class="text-muted">No active nodes found.</p>
+                    </div>`;
+                }
+
+            } catch (error) {
+                console.error("Failed to fetch status:", error);
+                const errorAlert = document.getElementById('db-error-alert');
+                errorAlert.innerHTML = `<strong>Frontend Error:</strong> Could not fetch status from the server.`;
+                errorAlert.classList.remove('d-none');
+            }
+        }
+
+        // Run the update function every 5 seconds (5000 milliseconds)
+        setInterval(updateStatus, 5000);
+    </script>
+</body>
+</html>
