@@ -76,23 +76,13 @@
 </head>
 <body>
     <div class="container mt-4">
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div id="page-title">{% block page_title %}{% endblock %}</div>
-            <div class="text-end">
-                <span class="badge text-bg-secondary fs-6">
-                    Updated: <span id="last-updated">...</span>
-                </span>
-                <button id="theme-toggle" title="Change Theme" class="btn btn-outline-secondary ms-2">
-                    <span class="mdi mdi-brightness-6"></span>
-                </button>
-            </div>
-        </div>
+        {% block page_header %}{% endblock %}
         {% block content %}{% endblock %}
     </div>
 
     <!-- Footer -->
     <footer class="footer py-3">
-        <div class="container d-flex justify-content-between align-items-center">
+        <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
             <span>Web Dashboard v0.6.0</span>
             <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
         </div>

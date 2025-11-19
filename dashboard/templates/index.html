@@ -11,8 +11,18 @@
     </style>
 {% endblock %}
 
-{% block page_title %}
-    <h1>Transcode Cluster</h1>
+{% block page_header %}
+    <div class="d-flex justify-content-between align-items-center mb-3">
+        <h1>Transcode Cluster</h1>
+        <div class="text-end">
+            <span class="badge text-bg-secondary fs-6">
+                Updated: <span id="last-updated">...</span>
+            </span>
+            <button id="theme-toggle" title="Change Theme" class="btn btn-outline-secondary ms-2">
+                <span class="mdi mdi-brightness-6"></span>
+            </button>
+        </div>
+    </div>
 {% endblock %}
 
 {% block content %}
