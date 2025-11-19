@@ -26,7 +26,11 @@ except ImportError:
 # Global Settings
 # ===========================
 
-VERSION = "1.6"
+def get_project_version():
+    """Reads the version from the root VERSION.txt file."""
+    return (Path(__file__).parent.parent / "VERSION.txt").read_text().strip()
+
+VERSION = get_project_version()
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 
@@ -559,8 +563,8 @@ def report_and_log_failure(filename, exit_code, log, db, failure_set, temp_file)
 def check_for_updates():
     """Checks GitHub for a newer version of the script and prompts to update."""
     print(f"Worker Version: {VERSION}")
-    version_url = "https://raw.githubusercontent.com/m1ckyb/CluserEncode/main/worker/version.txt"
-    script_url = "https://raw.githubusercontent.com/m1ckyb/CluserEncode/main/worker/transcode.py"
+    version_url = "https://raw.githubusercontent.com/m1ckyb/CluserEncode/main/VERSION.txt"
+    script_url = f"https://raw.githubusercontent.com/m1ckyb/CluserEncode/main/worker/transcode.py"
     
     try:
         with urllib.request.urlopen(version_url) as response:

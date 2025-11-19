@@ -10,6 +10,15 @@
             height: 25px;
             font-size: 0.9rem;
         }
+        .footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background-color: rgba(33, 37, 41, 0.75); /* Semi-transparent dark background */
+            backdrop-filter: blur(10px); /* "Glassy" effect */
+            -webkit-backdrop-filter: blur(10px); /* For Safari */
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
     </style>
 </head>
 <body>
@@ -101,7 +110,7 @@
     </div>
 
     <!-- Footer -->
-    <footer class="footer mt-auto py-3 bg-dark">
+    <footer class="footer py-3">
         <div class="container text-center text-white-50">
             Web Dashboard v0.4.0 | <a href="https://github.com/m1ckyb/CluserEncode" target="_blank" class="text-white-50">Project on GitHub</a>
         </div>
@@ -168,12 +177,15 @@
 
                 // Update summary badges
                 const failCount = data.fail_count;
+                const failCountBadge = document.getElementById('fail-count-badge');
                 const viewErrorsBtn = document.getElementById('view-errors-btn');
-                document.getElementById('fail-count-badge').innerText = failCount;
+                const clearErrorsBtn = document.getElementById('clear-errors-btn');
+                failCountBadge.innerText = failCount;
                 document.getElementById('last-updated').innerText = new Date().toLocaleTimeString();
 
                 // Update View Errors button color
                 viewErrorsBtn.classList.remove('btn-danger', 'btn-success');
+                clearErrorsBtn.style.display = (failCount > 0) ? 'inline-block' : 'none';
                 if (failCount > 0) {
                     viewErrorsBtn.classList.add('btn-danger');
                 } else {
