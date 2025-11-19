@@ -12,17 +12,19 @@
 {% endblock %}
 
 {% block page_title %}
-    <div class="d-flex justify-content-between align-items-center">
-        <h1>Transcode Cluster</h1>
+    <div class="d-flex justify-content-between align-items-start mb-2">
+        <h1 class="mb-0">Transcode Cluster</h1>
         <div class="btn-group" role="group">
             <button type="button" class="btn btn-outline-secondary" id="view-errors-btn" data-bs-toggle="modal" data-bs-target="#failuresModal">
-                View Errors <span class="badge text-bg-light" id="fail-count-badge"></span>
+                View Errors <span class="badge" id="fail-count-badge"></span>
             </button>
             <button type="button" class="btn btn-outline-danger" id="clear-errors-btn" title="Clear All Errors">
                 &times;
             </button>
         </div>
     </div>
+    <!-- The clock is now below the buttons -->
+    <div id="clock-container" class="text-end" style="min-height: 1.5rem;"></div>
 {% endblock %}
 
 {% block content %}
@@ -218,19 +220,25 @@
                 const failCountBadge = document.getElementById('fail-count-badge');
                 const viewErrorsBtn = document.getElementById('view-errors-btn');
                 failCountBadge.innerText = failCount;
+                failCountBadge.classList.remove('text-bg-light', 'text-bg-dark'); // Reset badge color
 
                 // Update clock
-                const lastUpdatedSpan = document.getElementById('last-updated');
-                if (lastUpdatedSpan) lastUpdatedSpan.innerText = new Date().toLocaleTimeString();
+                const clockContainer = document.getElementById('clock-container');
+                if (clockContainer) {
+                    clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${new Date().toLocaleTimeString()}</span>`;
+                }
 
                 // Update View Errors button color
+                // The badge color is also updated for better contrast
                 viewErrorsBtn.classList.remove('btn-danger', 'btn-success');
                 const clearErrorsBtn = document.getElementById('clear-errors-btn');
                 clearErrorsBtn.style.display = (failCount > 0) ? 'inline-block' : 'none';
                 if (failCount > 0) {
                     viewErrorsBtn.classList.add('btn-danger');
+                    failCountBadge.classList.add('text-bg-light');
                 } else {
                     viewErrorsBtn.classList.add('btn-success');
+                    failCountBadge.classList.add('text-bg-dark');
                 }
 
                 // Update DB error alert
