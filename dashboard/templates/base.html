@@ -1,39 +1,48 @@
 <!doctype html>
-<html lang="en">
+<!-- The data-bs-theme attribute will be set by the script below -->
+<html lang="en"> 
 <head>
     <meta charset="utf-8">
     <title>Cluster Transcode Dashboard</title>
+
+    <!-- This script must run before the body to prevent a flash of the wrong theme -->
+    <script>
+        (function() {
+            const getStoredTheme = () => localStorage.getItem('theme');
+            const getPreferredTheme = () => {
+                const storedTheme = getStoredTheme();
+                if (storedTheme) {
+                    return storedTheme;
+                }
+                // If no stored theme, use system preference
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+            };
+            const theme = getPreferredTheme();
+            // Set the theme on the <html> element
+            document.documentElement.setAttribute('data-bs-theme', theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme);
+        })();
+    </script>
+
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
     <style>
         html, body {
             font-family: monospace;
-            /* Define CSS variables for theming */
-            --bs-body-bg: #f0f4f8;
-            --bs-body-color: #212529;
-            --bs-dark-rgb: 33, 37, 41;
-            --bs-light-rgb: 248, 249, 250;
-            --footer-bg: rgba(248, 249, 250, 0.75);
-            --footer-text: #6c757d;
-            --footer-link: #212529;
-            --footer-border: rgba(0, 0, 0, 0.1);
+            /* Custom CSS variables for the glassy footer */
+            --footer-bg: rgba(var(--bs-light-rgb), 0.75);
+            --footer-text: var(--bs-secondary-color);
+            --footer-link: var(--bs-body-color);
+            --footer-border: rgba(var(--bs-dark-rgb), 0.1);
         }
 
         /* Dark mode overrides */
-        html[data-bs-theme="dark"] {
-            --bs-body-bg: #121212;
-            --bs-body-color: #e0e0e0;
-            --footer-bg: rgba(33, 37, 41, 0.75);
-            --footer-text: #adb5bd;
-            --footer-link: #e0e0e0;
-            --footer-border: rgba(255, 255, 255, 0.1);
+        [data-bs-theme="dark"] {
+            --footer-bg: rgba(var(--bs-dark-rgb), 0.75);
+            --footer-border: rgba(var(--bs-light-rgb), 0.1);
         }
 
         html, body {
             margin: 0;
             padding: 0;
-            background: var(--bs-body-bg);
-            color: var(--bs-body-color);
-            transition: background-color 0.3s, color 0.3s;
         }
 
         body {
@@ -102,17 +111,13 @@
         }
 
         const setTheme = theme => {
-            if (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-                document.documentElement.setAttribute('data-bs-theme', 'dark')
-            } else {
-                document.documentElement.setAttribute('data-bs-theme', theme)
-            }
+            const themeToSet = theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
+            document.documentElement.setAttribute('data-bs-theme', themeToSet);
         }
-
-        setTheme(getPreferredTheme())
 
         const showActiveTheme = (theme, focus = false) => {
             const themeSwitcher = document.querySelector('#theme-toggle')
+            const storedTheme = getStoredTheme() || 'auto';
             if (!themeSwitcher) {
                 return
             }
@@ -121,10 +126,10 @@
                 'light': 'mdi-brightness-5',
                 'dark': 'mdi-brightness-3',
                 'auto': 'mdi-brightness-auto'
-            }[theme]
+            }[storedTheme]
 
             themeSwitcherIcon.className = `mdi ${activeThemeIcon}`;
-            themeSwitcher.setAttribute('title', `Theme: ${theme}`);
+            themeSwitcher.setAttribute('title', `Theme: ${storedTheme}`);
         }
 
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
