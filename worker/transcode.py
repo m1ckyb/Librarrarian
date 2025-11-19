@@ -27,8 +27,15 @@ except ImportError:
 # ===========================
 
 def get_project_version():
-    """Reads the version from the root VERSION.txt file."""
-    return (Path(__file__).parent.parent / "VERSION.txt").read_text().strip()
+    """
+    Reads the version from the root VERSION.txt file.
+    Falls back to 'standalone' if the file is not found (e.g., when run outside the project structure).
+    """
+    try:
+        version_file = Path(__file__).parent.parent / "VERSION.txt"
+        return version_file.read_text().strip()
+    except FileNotFoundError:
+        return "standalone"
 
 VERSION = get_project_version()
 HOSTNAME = socket.gethostname()

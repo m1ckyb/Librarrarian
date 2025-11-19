@@ -93,7 +93,15 @@ This version focused on improving project maintainability and refining the user 
 - **Conditional UI Elements**: The dashboard was made smarter by hiding the "Clear Errors" button when the error count is zero, decluttering the interface.
 
 
-## 11. CI/CD Enhancements & Branching Strategy
+## 11. Version 0.4.2 - Robustness and UI Fixes
+
+This version addressed key usability and deployment flexibility issues.
+
+- **Robust Worker Versioning**: The worker script (`transcode.py`) was improved to handle being run as a standalone file. It now attempts to read the `VERSION.txt` file, but if it fails (e.g., `FileNotFoundError`), it gracefully falls back to using `"standalone"` as its version identifier instead of crashing.
+- **Dashboard Layout Fix**: Fixed a UI bug where the "glassy" fixed footer would overlap and obscure the "View Errors" button. Padding was added to the main body of the page to ensure all content remains accessible.
+
+
+## 12. CI/CD Enhancements & Branching Strategy
 
 - **Branching Model**: Implemented a Git branching model using `main` for production-ready code and `develop` for ongoing development.
 - **Development Workflow**:
