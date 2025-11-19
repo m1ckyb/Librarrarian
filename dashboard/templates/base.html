@@ -49,7 +49,7 @@
         }
 
         body {
-            /* padding-bottom: 70px; */ /* Space for the footer - REMOVED */
+            padding-bottom: 70px; /* Space for the footer */
         }
 
         .footer {
@@ -75,35 +75,36 @@
     {% block head %}{% endblock %}
 </head>
 <body>
-    <div class="container mt-4">
+    <div class="container mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <span class="badge text-bg-secondary fs-6">
+                    Updated: <span id="last-updated">...</span>
+                </span>
+            </div>
+            <div class="btn-group" role="group">
+                <button type="button" class="btn btn-outline-secondary" id="view-errors-btn" data-bs-toggle="modal" data-bs-target="#failuresModal">
+                    View Errors <span class="badge text-bg-light" id="fail-count-badge"></span>
+                </button>
+                <button type="button" class="btn btn-outline-danger" id="clear-errors-btn" title="Clear All Errors">
+                    &times;
+                </button>
+            </div>
+        </div>
         {% block page_title %}{% endblock %}
         {% block content %}{% endblock %}
     </div>
 
     <!-- Footer -->
     <footer class="footer py-3">
-        <div class="container d-flex justify-content-between align-items-center">
-            <div>
-                <span>Web Dashboard v0.7.1</span>
-                <span class="mx-2">|</span>
-                <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
-            </div>
-            <div class="text-end">
-                <div class="btn-group" role="group">
-                    <button type="button" class="btn" id="view-errors-btn" data-bs-toggle="modal" data-bs-target="#failuresModal">
-                        View Errors <span class="badge text-bg-light" id="fail-count-badge"></span>
-                    </button>
-                    <button type="button" class="btn btn-outline-danger" id="clear-errors-btn" title="Clear All Errors">
-                        &times;
-                    </button>
-                </div>
-                <span class="badge text-bg-secondary fs-6 me-2">
-                    Updated: <span id="last-updated">...</span>
-                </span>
+        <div class="container d-flex justify-content-between align-items-center h-100">
+            <div class="d-flex align-items-center">
+                <span class="me-3">Web Dashboard v0.7.2</span>
                 <button id="theme-toggle" title="Change Theme" class="btn btn-outline-secondary">
                     <span class="mdi mdi-brightness-6"></span>
                 </button>
             </div>
+            <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
         </div>
     </footer>
 

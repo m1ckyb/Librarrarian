@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.2] - 2025-11-20 - CSS Fixes
+
+### Fixed
+- **Dashboard UI**: Fixed several CSS issues to improve the layout and consistency of the dashboard.
+  - Moved the "View Errors" button into the footer to prevent it from overlapping with other content.
+  - Made the page titles consistent across the dashboard by using `<h1>` tags for all pages.
+  - Removed unnecessary `padding-bottom` from the `body` element.
+
 ## [0.7.1] - 2025-11-19 - The Non-Interactive Fix
 
 ### Changed

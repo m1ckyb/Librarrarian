@@ -154,3 +154,12 @@ This small release addressed a critical usability bug with the worker's self-upd
 - **Docker Compose Integration**:
     - The `docker-compose.yml` file was updated to pull pre-built images directly from GHCR instead of building them locally.
     - It is configured to use the `:latest` tag, ensuring that running `docker-compose up` deploys the most recent official release.
+
+## 17. Version 0.7.2 (Alpha) - CSS Fixes
+
+This version focused on fixing several CSS issues to improve the layout and consistency of the dashboard.
+
+- **Dashboard UI**:
+  - Moved the "View Errors" button into the footer to prevent it from overlapping with other content.
+  - Made the page titles consistent across the dashboard by using `<h1>` tags for all pages.
+  - Removed unnecessary `padding-bottom` from the `body` element.
