@@ -76,81 +76,92 @@
 </head>
 <body>
     <div class="container mt-4">
-        {% block page_header %}{% endblock %}
+        {% block page_title %}{% endblock %}
         {% block content %}{% endblock %}
     </div>
 
     <!-- Footer -->
     <footer class="footer py-3">
-        <div class="container-fluid px-4 d-flex justify-content-between align-items-center">
-            <span>Web Dashboard v0.6.0</span>
-            <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
+        <div class="container d-flex justify-content-between align-items-center">
+            <div>
+                <span>Web Dashboard v0.6.0</span>
+                <span class="mx-2">|</span>
+                <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
+            </div>
+            <div class="text-end">
+                <span class="badge text-bg-secondary fs-6 me-2">
+                    Updated: <span id="last-updated">...</span>
+                </span>
+                <button id="theme-toggle" title="Change Theme" class="btn btn-outline-secondary">
+                    <span class="mdi mdi-brightness-6"></span>
+                </button>
+            </div>
         </div>
     </footer>
 
-<script>
-    (() => {
-        'use strict'
-
-        const getStoredTheme = () => localStorage.getItem('theme')
-        const setStoredTheme = theme => localStorage.setItem('theme', theme)
-
-        const getPreferredTheme = () => {
-            const storedTheme = getStoredTheme()
-            if (storedTheme) {
-                return storedTheme
+    <script>
+        (() => {
+            'use strict'
+    
+            const getStoredTheme = () => localStorage.getItem('theme')
+            const setStoredTheme = theme => localStorage.setItem('theme', theme)
+    
+            const getPreferredTheme = () => {
+                const storedTheme = getStoredTheme()
+                if (storedTheme) {
+                    return storedTheme
+                }
+                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
             }
-            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-        }
-
-        const setTheme = theme => {
-            const themeToSet = theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
-            document.documentElement.setAttribute('data-bs-theme', themeToSet);
-        }
-
-        const showActiveTheme = (theme, focus = false) => {
-            const themeSwitcher = document.querySelector('#theme-toggle')
-            const storedTheme = getStoredTheme() || 'auto';
-            if (!themeSwitcher) {
-                return
+    
+            const setTheme = theme => {
+                const themeToSet = theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
+                document.documentElement.setAttribute('data-bs-theme', themeToSet);
             }
-            const themeSwitcherIcon = themeSwitcher.querySelector('span.mdi')
-            const activeThemeIcon = {
-                'light': 'mdi-brightness-5',
-                'dark': 'mdi-brightness-3',
-                'auto': 'mdi-brightness-auto'
-            }[storedTheme]
-
-            themeSwitcherIcon.className = `mdi ${activeThemeIcon}`;
-            themeSwitcher.setAttribute('title', `Theme: ${storedTheme}`);
-        }
-
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-            const storedTheme = getStoredTheme()
-            if (storedTheme !== 'light' && storedTheme !== 'dark') {
-                setTheme(getPreferredTheme())
+    
+            const showActiveTheme = (theme, focus = false) => {
+                const themeSwitcher = document.querySelector('#theme-toggle')
+                const storedTheme = getStoredTheme() || 'auto';
+                if (!themeSwitcher) {
+                    return
+                }
+                const themeSwitcherIcon = themeSwitcher.querySelector('span.mdi')
+                const activeThemeIcon = {
+                    'light': 'mdi-brightness-5',
+                    'dark': 'mdi-brightness-3',
+                    'auto': 'mdi-brightness-auto'
+                }[storedTheme]
+    
+                themeSwitcherIcon.className = `mdi ${activeThemeIcon}`;
+                themeSwitcher.setAttribute('title', `Theme: ${storedTheme}`);
             }
-        })
-
-        window.addEventListener('DOMContentLoaded', () => {
-            showActiveTheme(getPreferredTheme())
-
-            const themeToggle = document.querySelector('#theme-toggle');
-            if (themeToggle) {
-                themeToggle.addEventListener('click', () => {
-                    const themes = ['light', 'dark', 'auto']; // 'auto' for system
-                    const currentTheme = getStoredTheme() || 'auto';
-                    const nextThemeIndex = (themes.indexOf(currentTheme) + 1) % themes.length;
-                    const newTheme = themes[nextThemeIndex];
-                    
-                    setStoredTheme(newTheme)
-                    setTheme(newTheme)
-                    showActiveTheme(newTheme, true)
-                })
-            }
-        })
-    })()
-</script>
-{% block scripts %}{% endblock %}
-</body>
-</html>
+    
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+                const storedTheme = getStoredTheme()
+                if (storedTheme !== 'light' && storedTheme !== 'dark') {
+                    setTheme(getPreferredTheme())
+                }
+            })
+    
+            window.addEventListener('DOMContentLoaded', () => {
+                showActiveTheme(getPreferredTheme())
+    
+                const themeToggle = document.querySelector('#theme-toggle');
+                if (themeToggle) {
+                    themeToggle.addEventListener('click', () => {
+                        const themes = ['light', 'dark', 'auto']; // 'auto' for system
+                        const currentTheme = getStoredTheme() || 'auto';
+                        const nextThemeIndex = (themes.indexOf(currentTheme) + 1) % themes.length;
+                        const newTheme = themes[nextThemeIndex];
+                        
+                        setStoredTheme(newTheme)
+                        setTheme(newTheme)
+                        showActiveTheme(newTheme, true)
+                    })
+                }
+            })
+        })()
+    </script>
+    {% block scripts %}{% endblock %}
+    </body>
+    </html>
