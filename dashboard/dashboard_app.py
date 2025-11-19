@@ -114,6 +114,25 @@ def clear_failed_files():
         db_error = f"Database query failed: {e}"
     return db_error
 # ===========================
+# History Functions
+# ===========================
+
+def get_history():
+    """Fetches the last 100 successfully encoded files."""
+    db = get_db()
+    history = []
+    db_error = None
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return history, db_error
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM encoded_files ORDER BY encoded_at DESC LIMIT 100")
+            history = cur.fetchall()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+    return history, db_error
+# ===========================
 # Flask Routes
 # ===========================
 
@@ -177,6 +196,18 @@ def api_clear_failures():
     if db_error:
         return jsonify(success=False, error=db_error), 500
     return jsonify(success=True, message="Failed files log has been cleared.")
+
+@app.route('/api/history', methods=['GET'])
+def api_history():
+    """Returns the encoding history as JSON."""
+    history, db_error = get_history()
+    for item in history:
+        # Format datetime and sizes for display
+        item['encoded_at'] = item['encoded_at'].strftime('%Y-%m-%d %H:%M:%S')
+        item['original_size_gb'] = round(item['original_size'] / (1024**3), 2)
+        item['new_size_gb'] = round(item['new_size'] / (1024**3), 2)
+        item['reduction_percent'] = round((1 - item['new_size'] / item['original_size']) * 100, 1) if item['original_size'] > 0 else 0
+    return jsonify(history=history, db_error=db_error)
 
 if __name__ == '__main__':
     # Use host='0.0.0.0' to make the app accessible on your network
