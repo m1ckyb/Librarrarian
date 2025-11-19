@@ -559,12 +559,14 @@ def worker_loop(root, args, hw_settings, db):
 
         # If no files were processed in this full scan, wait before the next one.
         if files_processed_this_scan == 0:
-            # Report idle status before waiting
             db.update_heartbeat("Idle", "N/A", 0, "0", VERSION)
             print(f"\n🏁 Scan complete. Watching for new files... (Next scan in 60s)")
             STOP_EVENT.wait(60) # Wait for 60 seconds or until STOP_EVENT is set
         else:
-            print(f"\n🏁 Scan complete. Re-scanning in {rescan_delay_minutes} minute(s)...")
+            # If files were processed, respect the user-defined delay.
+            # If delay is 0, it will loop immediately.
+            db.update_heartbeat("Idle", "N/A", 0, "0", VERSION)
+            print(f"\n🏁 Scan complete. Next scan in {rescan_delay_minutes} minute(s)...")
             if rescan_delay_minutes > 0:
                 STOP_EVENT.wait(rescan_delay_minutes * 60)
 
