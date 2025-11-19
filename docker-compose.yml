@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    build: ./dashboard
+    image: ghcr.io/your-github-username/transcode-dashboard:latest # Replace with your GitHub username
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -17,7 +17,7 @@ services:
 
   # The transcoding worker service
   worker:
-    build: ./worker
+    image: ghcr.io/your-github-username/transcode-worker:latest # Replace with your GitHub username
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       - db
@@ -43,3 +43,8 @@ services:
 
 volumes:
   postgres_data:
+
+## Important:
+## Before running 'docker-compose up', you must log in to the GitHub Container Registry:
+## docker login ghcr.io -u YOUR-USERNAME -p YOUR-PAT
+## Use a Personal Access Token (PAT) with 'read:packages' scope as the password.

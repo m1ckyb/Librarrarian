@@ -1,8 +1,10 @@
-name: Docker Publish Worker
+name: Publish Worker Docker Image
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "develop" ]
+  release:
+    types: [ created ]
 
 env:
   IMAGE_NAME: transcode-worker
@@ -25,9 +27,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # On a push to the 'develop' branch, tag the image as 'develop'
+            type=raw,value=develop,enable=${{ github.event_name == 'push' }}
+            # On a new release, tag the image with the release version (e.g., v1.0.0) and 'latest'
+            type=ref,event=tag,enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
+
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./worker
           push: true
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

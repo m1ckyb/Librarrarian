@@ -1,11 +1,15 @@
 # This is a basic workflow to help you get started with Actions
 
-name: Docker Publish
+name: Publish Dashboard Docker Image
 
-# This action triggers on every push to the 'main' branch
+# This action triggers on:
+# 1. A push to the 'develop' branch
+# 2. A new release being created
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "develop" ]
+  release:
+    types: [ created ]
 
 env:
   # The name of the Docker image you want to build
@@ -30,11 +34,23 @@ jobs:
           # This uses a special token that GitHub Actions provides automatically
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}
+          tags: |
+            # On a push to the 'develop' branch, tag the image as 'develop'
+            type=raw,value=develop,enable=${{ github.event_name == 'push' }}
+            # On a new release, tag the image with the release version (e.g., v1.0.0) and 'latest'
+            type=ref,event=tag,enable=${{ github.event_name == 'release' }}
+            type=raw,value=latest,enable=${{ github.event_name == 'release' }}
 
       - name: Build and push Docker image
         uses: docker/build-push-action@v5
         with:
           context: ./dashboard
           push: true
-          # This creates a tag like: ghcr.io/your-github-username/transcode-dashboard:latest
-          tags: ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -71,33 +71,70 @@ class DatabaseHandler:
             return None
 
     def init_tables(self):
-        commands = [
-            """
-            CREATE TABLE IF NOT EXISTS active_nodes (
-                hostname VARCHAR(255) PRIMARY KEY,
-                file TEXT,
-                codec VARCHAR(50),
-                percent INTEGER,
-                speed VARCHAR(50),
-                last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                version VARCHAR(50)
-            )
-            """,
-            """
-            CREATE TABLE IF NOT EXISTS failed_files (
-                filename TEXT PRIMARY KEY,
-                reason TEXT,
-                reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                log TEXT
-            )
-            """
-        ]
+        """Creates tables if they don't exist and runs schema migrations for existing tables."""
         conn = self.get_conn()
         if conn:
             with conn.cursor() as cur:
-                for cmd in commands:
-                    cur.execute(cmd)
+                # Create tables if they don't exist
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS active_nodes (
+                        hostname VARCHAR(255) PRIMARY KEY,
+                        file TEXT,
+                        codec VARCHAR(50),
+                        percent INTEGER,
+                        speed VARCHAR(50),
+                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS failed_files (
+                        filename TEXT PRIMARY KEY,
+                        reason TEXT,
+                        reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                # --- Schema Migrations ---
+                # Add 'version' column to 'active_nodes' if it doesn't exist
+                cur.execute("""
+                    DO $$
+                    BEGIN
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='active_nodes' AND column_name='version') THEN
+                            ALTER TABLE active_nodes ADD COLUMN version VARCHAR(50);
+                        END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='failed_files' AND column_name='log') THEN
+                            ALTER TABLE failed_files ADD COLUMN log TEXT;
+                        END IF;
+                    END;
+                    $$
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS encoded_files (
+                        id SERIAL PRIMARY KEY,
+                        filename TEXT,
+                        hostname VARCHAR(255),
+                        codec VARCHAR(50),
+                        original_size BIGINT,
+                        new_size BIGINT,
+                        encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
             conn.close()
+
+    def report_success(self, filename, hostname, codec, original_size, new_size):
+        """Logs a successfully encoded file to the database."""
+        sql = """
+        INSERT INTO encoded_files (filename, hostname, codec, original_size, new_size)
+        VALUES (%s, %s, %s, %s, %s)
+        """
+        conn = self.get_conn()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (filename, hostname, codec, original_size, new_size))
+            finally:
+                conn.close()
 
     def update_heartbeat(self, filename, codec, percent, speed, version):
         sql = """
@@ -240,18 +277,29 @@ def detect_hardware_settings(args):
 def get_media_info(filepath):
     cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", str(filepath)]
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True)
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
-        video = next((s for s in data.get('streams', []) if s['codec_type'] == 'video'), None)
-        if not video: return None
+        
+        # Find all video streams
+        video_streams = [s for s in data.get('streams', []) if s['codec_type'] == 'video']
+        if not video_streams:
+            return None
+
+        # Select the stream with the largest resolution (width * height)
+        # This handles cases with embedded low-res album art.
+        main_video_stream = max(video_streams, key=lambda s: s.get('width', 0) * s.get('height', 0))
+
         return {
-            'codec': video.get('codec_name'),
-            'width': int(video.get('width', 0)),
-            'height': int(video.get('height', 0)),
+            'codec': main_video_stream.get('codec_name'),
+            'width': int(main_video_stream.get('width', 0)),
+            'height': int(main_video_stream.get('height', 0)),
             'duration': float(data['format'].get('duration', 0)),
-            'size': int(data['format'].get('size', 0))
+            'size': int(data['format'].get('size', 0)),
+            'stream_index': main_video_stream.get('index')
         }
-    except: return None
+    except (subprocess.CalledProcessError, json.JSONDecodeError, StopIteration):
+        # Handle cases where ffprobe fails or file is not valid media
+        return None
 
 def run_with_progress(cmd, total_duration, db, filename, hw_settings):
     process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, encoding='utf-8', errors='replace', env=os.environ)
@@ -288,7 +336,7 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
                 err_log = [] 
 
                 if time.time() - last_update > 2:
-                    db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed)
+                    db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION)
                     last_update = time.time()
 
         remainder = process.stderr.read()
@@ -317,148 +365,196 @@ def worker_loop(root, args, hw_settings, db):
         print(f"DEBUG: Starting Worker. HW: {hw_settings['codec']}")
         print(f"DEBUG: Min Size: {min_bytes / 1024**3:.2f} GB")
 
-    iterator = os.walk(root) if args.recursive else [(str(root), [], os.listdir(root))]
-    
-    global_failures = db.get_failed_files()
+    # --- Main Watcher Loop ---
+    while not STOP_EVENT.is_set():
+        files_processed_this_scan = 0
+        
+        # Get a fresh list of failed files for each scan
+        global_failures = db.get_failed_files()
+        
+        # Get a fresh iterator for each scan
+        iterator = os.walk(root) if args.recursive else [(str(root), [], os.listdir(root))]
 
-    for dirpath, _, filenames in iterator:
-        dir_path = Path(dirpath)
-        for fname in filenames:
-            if STOP_EVENT.is_set(): return
-            fpath = dir_path / fname
-            
-            # --- Filtering Checks ---
-            if fpath.suffix.lower() not in CONFIG["EXTENSIONS"]: 
-                if args.debug: print(f"DEBUG: Skip: {fname} (Extension)")
-                continue
-            
-            if fname in global_failures:
-                if args.debug: print(f"DEBUG: Skip: {fname} (Global Fail)")
-                continue
-
-            lock_file = fpath.with_suffix('.lock')
-            if lock_file.exists(): 
-                if args.debug: print(f"DEBUG: Skip: {fname} (Locked)")
-                continue 
+        for dirpath, _, filenames in iterator:
+            if STOP_EVENT.is_set(): break
+            dir_path = Path(dirpath)
+            for fname in filenames:
+                if STOP_EVENT.is_set(): break
+                fpath = dir_path / fname
                 
-            if (dir_path / "encoded.list").exists():
-                try:
-                    if fname in (dir_path / "encoded.list").read_text().splitlines():
-                        if args.debug: print(f"DEBUG: Skip: {fname} (Local History)")
-                        continue
-                except: pass
-                    
-            if fpath.stat().st_size < min_bytes: 
-                if args.debug: print(f"DEBUG: Skip: {fname} (Too Small)")
-                continue
-            # --- End Filtering Checks ---
-
-            try:
-                # Attempt to lock (claim file)
-                with open(lock_file, 'w') as f: f.write(HOSTNAME)
-            except: 
-                # Failed to lock (e.g., permissions issue)
-                continue
-            
-            if args.debug: print(f"DEBUG: Lock Acquired: {fname}")
-
-            try:
-                info = get_media_info(fpath)
-                should_skip = False
-                if not info: 
-                    if args.debug: print(f"DEBUG: Skip: {fname} (FFprobe failed)")
-                    should_skip = True
-                elif info['codec'] == 'hevc' and not args.allow_hevc: 
-                    if args.debug: print(f"DEBUG: Skip: {fname} (HEVC codec, not allowed)")
-                    should_skip = True
-                elif info['codec'] == 'av1' and not args.allow_av1: 
-                    if args.debug: print(f"DEBUG: Skip: {fname} (AV1 codec, not allowed)")
-                    should_skip = True
-
-                if should_skip:
-                    lock_file.unlink()
+                # --- Filtering Checks ---
+                if fpath.suffix.lower() not in CONFIG["EXTENSIONS"]: 
+                    if args.debug: print(f"DEBUG: Skip: {fname} (Extension)")
+                    continue
+                
+                if fname in global_failures:
+                    if args.debug: print(f"DEBUG: Skip: {fname} (Global Fail)")
                     continue
 
-                print(f"\n✅ [Accepted] {fname}")
-                if args.debug: print(f"DEBUG: Processing: {fname}")
-
-                cq = get_cq_value(info['width'], hw_settings['type'])
-                temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
-                
-                cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
-                cmd.extend(hw_settings["hw_pre_args"])
-                cmd.extend(['-i', str(fpath)])
-                cmd.extend(['-map', '0:v', '-map', '0:a?', '-map', '0:s?'])
-                cmd.extend(['-c:v', hw_settings["codec"]])
-                if hw_settings["preset"]: cmd.extend(['-preset', hw_settings["preset"]])
-                cmd.extend([hw_settings["cq_flag"], str(cq)] + hw_settings["extra"])
-                cmd.extend(['-c:a', 'aac', '-b:a', '256k'])
-                cmd.extend(['-c:s', 'copy', str(temp_out)])
-
-                # Start FFmpeg subprocess
-                ret, err_log = run_with_progress(cmd, info['duration'], db, fname, hw_settings)
-
-                # --- Naming Logic ---
-                hw_tag = 'NVENC' if hw_settings['type'] == 'nvidia' else 'VAAPI'
-                new_filename_base = f"{fpath.stem}.{hw_tag}.mkv"
-
-
-                # --- Post-Processing ---
-                if ret == 0:
-                    if temp_out.exists() and temp_out.stat().st_size < info['size']:
-                        if args.debug: print(f"DEBUG: Encode Success, Finalizing {fname}")
+                lock_file = fpath.with_suffix('.lock')
+                if lock_file.exists(): 
+                    if args.debug: print(f"DEBUG: Skip: {fname} (Locked)")
+                    continue 
+                    
+                if (dir_path / "encoded.list").exists():
+                    try:
+                        if fname in (dir_path / "encoded.list").read_text().splitlines():
+                            if args.debug: print(f"DEBUG: Skip: {fname} (Local History)")
+                            continue
+                    except: pass
                         
-                        if args.keep_original:
-                            # Save to encoded/Subdir with TAGGED name
-                            encoded_dir = dir_path / "encoded"
-                            encoded_dir.mkdir(exist_ok=True)
-                            new_name = encoded_dir / new_filename_base
-                            shutil.move(temp_out, new_name)
+                if fpath.stat().st_size < min_bytes: 
+                    if args.debug: print(f"DEBUG: Skip: {fname} (Too Small)")
+                    continue
+                # --- End Filtering Checks ---
+
+                try:
+                    # Attempt to lock (claim file)
+                    with open(lock_file, 'w') as f: f.write(HOSTNAME)
+                except: 
+                    # Failed to lock (e.g., permissions issue)
+                    continue
+                
+                if args.debug: print(f"DEBUG: Lock Acquired: {fname}")
+                files_processed_this_scan += 1
+
+                try:
+                    info = get_media_info(fpath)
+                    should_skip = False
+                    if not info: 
+                        if args.debug: print(f"DEBUG: Skip: {fname} (FFprobe failed)")
+                        should_skip = True
+                    elif info['codec'] == 'hevc' and not args.allow_hevc: 
+                        if args.debug: print(f"DEBUG: Skip: {fname} (HEVC codec, not allowed)")
+                        should_skip = True
+                    elif info['codec'] == 'av1' and not args.allow_av1: 
+                        if args.debug: print(f"DEBUG: Skip: {fname} (AV1 codec, not allowed)")
+                        should_skip = True
+
+                    if should_skip:
+                        lock_file.unlink()
+                        continue
+
+                    print(f"\n✅ [Accepted] {fname}")
+                    if args.debug: print(f"DEBUG: Processing: {fname}")
+
+                    cq = get_cq_value(info['width'], hw_settings['type'])
+                    temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
+                    
+                    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
+                    cmd.extend(hw_settings["hw_pre_args"])
+                    cmd.extend(['-i', str(fpath)])
+                    cmd.extend(['-map', f"0:{info['stream_index']}", '-map', '0:a?', '-map', '0:s?'])
+                    cmd.extend(['-c:v', hw_settings["codec"]])
+                    if hw_settings["preset"]: cmd.extend(['-preset', hw_settings["preset"]])
+                    cmd.extend([hw_settings["cq_flag"], str(cq)] + hw_settings["extra"])
+                    cmd.extend(['-c:a', 'aac', '-b:a', '256k'])
+                    cmd.extend(['-c:s', 'copy', str(temp_out)])
+
+                    # Start FFmpeg subprocess
+                    ret, err_log = run_with_progress(cmd, info['duration'], db, fname, hw_settings)
+
+                    # --- Naming Logic ---
+                    hw_tag = 'NVENC' if hw_settings['type'] == 'nvidia' else 'VAAPI'
+                    new_filename_base = f"{fpath.stem}.{hw_tag}.mkv"
+
+
+                    # --- Post-Processing ---
+                    if ret == 0:
+                        if temp_out.exists() and temp_out.stat().st_size < info['size']:                        
+                            finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args, HOSTNAME, hw_settings['codec'])
+                            with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
+                            db.clear_node() 
+                            print("\n✅ Finished.")
+
                         else:
-                            # Backup original file before overwriting
-                            if args.backup:
-                                backup_path = Path(args.backup)
-                                backup_path.mkdir(parents=True, exist_ok=True)
-                                shutil.copy2(fpath, backup_path / fpath.name)
-                            
-                            # Overwrite/Replace the original file path with the TAGGED name
-                            target_tagged_mkv = fpath.parent / new_filename_base
-                            shutil.move(temp_out, target_tagged_mkv)
-                            
-                            # Delete the untagged original file
-                            if fpath.suffix != target_tagged_mkv.suffix or fpath.name != target_tagged_mkv.name: 
-                                fpath.unlink()
-                            
-                        with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
-                        db.clear_node() 
-                        print("\n✅ Finished.")
+                            if args.debug: print(f"DEBUG: Discarded: {fname} (Too Large or Missing Output)")
+                            if temp_out.exists(): temp_out.unlink()
+                            with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
+                            print("\n⚠️ Larger or missing output, discarded.")
 
                     else:
-                        if args.debug: print(f"DEBUG: Discarded: {fname} (Too Large or Missing Output)")
-                        if temp_out.exists(): temp_out.unlink()
-                        with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
-                        print("\n⚠️ Larger or missing output, discarded.")
+                        # --- Fallback and Crash Reporting ---
+                        if "minimum supported value" in err_log and hw_settings['type'] != 'cpu':
+                            print(f"\n⚠️  HW encode failed for low resolution. Falling back to CPU for {fname}...")
+                            cpu_hw_settings = get_hw_config("cpu")
+                            cpu_cq = get_cq_value(info['width'], cpu_hw_settings['type'])
+                            
+                            cmd[cmd.index(hw_settings['codec'])] = cpu_hw_settings['codec']
+                            cmd[cmd.index(str(cq))] = str(cpu_cq)
+                            
+                            ret, err_log = run_with_progress(cmd, info['duration'], db, fname, cpu_hw_settings, VERSION)
 
-                else:
-                    # --- CRASH REPORTING (Saves local log + reports to DB) ---
-                    reason = f"FFmpeg exited with code {ret}"
-                    if temp_out.exists(): temp_out.unlink()
-                    db.report_failure(fname, reason=reason, log=err_log)
-                    global_failures.add(fname)
-
-                    print(f"\n❌ CRASH REPORT FOR {fname}: {reason}. Log saved to database.")
-                    print("-" * 40)
-                    if args.debug: print(f"DEBUG: FFmpeg Failed: {fname} (Code {ret}). LOG SAVED.")
+                            if ret == 0 and temp_out.exists() and temp_out.stat().st_size < info['size']:
+                                finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args, HOSTNAME, cpu_hw_settings['codec'])
+                                print("\n✅ Finished (CPU Fallback).")
+                            else:
+                                report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
+                        else:
+                            report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
 
 
-            except Exception as e:
-                print(f"Fatal Error on {fname}: {e}")
-            finally:
-                if lock_file.exists(): lock_file.unlink()
-                if args.debug: print(f"DEBUG: Lock Released: {fname}")
-    
-    print("\n🏁 Queue finished.")
+                except Exception as e:
+                    print(f"Fatal Error on {fname}: {e}")
+                finally:
+                    if lock_file.exists(): lock_file.unlink()
+                    if args.debug: print(f"DEBUG: Lock Released: {fname}")
+        
+        if STOP_EVENT.is_set():
+            break
+
+        # If no files were processed in this full scan, wait before the next one.
+        if files_processed_this_scan == 0:
+            print(f"\n🏁 Scan complete. Watching for new files... (Next scan in 60s)")
+            STOP_EVENT.wait(60) # Wait for 60 seconds or until STOP_EVENT is set
+        else:
+            print("\n🏁 Scan complete. Re-scanning immediately for more files...")
+
+    print("\nWatcher stopped.")
     db.clear_node() 
+
+def finalize_file(db, original_path, temp_path, new_filename_base, original_size, args, hostname, codec):
+    """Handles file operations for a successful transcode."""
+    if args.debug: print(f"DEBUG: Encode Success, Finalizing {original_path.name}")
+    
+    if args.keep_original:
+        # Log success before moving the file
+        db.report_success(original_path.name, hostname, codec, original_size, temp_path.stat().st_size)
+
+        encoded_dir = original_path.parent / "encoded"
+        encoded_dir.mkdir(exist_ok=True)
+        new_name = encoded_dir / new_filename_base
+        shutil.move(temp_path, new_name)
+    else:
+        if args.backup:
+            backup_path = Path(args.backup)
+            backup_path.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(original_path, backup_path / original_path.name)
+        
+        # Log success before moving the file
+        db.report_success(original_path.name, hostname, codec, original_size, temp_path.stat().st_size)
+
+        target_tagged_mkv = original_path.parent / new_filename_base
+        shutil.move(temp_path, target_tagged_mkv)
+        
+        if original_path.suffix != target_tagged_mkv.suffix or original_path.name != target_tagged_mkv.name: 
+            original_path.unlink()
+
+def report_and_log_failure(filename, exit_code, log, db, failure_set, temp_file):
+    """Consolidates failure reporting and logging."""
+    if temp_file.exists():
+        try:
+            temp_file.unlink()
+        except OSError:
+            pass
+            
+    reason = f"FFmpeg exited with code {exit_code}"
+    db.report_failure(filename, reason=reason, log=log)
+    failure_set.add(filename)
+
+    print(f"\n❌ CRASH REPORT FOR {filename}: {reason}. Log saved to database.")
+    print("-" * 40)
+
 
 def check_for_updates():
     """Checks GitHub for a newer version of the script and prompts to update."""
