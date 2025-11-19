@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.5.0] - 2025-11-19 - Into the Darkness
+
+### Added
+- **UI Theme Switcher**: Implemented a full-featured theme switcher in the dashboard with support for Light, Dark, and System-default modes. The user's preference is saved in local storage.
+
+### Changed
+- **Footer Layout**: The dashboard footer was redesigned with a split layout, placing the version on the left and the project link on the right.
+- **Template Inheritance**: Refactored the dashboard's frontend by creating a `base.html` template to centralize the page structure, theme logic, and footer, simplifying `index.html`.
+
+
 ## [0.4.2] - 2025-11-19
 
 ### Changed

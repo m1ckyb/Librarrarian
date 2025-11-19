@@ -101,7 +101,16 @@ This version addressed key usability and deployment flexibility issues.
 - **Dashboard Layout Fix**: Fixed a UI bug where the "glassy" fixed footer would overlap and obscure the "View Errors" button. Padding was added to the main body of the page to ensure all content remains accessible.
 
 
-## 12. CI/CD Enhancements & Branching Strategy
+## 12. Version 0.5.0 - Into the Darkness: UI Theming and Layout
+
+This version introduced a major user experience enhancement with a full theming system and significant frontend code refactoring.
+
+- **UI Theme Switcher**: A theme switcher was added to the dashboard, allowing users to select between Light, Dark, and a System-default mode. The chosen theme is persisted in the browser's local storage.
+- **Improved Footer Layout**: The footer was redesigned with a split layout, placing the version information on the bottom-left and the link to the GitHub project on the bottom-right.
+- **Template Refactoring**: The frontend code was made more maintainable by introducing a `base.html` template. This base template now holds the common page structure, the new theme-switching logic, and the footer, while `index.html` extends it to render the main content.
+
+
+## 13. CI/CD Enhancements & Branching Strategy
 
 - **Branching Model**: Implemented a Git branching model using `main` for production-ready code and `develop` for ongoing development.
 - **Development Workflow**:

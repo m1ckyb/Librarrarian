@@ -1,155 +1,158 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <title>Cluster Transcode Dashboard</title>
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
-  <style>
+    <meta charset="utf-8">
+    <title>Cluster Transcode Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css">
+    <style>
         html, body {
             font-family: monospace;
             /* Define CSS variables for theming */
-            --bg-color: #f0f4f8;
-            --text-color: #212529;
-            --nav-bg: linear-gradient(to right, #1f1f70, #3f3fbf);
-            --nav-text-color: white;
-            --section-bg-color: #eef2f7;
-            --section-border-color: #ccc;
-            --primary-color: #1f1f70;
-            --card-bg-color: #fff;
-            --table-border-color: #ddd;
-            --table-header-bg: #f9f9f9;
-            --lagging-color: #6c757d;
-            --progress-bar-bg: #e9ecef;
+            --bs-body-bg: #f0f4f8;
+            --bs-body-color: #212529;
+            --bs-dark-rgb: 33, 37, 41;
+            --bs-light-rgb: 248, 249, 250;
+            --footer-bg: rgba(248, 249, 250, 0.75);
+            --footer-text: #6c757d;
+            --footer-link: #212529;
+            --footer-border: rgba(0, 0, 0, 0.1);
         }
 
         /* Dark mode overrides */
-        html.dark-mode, body.dark-mode {
-            --bg-color: #121212;
-            --text-color: #e0e0e0;
-            --nav-bg: linear-gradient(to right, #1a1a1a, #2c2c2c);
-            --section-bg-color: #1e1e1e;
-            --section-border-color: #444;
-            --primary-color: #bb86fc;
-            --card-bg-color: #1e1e1e;
-            --table-border-color: #444;
-            --table-header-bg: #2a2a2a;
-            --lagging-color: #888;
-            --progress-bar-bg: #333;
+        html[data-bs-theme="dark"] {
+            --bs-body-bg: #121212;
+            --bs-body-color: #e0e0e0;
+            --footer-bg: rgba(33, 37, 41, 0.75);
+            --footer-text: #adb5bd;
+            --footer-link: #e0e0e0;
+            --footer-border: rgba(255, 255, 255, 0.1);
         }
 
         html, body {
             margin: 0;
             padding: 0;
-            height: 100%;
-            background: var(--bg-color);
-            color: var(--text-color);
+            background: var(--bs-body-bg);
+            color: var(--bs-body-color);
             transition: background-color 0.3s, color 0.3s;
         }
 
         body {
-            display: flex;
-            flex-direction: column;
-            min-height: 100vh;
+            padding-bottom: 70px; /* Space for the footer */
         }
 
-        h1, h2, h3 {
-            color: var(--primary-color);
+        .footer {
+            position: fixed;
+            bottom: 0;
+            width: 100%;
+            background-color: var(--footer-bg);
+            backdrop-filter: blur(10px);
+            -webkit-backdrop-filter: blur(10px);
+            border-top: 1px solid var(--footer-border);
+            color: var(--footer-text);
         }
 
-        /* Navigation bar */
-        nav {
-            background: var(--nav-bg);
-            color: var(--nav-text-color);
-            padding: 12px 20px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        .footer a {
+            color: var(--footer-link);
+            text-decoration: none;
         }
-        nav .app-name { font-weight: bold; font-size: 1.2em; }
-        nav a { color: white; text-decoration: none; font-weight: bold; }
-        nav a:hover { text-decoration: underline; }
 
-        /* Main content container */
-        .content-container {
-            max-width: 1400px;
-            width: 95%;
-            margin: 30px auto;
-            padding: 25px;
-            background-color: var(--card-bg-color);
-            border: 1px solid var(--section-border-color);
-            border-radius: 8px;
-            box-shadow: 0 4px 8px rgba(0,0,0,0.08);
-            flex: 1;
+        .footer a:hover {
+            text-decoration: underline;
         }
-  </style>
-  {% block head %}{% endblock %}
+    </style>
+    {% block head %}{% endblock %}
 </head>
 <body>
-  <nav>
-    <div class="app-name"><a href="/"><span class="mdi mdi-server-network"></span> Cluster Dashboard</a></div>
-    <div>
-      <button id="theme-toggle" title="Change Theme" style="margin-left: 5px; background: none; border: none; color: white; cursor: pointer; padding: 0 8px; font-size: 24px; vertical-align: middle;">
-          <span class="mdi mdi-brightness-6"></span>
-      </button>
+    <div class="container mt-4">
+        <div class="d-flex justify-content-between align-items-center">
+            <h1>Transcode Cluster</h1>
+            <div>
+                <span class="badge text-bg-secondary fs-6">
+                    Updated: <span id="last-updated">...</span>
+                </span>
+                <button id="theme-toggle" title="Change Theme" class="btn btn-outline-secondary ms-2">
+                    <span class="mdi mdi-brightness-6"></span>
+                </button>
+            </div>
+        </div>
+        {% block content %}{% endblock %}
     </div>
-  </nav>
 
-  <div class="content-container">
-    {% block content %}{% endblock %}
-  </div>
+    <!-- Footer -->
+    <footer class="footer py-3">
+        <div class="container d-flex justify-content-between align-items-center">
+            <span>Web Dashboard v0.5.0</span>
+            <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
+        </div>
+    </footer>
 
 <script>
-    const themeToggle = document.getElementById('theme-toggle');
-    const themes = ['light', 'dark', 'system'];
-    const icons = ['mdi-brightness-5', 'mdi-brightness-3', 'mdi-brightness-auto'];
-    let currentThemeIndex = 0;
+    (() => {
+        'use strict'
 
-    function applyTheme(theme) {
-        if (theme === 'dark') {
-            document.documentElement.classList.add('dark-mode');
-        } else {
-            document.documentElement.classList.remove('dark-mode');
+        const getStoredTheme = () => localStorage.getItem('theme')
+        const setStoredTheme = theme => localStorage.setItem('theme', theme)
+
+        const getPreferredTheme = () => {
+            const storedTheme = getStoredTheme()
+            if (storedTheme) {
+                return storedTheme
+            }
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
         }
-    }
 
-    function handleSystemTheme() {
-        const systemPrefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        applyTheme(systemPrefersDark ? 'dark' : 'light');
-    }
-
-    function setInitialTheme() {
-        const savedTheme = localStorage.getItem('theme') || 'system';
-        currentThemeIndex = themes.indexOf(savedTheme);
-        
-        if (savedTheme === 'system') {
-            handleSystemTheme();
-        } else {
-            applyTheme(savedTheme);
+        const setTheme = theme => {
+            if (theme === 'auto' && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+                document.documentElement.setAttribute('data-bs-theme', 'dark')
+            } else {
+                document.documentElement.setAttribute('data-bs-theme', theme)
+            }
         }
-        themeToggle.title = `Theme: ${savedTheme.charAt(0).toUpperCase() + savedTheme.slice(1)}`;
-        themeToggle.querySelector('span').className = `mdi ${icons[currentThemeIndex]}`;
-    }
 
-    themeToggle.addEventListener('click', () => {
-        currentThemeIndex = (currentThemeIndex + 1) % themes.length;
-        const newTheme = themes[currentThemeIndex];
-        localStorage.setItem('theme', newTheme);
+        setTheme(getPreferredTheme())
 
-        if (newTheme === 'system') {
-            handleSystemTheme();
-        } else {
-            applyTheme(newTheme);
+        const showActiveTheme = (theme, focus = false) => {
+            const themeSwitcher = document.querySelector('#theme-toggle')
+            if (!themeSwitcher) {
+                return
+            }
+            const themeSwitcherIcon = themeSwitcher.querySelector('span.mdi')
+            const activeThemeIcon = {
+                'light': 'mdi-brightness-5',
+                'dark': 'mdi-brightness-3',
+                'auto': 'mdi-brightness-auto'
+            }[theme]
+
+            themeSwitcherIcon.className = `mdi ${activeThemeIcon}`;
+            themeSwitcher.setAttribute('title', `Theme: ${theme}`);
         }
-        themeToggle.title = `Theme: ${newTheme.charAt(0).toUpperCase() + newTheme.slice(1)}`;
-        themeToggle.querySelector('span').className = `mdi ${icons[currentThemeIndex]}`;
-    });
 
-    // Listen for changes in OS theme preference
-    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', handleSystemTheme);
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+            const storedTheme = getStoredTheme()
+            if (storedTheme !== 'light' && storedTheme !== 'dark') {
+                setTheme(getPreferredTheme())
+            }
+        })
 
-    // Set the initial theme on page load
-    setInitialTheme();
+        window.addEventListener('DOMContentLoaded', () => {
+            showActiveTheme(getPreferredTheme())
+
+            const themeToggle = document.querySelector('#theme-toggle');
+            if (themeToggle) {
+                themeToggle.addEventListener('click', () => {
+                    const themes = ['light', 'dark', 'auto']; // 'auto' for system
+                    const currentTheme = getStoredTheme() || 'auto';
+                    const nextThemeIndex = (themes.indexOf(currentTheme) + 1) % themes.length;
+                    const newTheme = themes[nextThemeIndex];
+                    
+                    setStoredTheme(newTheme)
+                    setTheme(newTheme)
+                    showActiveTheme(newTheme, true)
+                })
+            }
+        })
+    })()
 </script>
+{% block scripts %}{% endblock %}
 </body>
 </html>
