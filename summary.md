@@ -84,7 +84,16 @@ This version focused on improving the usability and information density of the w
 - **Application Footer**: Added a footer to the dashboard containing the web UI version and a link to the project's GitHub repository.
 
 
-## 10. CI/CD Enhancements & Branching Strategy
+## 10. Version 0.4.1 - Centralized Versioning & UI Polish
+
+This version focused on improving project maintainability and refining the user interface.
+
+- **Centralized Versioning**: To prevent version discrepancies between components, a single `VERSION.txt` file was created at the project root. The worker script (`transcode.py`) was updated to read its version from this file, ensuring consistency.
+- **UI Polish**: The dashboard footer was enhanced with CSS to be fixed at the bottom of the viewport, using a semi-transparent background and a blur effect to create a modern "glassy" look.
+- **Conditional UI Elements**: The dashboard was made smarter by hiding the "Clear Errors" button when the error count is zero, decluttering the interface.
+
+
+## 11. CI/CD Enhancements & Branching Strategy
 
 - **Branching Model**: Implemented a Git branching model using `main` for production-ready code and `develop` for ongoing development.
 - **Development Workflow**:

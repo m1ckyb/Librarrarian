@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.1] - 2025-11-19
+
+### Added
+- **Centralized Versioning**: Created a single `VERSION.txt` file at the project root to act as the single source of truth for versioning across all components.
+- **UI Polish**: The dashboard footer is now fixed to the bottom of the page with a semi-transparent "glassy" effect.
+- **Conditional UI**: The "Clear Errors" button on the dashboard is now hidden if there are no errors to clear.
+
+
 ## [0.4.0] - 2025-11-19
 
 ### Added
