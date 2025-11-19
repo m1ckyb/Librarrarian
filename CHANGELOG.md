@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.0] - 2025-11-19 - The Boring & Broken Update
+
+### Fixed
+- **Worker Rescan Delay**: Corrected a critical bug where the worker would ignore the user-defined rescan delay and default to a 60-second wait. The delay now works as intended.
+- **Dashboard Layouts**: Fixed numerous UI layout and rendering bugs across the dashboard.
+  - Corrected the active node card display, which was broken due to a copy-paste error.
+  - Moved the "Updated" timestamp and theme switcher to the footer to create a consistent header and prevent layout shifting on all pages.
+- **Worker Self-Update**: The worker's self-update check now correctly points to the `develop` branch, resolving "404 Not Found" errors.
+- **Dashboard Stability**: Added a `secret_key` to the Flask application, resolving crashes related to session management when saving options.
+- **Dashboard Robustness**: The options page is now resilient and will no longer crash if the worker has not yet populated the settings in the database.
+
 ## [0.6.0] - 2025-11-19 - Command & Control
 
 ### Added

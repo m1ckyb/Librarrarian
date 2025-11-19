@@ -43,10 +43,6 @@
                                 <span class="badge bg-info">{{ node.version }}</span>
                             </div>
                             <div class="card-body">
-                                <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">{{ node.file }}</p>
-                                <div class="progress" role="progressbar">
-                                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-{{ node.color }}" style="width: {{ node.percent }}%">
-                                        <b>{{ node.percent }}%</b>
                                 {% if node.percent > 0 %}
                                     <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">{{ node.file }}</p>
                                     <div class="progress" role="progressbar">
@@ -54,7 +50,6 @@
                                             <b>{{ node.percent }}%</b>
                                         </div>
                                     </div>
-                                </div>
                                 {% else %}
                                     <div class="text-center p-3">
                                         <h5 class="card-title text-muted">{{ node.file }}</h5>
@@ -62,9 +57,6 @@
                                 {% endif %}
                             </div>
                             <div class="card-footer text-end bg-transparent">
-                                <span class="badge text-bg-secondary me-2">FPS: {{ node.fps }}</span>
-                                <span class="badge text-bg-secondary me-2">Speed: {{ node.speed }}x</span>
-                                <span class="badge text-bg-{{ node.color }}">Codec: {{ node.codec }}</span>
                                 {% if node.percent > 0 %}
                                     <span class="badge text-bg-secondary me-2">FPS: {{ node.fps }}</span>
                                     <span class="badge text-bg-secondary me-2">Speed: {{ node.speed }}x</span>
@@ -150,10 +142,6 @@
                     <span class="badge bg-info">${node.version || 'N/A'}</span>
                 </div>
                 <div class="card-body">
-                    <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.file || 'N/A'}</p>
-                    <div class="progress" role="progressbar">
-                        <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-${node.color}" style="width: ${node.percent}%">
-                            <b>${node.percent}%</b>
                     ${node.percent > 0 ? `
                         <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.file || 'N/A'}</p>
                         <div class="progress" role="progressbar">
@@ -161,7 +149,6 @@
                                 <b>${node.percent}%</b>
                             </div>
                         </div>
-                    </div>
                     ` : `
                         <div class="text-center p-3">
                             <h5 class="card-title text-muted">${node.file}</h5>
@@ -169,9 +156,6 @@
                     `}
                 </div>
                 <div class="card-footer text-end bg-transparent">
-                    <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
-                    <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
-                    <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
                     ${node.percent > 0 ? `
                         <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
                         <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>

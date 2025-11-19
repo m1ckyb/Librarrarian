@@ -122,7 +122,19 @@ This version introduced a powerful configuration system, allowing for dynamic co
 - **Dynamic Worker Logic**: The core worker loop was updated to fetch the latest settings from the database at the beginning of each full scan, allowing for real-time changes to the cluster's behavior without restarting any services.
 
 
-## 14. CI/CD Enhancements & Branching Strategy
+## 14. Version 0.7.0 (Alpha) - The Boring & Broken Update
+
+This release was primarily focused on fixing a cascade of bugs related to the previous feature releases, improving the stability and usability of both the worker and the dashboard.
+
+- **Critical Bug Fixes**:
+  - **Worker Rescan Delay**: Resolved a major bug where the worker would ignore the rescan delay set in the options and always default to a 60-second wait.
+  - **Worker Self-Update**: The update check URL was corrected to point to the `develop` branch, fixing "404 Not Found" errors.
+- **Dashboard Stability and Layout Fixes**:
+  - **Session Crash**: Added a `secret_key` to the Flask application to prevent it from crashing when saving settings on the options page.
+  - **Layout Correction**: Fixed numerous UI bugs, including the broken layout of active node cards and inconsistent headers, by moving the "Updated" timestamp and theme switcher into a globally consistent footer.
+  - **Robustness**: The options page was improved to handle cases where the database settings have not yet been initialized by a worker, preventing it from crashing on a fresh deployment.
+
+## 15. CI/CD Enhancements & Branching Strategy
 
 - **Branching Model**: Implemented a Git branching model using `main` for production-ready code and `develop` for ongoing development.
 - **Development Workflow**:
