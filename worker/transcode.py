@@ -46,7 +46,7 @@ STOP_EVENT = threading.Event()
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
-    "password": os.environ.get("DB_PASSWORD"),
+    "password": os.environ.get("DB_PASSWORD", "password"),
     "dbname": os.environ.get("DB_NAME", "transcode_cluster")
 }
 
@@ -415,6 +415,9 @@ def worker_loop(root, args, hw_settings, db):
         worker_settings = db.get_worker_settings()
         rescan_delay_minutes = int(worker_settings.get('rescan_delay_minutes', 0))
         skip_encoded_folder = worker_settings.get('skip_encoded_folder', 'true').lower() == 'true'
+
+        # Report that the node is starting a scan
+        db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION)
         
         # Get a fresh list of failed files for each scan
         global_failures = db.get_failed_files()
@@ -556,6 +559,8 @@ def worker_loop(root, args, hw_settings, db):
 
         # If no files were processed in this full scan, wait before the next one.
         if files_processed_this_scan == 0:
+            # Report idle status before waiting
+            db.update_heartbeat("Idle", "N/A", 0, "0", VERSION)
             print(f"\n🏁 Scan complete. Watching for new files... (Next scan in 60s)")
             STOP_EVENT.wait(60) # Wait for 60 seconds or until STOP_EVENT is set
         else:
