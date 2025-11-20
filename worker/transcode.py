@@ -332,9 +332,16 @@ def detect_hardware_settings(accel_mode):
     # --- Check 1: NVIDIA (Priority) ---
     # This is the most reliable check for Linux, Docker, and WSL with NVIDIA drivers.
     # It checks if ffmpeg was compiled with CUDA support and can see the nvenc encoder.
+    # We also check for `nvidia-smi` to confirm that hardware is actually present.
     if "cuda" in hw_out and "hevc_nvenc" in enc_out:
-        print("✅ Found NVIDIA")
-        return get_hw_config("nvidia")
+        try:
+            # The presence of nvidia-smi is a strong indicator of an actual NVIDIA GPU.
+            subprocess.check_output(["which", "nvidia-smi"], stderr=subprocess.STDOUT)
+            print("✅ Found NVIDIA")
+            return get_hw_config("nvidia")
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            # nvidia-smi not found, so it's not a real NVIDIA system.
+            pass
 
     # --- Check 2: VAAPI (Intel/AMD on Linux) ---
     if "vaapi" in hw_out and "hevc_vaapi" in enc_out and sys.platform.startswith('linux'):
