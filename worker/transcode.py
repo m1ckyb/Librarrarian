@@ -671,27 +671,18 @@ def worker_loop(root, db, cli_args):
                     # After each file, check if a stop command has been issued.
                     if db.get_node_command(HOSTNAME) == 'idle':
                         # This is the key fix: We use a flag to break out of the inner loops
-                        # and then 'continue' the main loop to return to idle.
                         stop_command_received = True
                         break # Exit the file loop (for fname in filenames)
 
                     if args.debug: print(f"DEBUG: Lock Released: {fname}")
-        
-        # If stop was triggered during the scan, continue to the main loop's next iteration.
-        if 'stop_command_received' in locals() and stop_command_received:
-            continue
+            if 'stop_command_received' in locals() and stop_command_received: break
 
         # Unified wait logic at the end of every scan cycle.
-        db.update_heartbeat("Idle", "N/A", 0, "0", VERSION, status='running')
-        wait_seconds = args.rescan_delay_minutes * 60
+        # If a stop command was received during the scan, skip the wait and go straight back to idle.
+        if 'stop_command_received' in locals() and stop_command_received:
+            if is_debug_mode: print("\nDEBUG: Stop command processed. Forcing return to idle state.")
+            continue
 
-        # If the delay is 0, we still wait a short time to prevent a tight loop that consumes CPU.
-        if wait_seconds <= 0:
-            wait_seconds = 60 # Default to 60 seconds if delay is 0 or less.
-
-        current_time = datetime.now().strftime('%H:%M:%S')
-        print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
-        
         # --- Responsive Wait Loop ---
         # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
         # and check for the stop command in between each chunk.
@@ -707,7 +698,14 @@ def worker_loop(root, db, cli_args):
             
             time.sleep(5)
             time_waited += 5
-        if stop_command_received: continue # Go to the next iteration of the main loop, which starts at idle.
+        if stop_command_received:
+            continue # Go to the next iteration of the main loop, which starts at idle.
+
+        db.update_heartbeat("Idle", "N/A", 0, "0", VERSION, status='running')
+        wait_seconds = args.rescan_delay_minutes * 60
+        if wait_seconds <= 0: wait_seconds = 60
+        current_time = datetime.now().strftime('%H:%M:%S')
+        print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
 
     print("\nWatcher stopped.")
     db.clear_node() 
