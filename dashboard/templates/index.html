@@ -530,11 +530,24 @@
             }
         });
 
-        // Set initial button color on page load
+        // Main update loop that runs every 5 seconds
+        async function mainUpdateLoop() {
+            // Always update the main status (nodes, failures, clock)
+            await updateStatus();
+
+            // Check which tab is active and update its content if needed
+            if (document.querySelector('#stats-tab.active')) {
+                await updateStats();
+            } else if (document.querySelector('#history-tab.active')) {
+                await updateHistory();
+            }
+        }
+
+        // Run initial update on page load
         updateStatus();
 
-        // Run the update function every 5 seconds (5000 milliseconds)
-        setInterval(updateStatus, 5000);
+        // Start the main update loop
+        setInterval(mainUpdateLoop, 5000);
 
         // Update history when the tab is shown
         const historyTab = document.querySelector('#history-tab');
