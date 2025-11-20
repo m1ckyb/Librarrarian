@@ -114,6 +114,7 @@ class DatabaseHandler:
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS encoded_files (
                         id SERIAL PRIMARY KEY,
+                        status VARCHAR(20) DEFAULT 'encoding',
                         filename TEXT,
                         hostname VARCHAR(255),
                         codec VARCHAR(50),
@@ -161,17 +162,30 @@ class DatabaseHandler:
 
             conn.close()
 
-    def report_success(self, filename, hostname, codec, original_size, new_size):
-        """Logs a successfully encoded file to the database."""
+    def report_start(self, filename, hostname, codec, original_size):
+        """Logs the start of an encoding process and returns the new record's ID."""
         sql = """
-        INSERT INTO encoded_files (filename, hostname, codec, original_size, new_size)
-        VALUES (%s, %s, %s, %s, %s)
+        INSERT INTO encoded_files (filename, hostname, codec, original_size, new_size, status)
+        VALUES (%s, %s, %s, %s, 0, 'encoding') RETURNING id
         """
         conn = self.get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (filename, hostname, codec, original_size, new_size))
+                    cur.execute(sql, (filename, hostname, codec, original_size))
+                    return cur.fetchone()[0]
+            finally:
+                conn.close()
+        return None
+
+    def report_finish(self, history_id, new_size):
+        """Updates a history record to 'completed' with the final size."""
+        sql = "UPDATE encoded_files SET new_size = %s, status = 'completed' WHERE id = %s"
+        conn = self.get_conn()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(sql, (new_size, history_id))
             finally:
                 conn.close()
 
@@ -245,6 +259,20 @@ class DatabaseHandler:
             try:
                 with conn.cursor() as cur:
                     cur.execute("SELECT filename FROM failed_files")
+                    for row in cur.fetchall():
+                        files.add(row[0])
+            finally:
+                conn.close()
+        return files
+
+    def get_encoded_files(self):
+        """Gets the set of all successfully encoded filenames from the history."""
+        conn = self.get_conn()
+        files = set()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT filename FROM encoded_files WHERE status = 'completed'")
                     for row in cur.fetchall():
                         files.add(row[0])
             finally:
@@ -550,6 +578,9 @@ def worker_loop(root, db, cli_args):
         
         # Get a fresh list of failed files for each scan
         global_failures = db.get_failed_files()
+
+        # Get a fresh list of already encoded files from the history
+        encoded_history = db.get_encoded_files()
         
         # Get a fresh iterator for each scan
         iterator = os.walk(root) if args.recursive_scan else [(str(root), [], os.listdir(root))]
@@ -579,12 +610,9 @@ def worker_loop(root, db, cli_args):
                     if args.debug: print(f"DEBUG: Skip: {fname} (Locked)")
                     continue 
                     
-                if (dir_path / "encoded.list").exists():
-                    try:
-                        if fname in (dir_path / "encoded.list").read_text().splitlines():
-                            if args.debug: print(f"DEBUG: Skip: {fname} (Local History)")
-                            continue
-                    except: pass
+                if fname in encoded_history:
+                    if args.debug: print(f"DEBUG: Skip: {fname} (Already in DB History)")
+                    continue
 
                 info = get_media_info(fpath)
                 if not info or (info['duration'] / 60) < args.min_length:
@@ -622,6 +650,9 @@ def worker_loop(root, db, cli_args):
                     if args.debug: print(f"DEBUG: Processing: {fname}")
 
                     cq = get_cq_value(info['width'], hw_settings['type'], args)
+                    # Log the start of the transcode to the history table
+                    history_id = db.report_start(fname, HOSTNAME, hw_settings['codec'], info['size'])
+
                     temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
                     
                     cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
@@ -649,15 +680,13 @@ def worker_loop(root, db, cli_args):
                     # --- Post-Processing ---
                     if ret == 0:
                         if temp_out.exists() and temp_out.stat().st_size < info['size']:                        
-                            finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args.keep_original, args.backup_directory, HOSTNAME, hw_settings['codec'])
-                            with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
+                            finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
                             db.clear_node() 
                             print("\n✅ Finished.")
 
                         else:
                             if args.debug: print(f"DEBUG: Discarded: {fname} (Too Large or Missing Output)")
                             if temp_out.exists(): temp_out.unlink()
-                            with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
                             print("\n⚠️ Larger or missing output, discarded.")
 
                     else:
@@ -673,7 +702,7 @@ def worker_loop(root, db, cli_args):
                             ret, err_log = run_with_progress(cmd, info['duration'], db, fname, cpu_hw_settings, VERSION)
 
                             if ret == 0 and temp_out.exists() and temp_out.stat().st_size < info['size']:
-                                finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args.keep_original, args.backup_directory, HOSTNAME, cpu_hw_settings['codec'])
+                                finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
                                 print("\n✅ Finished (CPU Fallback).")
                             else:
                                 report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
@@ -704,12 +733,11 @@ def worker_loop(root, db, cli_args):
             if 'stop_command_received' in locals() and stop_command_received: break
 
         # Unified wait logic at the end of every scan cycle.
-        # If a stop command was received during the scan, skip the wait and go straight back to idle.
+        # If a stop or quit command was received, we must 'continue' to force the main loop
+        # to restart, which will either enter the idle state or exit completely.
         if 'stop_command_received' in locals() and stop_command_received:
-            # This is the critical fix. By using 'continue', we force the main loop
-            # to restart. The first thing in the main loop is the idle state,
-            # which is exactly where we want the worker to go and stay after a stop.
-            if is_debug_mode: print("\nDEBUG: Stop command processed. Forcing main loop to restart in idle state.")
+            if is_debug_mode: print("\nDEBUG: Stop/Quit command processed. Restarting main loop.")
+            # This 'continue' is the key to preventing a new scan from starting.
             continue # This forces the worker back to the top of the main `while` loop.
 
         # --- Responsive Wait Loop ---
@@ -751,14 +779,12 @@ def worker_loop(root, db, cli_args):
     print("\nWatcher stopped.")
     db.clear_node() 
 
-def finalize_file(db, original_path, temp_path, new_filename_base, original_size, keep_original, backup_dir, hostname, codec):
+def finalize_file(db, history_id, original_path, temp_path, new_filename_base, keep_original, backup_dir):
     """Handles file operations for a successful transcode."""
-    # if args.debug: print(f"DEBUG: Encode Success, Finalizing {original_path.name}")
-    
-    if keep_original:
-        # Log success before moving the file
-        db.report_success(original_path.name, hostname, codec, original_size, temp_path.stat().st_size)
+    new_size = temp_path.stat().st_size
+    db.report_finish(history_id, new_size)
 
+    if keep_original:
         encoded_dir = original_path.parent / "encoded"
         encoded_dir.mkdir(exist_ok=True)
         new_name = encoded_dir / new_filename_base
@@ -768,9 +794,6 @@ def finalize_file(db, original_path, temp_path, new_filename_base, original_size
             backup_path = Path(backup_dir)
             backup_path.mkdir(parents=True, exist_ok=True)
             shutil.copy2(original_path, backup_path / original_path.name)
-        
-        # Log success before moving the file
-        db.report_success(original_path.name, hostname, codec, original_size, temp_path.stat().st_size)
 
         target_tagged_mkv = original_path.parent / new_filename_base
         shutil.move(temp_path, target_tagged_mkv)
