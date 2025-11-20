@@ -392,6 +392,7 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
     last_update = 0
     err_log = [] 
     is_paused = False
+    fps = 0 # Initialize fps to 0
 
     try:
         while True:
