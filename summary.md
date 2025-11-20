@@ -188,3 +188,15 @@ This version focused on giving administrators finer control over the transcoding
   - The pixel width threshold for determining HD content.
   - A configurable list of file extensions for the scanner.
 - **Debug Flag**: The `--debug` command-line flag was re-introduced to the worker for easy local troubleshooting, allowing it to override the database setting and print the full `ffmpeg` command.
+
+## 19. Version 0.8.1 - Granular Control & Advanced Config
+
+This version focused on giving administrators finer control over the transcoding process and individual worker states.
+
+- **Granular Node Control**: The UI was enhanced with individual "Start", "Stop", and "Pause"/"Resume" buttons for each node, providing unambiguous control.
+- **Pause/Resume Functionality**: A core feature was added to allow pausing and resuming of transcodes. The worker now handles `SIGSTOP` and `SIGCONT` signals for the underlying `ffmpeg` process, managed via the dashboard.
+- **Advanced Configuration in UI**: The "Options" page was expanded to include advanced transcoding settings, moving them from hardcoded values into the database. This includes:
+  - Constant Quality (CQ/CRF) values for all encoder types and resolutions.
+  - The pixel width threshold for determining HD content.
+  - A configurable list of file extensions for the scanner.
+- **Debug Flag**: The `--debug` command-line flag was re-introduced to the worker for easy local troubleshooting, allowing it to override the database setting and print the full `ffmpeg` command.
