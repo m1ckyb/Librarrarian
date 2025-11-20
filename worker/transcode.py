@@ -390,12 +390,16 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
 
             # --- Pause/Resume Logic ---
             command = db.get_node_command(HOSTNAME)
+    if is_debug_mode and command != ('paused' if is_paused else 'running'):
+        print(f"\nDEBUG: Received command from dashboard: '{command}'")
+
             if command == 'paused' and not is_paused:
                 print("\n⏸️ Pausing transcode...")
                 process.send_signal(signal.SIGSTOP)
                 is_paused = True
                 db.update_heartbeat("Paused", hw_settings['codec'], int(percent) if 'percent' in locals() else 0, "0", VERSION, status='paused')
             elif command == 'running' and is_paused:
+        # The 'running' status acts as the 'resume' command here
                 print("\n▶️ Resuming transcode...")
                 process.send_signal(signal.SIGCONT)
                 is_paused = False
@@ -461,7 +465,9 @@ def worker_loop(root, db, cli_args):
     while not STOP_EVENT.is_set():
         command = db.get_node_command(HOSTNAME)
         if command == 'running':
-            print("Start command received. Beginning main worker loop.")
+            # This is the 'Start' command
+            if is_debug_mode:
+                print("\nDEBUG: Received command from dashboard: 'start'")
             break
         STOP_EVENT.wait(5) # Check for command every 5 seconds
 
@@ -514,7 +520,7 @@ def worker_loop(root, db, cli_args):
         for dirpath, dirnames, filenames in iterator:
             if STOP_EVENT.is_set(): break
 
-            if skip_encoded_folder and 'encoded' in dirnames:
+            if args.skip_encoded_folder and 'encoded' in dirnames:
                 dirnames.remove('encoded') # This stops os.walk from descending into it
 
             dir_path = Path(dirpath)
@@ -658,7 +664,9 @@ def worker_loop(root, db, cli_args):
         # Before waiting, check if a stop command has been issued.
         command = db.get_node_command(HOSTNAME)
         if command == 'idle':
-            print("\n⏹️ Stop command received. Returning to idle state.")
+            # This is the 'Stop' command
+            if is_debug_mode:
+                print("\nDEBUG: Received command from dashboard: 'stop'")
             db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
             break # Exit the processing loop and go back to the initial idle/wait loop.
         
