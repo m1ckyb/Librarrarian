@@ -445,7 +445,7 @@ def get_cq_value(width, hw_type, settings):
     else:
         return settings.cpu_cq_hd if is_hd else settings.cpu_cq_sd
 
-def worker_loop(root, db):
+def worker_loop(root, db, cli_args):
     print(f"🚀 Node Online: {HOSTNAME}")
 
     # --- Initial Hardware Detection ---
@@ -471,6 +471,10 @@ def worker_loop(root, db):
 
         # Fetch the latest settings at the start of each full scan
         settings_raw = db.get_worker_settings()
+
+        # Check if command-line debug flag is set. If so, it overrides the DB setting.
+        db_debug = settings_raw.get('debug', 'false').lower() == 'true'
+        is_debug_mode = cli_args.debug or db_debug
         
         # Define a simple structure for settings
         WorkerArgs = namedtuple('WorkerArgs', settings_raw.keys())
@@ -486,7 +490,7 @@ def worker_loop(root, db):
             hardware_acceleration=settings_raw.get('hardware_acceleration', 'auto'),
             auto_update=settings_raw.get('auto_update', 'true').lower() == 'true',
             clean_failures=settings_raw.get('clean_failures', 'false').lower() == 'true',
-            debug=settings_raw.get('debug', 'false').lower() == 'true',
+            debug=is_debug_mode,
             nvenc_cq_hd=settings_raw.get('nvenc_cq_hd', '32'),
             nvenc_cq_sd=settings_raw.get('nvenc_cq_sd', '28'),
             vaapi_cq_hd=settings_raw.get('vaapi_cq_hd', '28'),
@@ -586,6 +590,10 @@ def worker_loop(root, db):
                     cmd.extend([hw_settings["cq_flag"], str(cq)] + hw_settings["extra"])
                     cmd.extend(['-c:a', 'aac', '-b:a', '256k'])
                     cmd.extend(['-c:s', 'copy', str(temp_out)])
+
+                    if args.debug:
+                        # Print the full command for debugging purposes
+                        print(f"\nDEBUG: Running command:\n{' '.join(cmd)}\n")
 
                     # Start FFmpeg subprocess
                     ret, err_log = run_with_progress(cmd, info['duration'], db, fname, hw_settings)
@@ -742,6 +750,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("folder", help="The root folder to scan for videos.")
     parser.add_argument("--update", action="store_true", help="Check for updates and exit.")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging, overriding the database setting.")
     args = parser.parse_args()
 
     # Perform self-update check before doing anything else
@@ -760,8 +769,8 @@ def main():
     root = Path(args.folder).resolve()
     
     # All other settings are now fetched from the database inside the loop.
-    # The worker thread only needs the root folder and the db handler.
-    worker_thread = threading.Thread(target=worker_loop, args=(root, db))
+    # We pass the command-line args to allow for overrides like --debug.
+    worker_thread = threading.Thread(target=worker_loop, args=(root, db, args))
     worker_thread.daemon = True
     worker_thread.start()
     
