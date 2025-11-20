@@ -33,6 +33,14 @@ DB_CONFIG = {
     "dbname": os.environ.get("DB_NAME", "transcode_cluster")
 }
 
+def get_project_version():
+    """Reads the version from the root VERSION.txt file."""
+    try:
+        version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt')
+        return open(version_file, 'r').read().strip()
+    except FileNotFoundError:
+        return "unknown"
+
 # ===========================
 # Database Layer
 # ===========================
@@ -232,7 +240,8 @@ def dashboard():
         fail_count=fail_count, 
         db_error=db_error or settings_db_error, # Show error from either query
         settings=settings,
-        last_updated=datetime.now().strftime('%H:%M:%S')
+        last_updated=datetime.now().strftime('%H:%M:%S'),
+        version=get_project_version()
     )
 
 @app.route('/options', methods=['GET', 'POST'])

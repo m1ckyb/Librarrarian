@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.0] - 2025-11-20 - Remote Control & Centralization
+
+### Added
+- **Full Remote Control**: Added toggleable "Start" and "Stop" buttons for each node on the dashboard, allowing for complete remote management of the cluster's state.
+- **Centralized Configuration**: All worker command-line arguments (e.g., `--allow-hevc`, `--force-nvidia`) are now configurable via the "Options" tab in the dashboard.
+
+### Changed
+- **Worker Logic**: Workers now start in an `idle` state and wait for a "Start" command from the dashboard before beginning to process files.
+- **Database-Driven Workers**: The worker script (`transcode.py`) has been refactored to fetch all its configuration from the database. It now only requires the media directory as a command-line argument, simplifying deployment.
+- **Hardware Detection**: The hardware probing logic was significantly improved to be more reliable, especially for detecting NVIDIA GPUs on systems running Docker or Windows Subsystem for Linux (WSL).
+
+### Fixed
+- **Start Command**: Resolved a series of bugs that prevented the "Start" command from working correctly, including database column name mismatches and frontend/backend communication errors.
+
 ## [0.7.4] - 2025-11-20 - CSS Loading Fix
 
 ### Fixed
