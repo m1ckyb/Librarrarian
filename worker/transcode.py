@@ -390,9 +390,9 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
 
             # --- Pause/Resume Logic ---
             command = db.get_node_command(HOSTNAME)
-    if is_debug_mode and command != ('paused' if is_paused else 'running'):
-        print(f"\nDEBUG: Received command from dashboard: '{command}'")
-
+            if is_debug_mode and command != ('paused' if is_paused else 'running'):
+                print(f"\nDEBUG: Received command from dashboard: '{command}'")
+            
             if command == 'paused' and not is_paused:
                 print("\n⏸️ Pausing transcode...")
                 process.send_signal(signal.SIGSTOP)
