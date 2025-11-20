@@ -428,11 +428,15 @@
                 const response = await fetch(`/api/nodes/${hostname}/start`, {
                     method: 'POST',
                 });
-                if (response.ok) {
+                const result = await response.json();
+
+                if (result.success) {
+                    // The command was successful, just refresh the UI.
                     // Immediately refresh the status to show the node has started
                     updateStatus();
                 } else {
-                    alert(`Failed to send start command to ${hostname}.`);
+                    // If the server reported an error, show it.
+                    alert(`Failed to send start command to ${hostname}: ${result.error || 'Unknown error'}`);
                 }
             } catch (error) {
                 console.error('Error starting node:', error);
