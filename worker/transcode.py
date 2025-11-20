@@ -670,15 +670,16 @@ def worker_loop(root, db, cli_args):
 
                     # After each file, check if a stop command has been issued.
                     if db.get_node_command(HOSTNAME) == 'idle':
-                        if is_debug_mode:
-                            print("\nDEBUG: Received 'stop' command after file processing. Returning to idle.")
-                        STOP_EVENT.set() # Use STOP_EVENT to break out of all scanning loops
-                        break
+                        # This is the key fix: We use a flag to break out of the inner loops
+                        # and then 'continue' the main loop to return to idle.
+                        stop_command_received = True
+                        break # Exit the file loop (for fname in filenames)
 
                     if args.debug: print(f"DEBUG: Lock Released: {fname}")
         
-        if STOP_EVENT.is_set():
-            break
+        # If stop was triggered during the scan, continue to the main loop's next iteration.
+        if 'stop_command_received' in locals() and stop_command_received:
+            continue
 
         # Unified wait logic at the end of every scan cycle.
         db.update_heartbeat("Idle", "N/A", 0, "0", VERSION, status='running')
