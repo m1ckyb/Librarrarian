@@ -397,16 +397,17 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
 
             # --- Pause/Resume Logic ---
             command = db.get_node_command(HOSTNAME)
-            if is_debug_mode and command != ('paused' if is_paused else 'running'):
-                print(f"\nDEBUG: Received command from dashboard: '{command}'")
-            
             if command == 'paused' and not is_paused:
+                if is_debug_mode:
+                    print(f"\nDEBUG: Received command from dashboard: 'pause'")
                 print("\n⏸️ Pausing transcode...")
                 process.send_signal(signal.SIGSTOP)
                 is_paused = True
                 db.update_heartbeat("Paused", hw_settings['codec'], int(percent) if 'percent' in locals() else 0, "0", VERSION, status='paused')
             elif command == 'running' and is_paused:
-        # The 'running' status acts as the 'resume' command here
+                # The 'running' status acts as the 'resume' command here
+                if is_debug_mode:
+                    print(f"\nDEBUG: Received command from dashboard: 'resume'")
                 print("\n▶️ Resuming transcode...")
                 process.send_signal(signal.SIGCONT)
                 is_paused = False
@@ -478,7 +479,7 @@ def worker_loop(root, db, cli_args):
         if command == 'running':
             # This is the 'Start' command
             if is_debug_mode:
-                print("\nDEBUG: Received command from dashboard: 'start'")
+                print("DEBUG: Received command from dashboard: 'start'")
             break
         STOP_EVENT.wait(5) # Check for command every 5 seconds
 
@@ -677,9 +678,9 @@ def worker_loop(root, db, cli_args):
         if command == 'idle':
             # This is the 'Stop' command
             if is_debug_mode:
-                print("\nDEBUG: Received command from dashboard: 'stop'")
-            db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-            break # Exit the processing loop and go back to the initial idle/wait loop.
+                print("DEBUG: Received command from dashboard: 'stop'. Shutting down worker.")
+            STOP_EVENT.set() # Signal the entire thread to terminate
+            break # Exit the processing loop
         
         current_time = datetime.now().strftime('%H:%M:%S')
         print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
