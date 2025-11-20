@@ -402,6 +402,11 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
 
             # --- Pause/Resume Logic ---
             command = db.get_node_command(HOSTNAME)
+            if command == 'quit':
+                if is_debug_mode: print("\nDEBUG: Received 'quit' command during transcode. Shutting down.")
+                STOP_EVENT.set()
+                process.kill() # Immediately kill ffmpeg
+                break
             if command == 'paused' and not is_paused:
                 if is_debug_mode:
                     print(f"\nDEBUG: Received command from dashboard: 'pause'")
@@ -485,6 +490,10 @@ def worker_loop(root, db, cli_args):
         db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
         while not STOP_EVENT.is_set():
             command = db.get_node_command(HOSTNAME)
+            if command == 'quit':
+                if is_debug_mode: print("\nDEBUG: Received 'quit' command while idle. Shutting down.")
+                STOP_EVENT.set()
+                break
             if command == 'running':
                 # This is the 'Start' command
                 if is_debug_mode:
@@ -692,6 +701,11 @@ def worker_loop(root, db, cli_args):
         time_waited = 0
         while time_waited < wait_seconds:
             # Check for the stop command every 5 seconds.
+            command = db.get_node_command(HOSTNAME)
+            if command == 'quit':
+                if is_debug_mode: print("\nDEBUG: Received 'quit' command during wait. Shutting down.")
+                STOP_EVENT.set()
+                break
             if db.get_node_command(HOSTNAME) == 'idle':
                 if is_debug_mode:
                     print("\nDEBUG: Received 'stop' command. Returning to idle state.")
@@ -702,10 +716,12 @@ def worker_loop(root, db, cli_args):
             
             time.sleep(5)
             time_waited += 5
-        if stop_command_received:
+        if stop_command_received or STOP_EVENT.is_set():
             continue # Go to the next iteration of the main loop, which starts at idle.
 
-        db.update_heartbeat("Idle", "N/A", 0, "0", VERSION, status='running')
+        # When waiting between scans, the node is effectively idle.
+        # Setting status to 'idle' here prevents the UI from flipping the start/stop buttons.
+        db.update_heartbeat("Idle (Waiting for next scan)", "N/A", 0, "0", VERSION, status='idle')
         wait_seconds = args.rescan_delay_minutes * 60
         if wait_seconds <= 0: wait_seconds = 60
         current_time = datetime.now().strftime('%H:%M:%S')

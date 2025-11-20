@@ -280,6 +280,7 @@
                         <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status !== 'idle' ? 'disabled' : ''}>Start</button>
                         <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.status === 'idle' ? 'disabled' : ''}>Stop</button>
                         <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.status}')" ${node.status === 'idle' ? 'disabled' : ''}>${node.status === 'paused' ? 'Resume' : 'Pause'}</button>
+                        <button class="btn btn-sm btn-dark" onclick="quitNode('${node.hostname}')" title="Immediately stop the worker process.">Quit</button>
                         <span class="badge bg-info">${node.version || 'N/A'}</span>
                     </div>
                 </div>
@@ -524,6 +525,27 @@
         // Placeholder for future per-node options
         function showNodeOptions(hostname) {
             alert(`Per-node options for '${hostname}' are not yet implemented.`);
+        }
+    </script>
+    <script>
+        // Function to send the 'quit' command to a node
+        async function quitNode(hostname) {
+            if (!confirm(`Are you sure you want to QUIT the worker on '${hostname}'? This will stop the process immediately. The container will likely restart based on Docker policy.`)) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/nodes/${hostname}/quit`, {
+                    method: 'POST',
+                });
+                const result = await response.json();
+                if (result.success) {
+                    updateStatus(); // Refresh UI to show the node disappearing
+                } else {
+                    alert(`Failed to send quit command to ${hostname}: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error('Error quitting node:', error);
+            }
         }
     </script>
     <script>
