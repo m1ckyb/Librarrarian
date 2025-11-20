@@ -28,7 +28,7 @@ services:
       - DB_NAME=${POSTGRES_DB}
     volumes:
       - ./media:/media
-    command: ["python", "transcode.py", "/media", "-R", "--min", "0.5", "--update"]
+    command: ["python", "transcode.py", "/media"]
 
   # The PostgreSQL database service
   db:

@@ -11,6 +11,7 @@ import re
 import urllib.request
 import json
 from pathlib import Path
+from collections import namedtuple
 from datetime import datetime
 
 # Check for Postgres Driver
@@ -140,11 +141,24 @@ class DatabaseHandler:
                 """)
                 # --- Insert default settings if they don't exist ---
                 cur.execute("""
-                    INSERT INTO worker_settings (key, value, description) VALUES
-                    ('rescan_delay_minutes', '0', 'Delay in minutes after a full scan with processed files before starting a new scan. 0 means immediate.'),
-                    ('skip_encoded_folder', 'true', 'If true, completely ignore any directory named "encoded".')
+                    INSERT INTO worker_settings (key, value, description, updated_at) VALUES
+                    ('rescan_delay_minutes', '5', 'Delay in minutes before a worker scans for new files.', NOW()),
+                    ('skip_encoded_folder', 'true', 'If true, ignore any directory named "encoded".', NOW()),
+                    ('min_length', '1.5', 'Only transcode videos longer than this duration in minutes.', NOW()),
+                    ('recursive_scan', 'true', 'Scan subdirectories for video files.', NOW()),
+                    ('keep_original', 'false', 'Keep the original file after transcoding.', NOW()),
+                    ('backup_directory', '', 'If set, move original files here instead of deleting them.', NOW()),
+                    ('allow_hevc', 'false', 'Allow re-encoding of files that are already in HEVC (H.265).', NOW()),
+                    ('allow_av1', 'false', 'Allow re-encoding of files that are already in AV1.', NOW()),
+                    ('hardware_acceleration', 'auto', 'Force a specific hardware encoder (auto, nvidia, qsv, vaapi, cpu).', NOW()),
+                    ('auto_update', 'true', 'Enable the worker to automatically update itself.', NOW()),
+                    ('clean_failures', 'false', 'Clean the failed jobs list when the worker starts.', NOW()),
+                    ('debug', 'false', 'Enable verbose debug logging for the worker.', NOW())
                     ON CONFLICT (key) DO NOTHING;
                 """)
+
+                # Add 'status' column to 'active_nodes' if it doesn't exist
+                cur.execute("ALTER TABLE active_nodes ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'idle'")
 
             conn.close()
 
@@ -162,16 +176,17 @@ class DatabaseHandler:
             finally:
                 conn.close()
 
-    def update_heartbeat(self, filename, codec, percent, speed, version):
+    def update_heartbeat(self, filename, codec, percent, speed, version, status='running'):
         sql = """
-        INSERT INTO active_nodes (hostname, file, codec, percent, speed, last_updated, version)
-        VALUES (%s, %s, %s, %s, %s, NOW(), %s)
+        INSERT INTO active_nodes (hostname, file, codec, percent, speed, last_updated, version, status)
+        VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s)
         ON CONFLICT (hostname) 
         DO UPDATE SET 
             file = EXCLUDED.file,
             codec = EXCLUDED.codec,
             percent = EXCLUDED.percent,
             speed = EXCLUDED.speed,
+            status = EXCLUDED.status,
             last_updated = NOW(),
             version = EXCLUDED.version;
         """
@@ -179,7 +194,7 @@ class DatabaseHandler:
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, filename, codec, percent, speed, version))
+                    cur.execute(sql, (HOSTNAME, filename, codec, percent, speed, version, status))
                 # Heartbeats are too frequent to log
             except Exception as e:
                 print(f"Heartbeat Failed: {e}")
@@ -252,6 +267,20 @@ class DatabaseHandler:
                 conn.close()
         return settings
 
+    def get_node_command(self, hostname):
+        """Fetches the status for a specific node, which can act as a command."""
+        settings = {}
+        conn = self.get_conn()
+        if conn:
+            try:
+                with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                    cur.execute("SELECT status FROM active_nodes WHERE hostname = %s", (hostname,))
+                    result = cur.fetchone()
+                    return result['status'] if result else 'idle'
+            finally:
+                conn.close()
+        return settings
+
     def clear_node(self):
         conn = self.get_conn()
         if conn:
@@ -286,11 +315,11 @@ def get_hw_config(mode, device_path="/dev/dri/renderD128"):
     else: 
         return {"type": "cpu", "codec": "libx265", "hw_pre_args": [], "preset": "medium", "cq_flag": "-crf", "extra": []}
 
-def detect_hardware_settings(args):
-    if args.force_nvidia: return get_hw_config("nvidia")
-    if args.force_qsv: return get_hw_config("qsv")
-    if args.force_vaapi: return get_hw_config("vaapi")
-    if args.force_cpu: return get_hw_config("cpu")
+def detect_hardware_settings(accel_mode):
+    if accel_mode == "nvidia": return get_hw_config("nvidia")
+    if accel_mode == "qsv": return get_hw_config("qsv")
+    if accel_mode == "vaapi": return get_hw_config("vaapi")
+    if accel_mode == "cpu": return get_hw_config("cpu")
 
     print("🔍 Probing Hardware...", end=" ", flush=True)
     try:
@@ -397,33 +426,53 @@ def get_cq_value(width, hw_type):
     else:
         return CONFIG["CPU_CQ_HD"] if is_hd else CONFIG["CPU_CQ_SD"]
 
-def worker_loop(root, args, hw_settings, db):
-    min_bytes = int(float(args.min.replace(',', '.')) * 1024**3) if args.min else 0
-    
+def worker_loop(root, db):
     print(f"🚀 Node Online: {HOSTNAME}")
-    print(f"⚙️  Hardware: {hw_settings['codec']}")
-    
-    if args.debug:
-        print(f"DEBUG: Starting Worker. HW: {hw_settings['codec']}")
-        print(f"DEBUG: Min Size: {min_bytes / 1024**3:.2f} GB")
+
+    # --- Initial State: Idle ---
+    # The node joins the cluster in an idle state and waits for a 'start' command.
+    db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
+    print("Node is in 'idle' state, awaiting 'start' command from the dashboard.")
+    while not STOP_EVENT.is_set():
+        command = db.get_node_command(HOSTNAME)
+        if command == 'running':
+            print("Start command received. Beginning main worker loop.")
+            break
+        STOP_EVENT.wait(5) # Check for command every 5 seconds
 
     # --- Main Watcher Loop ---
     while not STOP_EVENT.is_set():
         files_processed_this_scan = 0
 
         # Fetch the latest settings at the start of each full scan
-        worker_settings = db.get_worker_settings()
-        rescan_delay_minutes = int(worker_settings.get('rescan_delay_minutes', 0))
-        skip_encoded_folder = worker_settings.get('skip_encoded_folder', 'true').lower() == 'true'
+        settings_raw = db.get_worker_settings()
+        
+        # Define a simple structure for settings
+        WorkerArgs = namedtuple('WorkerArgs', settings_raw.keys())
+        args = WorkerArgs(
+            rescan_delay_minutes=int(settings_raw.get('rescan_delay_minutes', 5)),
+            skip_encoded_folder=settings_raw.get('skip_encoded_folder', 'true').lower() == 'true',
+            min_length=float(settings_raw.get('min_length', 1.5)),
+            recursive_scan=settings_raw.get('recursive_scan', 'true').lower() == 'true',
+            keep_original=settings_raw.get('keep_original', 'false').lower() == 'true',
+            backup_directory=settings_raw.get('backup_directory', ''),
+            allow_hevc=settings_raw.get('allow_hevc', 'false').lower() == 'true',
+            allow_av1=settings_raw.get('allow_av1', 'false').lower() == 'true',
+            hardware_acceleration=settings_raw.get('hardware_acceleration', 'auto'),
+            auto_update=settings_raw.get('auto_update', 'true').lower() == 'true',
+            clean_failures=settings_raw.get('clean_failures', 'false').lower() == 'true',
+            debug=settings_raw.get('debug', 'false').lower() == 'true'
+        )
+        hw_settings = detect_hardware_settings(args.hardware_acceleration)
 
         # Report that the node is starting a scan
-        db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION)
+        db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION, status='running')
         
         # Get a fresh list of failed files for each scan
         global_failures = db.get_failed_files()
         
         # Get a fresh iterator for each scan
-        iterator = os.walk(root) if args.recursive else [(str(root), [], os.listdir(root))]
+        iterator = os.walk(root) if args.recursive_scan else [(str(root), [], os.listdir(root))]
 
         for dirpath, dirnames, filenames in iterator:
             if STOP_EVENT.is_set(): break
@@ -456,9 +505,10 @@ def worker_loop(root, args, hw_settings, db):
                             if args.debug: print(f"DEBUG: Skip: {fname} (Local History)")
                             continue
                     except: pass
-                        
-                if fpath.stat().st_size < min_bytes: 
-                    if args.debug: print(f"DEBUG: Skip: {fname} (Too Small)")
+
+                info = get_media_info(fpath)
+                if not info or (info['duration'] / 60) < args.min_length:
+                    if args.debug: print(f"DEBUG: Skip: {fname} (Too short or not media)")
                     continue
                 # --- End Filtering Checks ---
 
@@ -473,7 +523,6 @@ def worker_loop(root, args, hw_settings, db):
                 files_processed_this_scan += 1
 
                 try:
-                    info = get_media_info(fpath)
                     should_skip = False
                     if not info: 
                         if args.debug: print(f"DEBUG: Skip: {fname} (FFprobe failed)")
@@ -516,7 +565,7 @@ def worker_loop(root, args, hw_settings, db):
                     # --- Post-Processing ---
                     if ret == 0:
                         if temp_out.exists() and temp_out.stat().st_size < info['size']:                        
-                            finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args, HOSTNAME, hw_settings['codec'])
+                            finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args.keep_original, args.backup_directory, HOSTNAME, hw_settings['codec'])
                             with open(dir_path / "encoded.list", "a") as f: f.write(f"{fname}\n")
                             db.clear_node() 
                             print("\n✅ Finished.")
@@ -540,7 +589,7 @@ def worker_loop(root, args, hw_settings, db):
                             ret, err_log = run_with_progress(cmd, info['duration'], db, fname, cpu_hw_settings, VERSION)
 
                             if ret == 0 and temp_out.exists() and temp_out.stat().st_size < info['size']:
-                                finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args, HOSTNAME, cpu_hw_settings['codec'])
+                                finalize_file(db, fpath, temp_out, new_filename_base, info['size'], args.keep_original, args.backup_directory, HOSTNAME, cpu_hw_settings['codec'])
                                 print("\n✅ Finished (CPU Fallback).")
                             else:
                                 report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
@@ -558,8 +607,8 @@ def worker_loop(root, args, hw_settings, db):
             break
 
         # Unified wait logic at the end of every scan cycle.
-        db.update_heartbeat("Idle", "N/A", 0, "0", VERSION)
-        wait_seconds = rescan_delay_minutes * 60
+        db.update_heartbeat("Idle", "N/A", 0, "0", VERSION, status='running')
+        wait_seconds = args.rescan_delay_minutes * 60
 
         # If the delay is 0, we still wait a short time to prevent a tight loop that consumes CPU.
         if wait_seconds <= 0:
@@ -571,11 +620,11 @@ def worker_loop(root, args, hw_settings, db):
     print("\nWatcher stopped.")
     db.clear_node() 
 
-def finalize_file(db, original_path, temp_path, new_filename_base, original_size, args, hostname, codec):
+def finalize_file(db, original_path, temp_path, new_filename_base, original_size, keep_original, backup_dir, hostname, codec):
     """Handles file operations for a successful transcode."""
-    if args.debug: print(f"DEBUG: Encode Success, Finalizing {original_path.name}")
+    # if args.debug: print(f"DEBUG: Encode Success, Finalizing {original_path.name}")
     
-    if args.keep_original:
+    if keep_original:
         # Log success before moving the file
         db.report_success(original_path.name, hostname, codec, original_size, temp_path.stat().st_size)
 
@@ -584,8 +633,8 @@ def finalize_file(db, original_path, temp_path, new_filename_base, original_size
         new_name = encoded_dir / new_filename_base
         shutil.move(temp_path, new_name)
     else:
-        if args.backup:
-            backup_path = Path(args.backup)
+        if backup_dir:
+            backup_path = Path(backup_dir)
             backup_path.mkdir(parents=True, exist_ok=True)
             shutil.copy2(original_path, backup_path / original_path.name)
         
@@ -651,44 +700,28 @@ def check_for_updates(auto_update=False):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("folder", help="Target folder to scan for videos.")
-    
-    parser.add_argument("--debug", action="store_true", help="Show verbose file rejection info")
-    parser.add_argument("-R", "--recursive", action="store_true")
-    parser.add_argument("-min", type=str)
-    parser.add_argument("-keep-original", action="store_true")
-    parser.add_argument("-backup", type=str)
-    parser.add_argument("--clean", action="store_true")
-    parser.add_argument("--allow-hevc", action="store_true", help="Re-encode HEVC files")
-    parser.add_argument("--allow-av1", action="store_true", help="Re-encode AV1 files")
-    parser.add_argument("--update", action="store_true", help="Automatically download and apply updates if available.")
-    
-    parser.add_argument("--force-nvidia", action="store_true", help="Force NVENC")
-    parser.add_argument("--force-qsv", action="store_true", help="Force Intel QSV")
-    parser.add_argument("--force-vaapi", action="store_true", help="Force VAAPI")
-    parser.add_argument("--force-cpu", action="store_true", help="Force CPU (Slow)")
-    
+    parser.add_argument("folder", help="The root folder to scan for videos.")
+    parser.add_argument("--update", action="store_true", help="Check for updates and exit.")
     args = parser.parse_args()
 
     # Perform self-update check before doing anything else
-    check_for_updates(auto_update=args.update)
+    if args.update:
+        check_for_updates(auto_update=True)
+        sys.exit(0)
+    else:
+        check_for_updates(auto_update=False)
 
     # Connect to DB using centralized config
     db = DatabaseHandler(DB_CONFIG)
     if not db.get_conn():
         sys.exit(1)
 
-    if args.clean:
-        root = Path(args.folder).resolve()
-        for f in root.rglob("*.lock"): f.unlink()
-        print("🧹 Cleaned lock files.")
-        sys.exit(0)
-
     # --- Worker Thread Setup ---
-    hw_settings = detect_hardware_settings(args)
     root = Path(args.folder).resolve()
     
-    worker_thread = threading.Thread(target=worker_loop, args=(root, args, hw_settings, db))
+    # All other settings are now fetched from the database inside the loop.
+    # The worker thread only needs the root folder and the db handler.
+    worker_thread = threading.Thread(target=worker_loop, args=(root, db))
     worker_thread.daemon = True
     worker_thread.start()
     

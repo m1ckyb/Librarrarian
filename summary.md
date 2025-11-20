@@ -155,11 +155,19 @@ This small release addressed a critical usability bug with the worker's self-upd
     - The `docker-compose.yml` file was updated to pull pre-built images directly from GHCR instead of building them locally.
     - It is configured to use the `:latest` tag, ensuring that running `docker-compose up` deploys the most recent official release.
 
-## 17. Version 0.7.2 (Alpha) - CSS Fixes
+## 17. Version 0.7.2 & 0.7.3 - UI Refinements
 
-This version focused on fixing several CSS issues to improve the layout and consistency of the dashboard.
+These versions focused on improving the dashboard layout, usability, and visual consistency.
 
-- **Dashboard UI**:
-  - Moved the "View Errors" button into the footer to prevent it from overlapping with other content.
-  - Made the page titles consistent across the dashboard by using `<h1>` tags for all pages.
-  - Removed unnecessary `padding-bottom` from the `body` element.
+- **Consolidated UI**: The `/options` page was merged into a new "Options" tab on the main dashboard, placing all controls in a single, easy-to-access location.
+- **Layout Improvements**: The header was refined by moving the "View Errors" button to be inline with the title, and the "Updated" clock was placed on its own line for better alignment.
+- **Visual Fixes**: Corrected the text contrast of the badge on the "View Errors" button to ensure it is readable against all background colors. The dark mode footer color was also fixed to provide better visual separation from the page content.
+
+## 18. Version 0.7.4 - CSS Loading Fix
+
+This version addressed a fundamental CSS loading issue that was the root cause of several visual bugs.
+
+- **CSS Loading Order**: The Bootstrap CSS stylesheet was moved from a child template to the main `base.html` template. This ensures that Bootstrap's styles and CSS variables are loaded before any custom styles that depend on them.
+- **Bug Fixes**: This change fixed two persistent UI bugs:
+  - The footer in dark mode now renders with the correct background color.
+  - The badge on the "View Errors" button now has the correct text contrast, as the necessary Bootstrap classes are now properly loaded.

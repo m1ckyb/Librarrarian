@@ -158,6 +158,24 @@ def update_worker_setting(key, value):
         return False, db_error
     return True, None
 
+def set_node_status(hostname, status):
+    """Sets the status of a specific node (e.g., to 'running')."""
+    db = get_db()
+    db_error = None
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return False, db_error
+    try:
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE active_nodes SET status = %s, updated_at = NOW() WHERE hostname = %s",
+                (status, hostname)
+            )
+        db.commit()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+        return False, db_error
+    return True, None
 # ===========================
 # History Functions
 # ===========================
@@ -214,16 +232,33 @@ def options():
     The GET method is no longer used as the form is on the main page.
     """
     if request.method == 'POST':
-        delay = request.form.get('rescan_delay_minutes')
-        skip_folder = 'true' if request.form.get('skip_encoded_folder') else 'false'
+        # A dictionary to hold all settings from the form
+        settings_to_update = {
+            'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '5'),
+            'min_length': request.form.get('min_length', '1.5'),
+            'backup_directory': request.form.get('backup_directory', ''),
+            'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
+            # Checkboxes return 'true' if checked, otherwise they are not in the form data
+            'recursive_scan': 'true' if 'recursive_scan' in request.form else 'false',
+            'skip_encoded_folder': 'true' if 'skip_encoded_folder' in request.form else 'false',
+            'keep_original': 'true' if 'keep_original' in request.form else 'false',
+            'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
+            'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
+            'auto_update': 'true' if 'auto_update' in request.form else 'false',
+            'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
+            'debug': 'true' if 'debug' in request.form else 'false',
+        }
 
-        success1, error1 = update_worker_setting('rescan_delay_minutes', str(delay))
-        success2, error2 = update_worker_setting('skip_encoded_folder', skip_folder)
+        errors = []
+        for key, value in settings_to_update.items():
+            success, error = update_worker_setting(key, value)
+            if not success:
+                errors.append(error)
 
-        if success1 and success2:
+        if not errors:
             flash('Worker settings have been updated successfully!', 'success')
         else:
-            flash(f'Failed to update settings. Error: {error1 or error2}', 'danger')
+            flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
     
     # Redirect back to the main dashboard page after handling the POST request.
     return redirect(url_for('dashboard'))
@@ -265,6 +300,16 @@ def api_clear_failures():
     if db_error:
         return jsonify(success=False, error=db_error), 500
     return jsonify(success=True, message="Failed files log has been cleared.")
+
+@app.route('/api/nodes/<hostname>/start', methods=['POST'])
+def api_start_node(hostname):
+    """API endpoint to send a 'start' command to a node."""
+    success, error = set_node_status(hostname, 'running')
+    if not success:
+        return jsonify(success=False, error=error), 500
+    
+    flash(f"Start command sent to node '{hostname}'.", 'info')
+    return jsonify(success=True)
 
 @app.route('/api/history', methods=['GET'])
 def api_history():

@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.7.4] - 2025-11-20 - CSS Loading Fix
+
+### Fixed
+- **CSS Loading Order**: Moved the Bootstrap CSS link to the `base.html` template to ensure it loads before custom styles that depend on it. This fixed two resulting bugs:
+  - The footer in dark mode now has the correct background color.
+  - The badge on the "View Errors" button has the correct text contrast on all button colors.
+
 ## [0.7.3] - 2025-11-20 - UI Refinements
 
 ### Changed
