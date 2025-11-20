@@ -693,7 +693,7 @@ def worker_loop(root, db, cli_args):
             
             time.sleep(5)
             time_waited += 5
-        if stop_command_received: break # Exit the scan loop and return to the outer idle loop
+        if stop_command_received: continue # Go to the next iteration of the main loop, which starts at idle.
 
     print("\nWatcher stopped.")
     db.clear_node() 
