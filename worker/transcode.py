@@ -93,6 +93,25 @@ class DatabaseHandler:
                         reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS encoded_files (
+                        id SERIAL PRIMARY KEY,
+                        filename TEXT,
+                        hostname VARCHAR(255),
+                        codec VARCHAR(50),
+                        original_size BIGINT,
+                        new_size BIGINT,
+                        encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS worker_settings (
+                        key VARCHAR(50) PRIMARY KEY,
+                        value TEXT,
+                        description TEXT,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
 
                 # --- Schema Migrations ---
                 # Add 'version' column to 'active_nodes' if it doesn't exist
@@ -113,26 +132,6 @@ class DatabaseHandler:
                         END IF;
                     END;
                     $$
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS encoded_files (
-                        id SERIAL PRIMARY KEY,
-                        status VARCHAR(20) DEFAULT 'encoding',
-                        filename TEXT,
-                        hostname VARCHAR(255),
-                        codec VARCHAR(50),
-                        original_size BIGINT,
-                        new_size BIGINT,
-                        encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS worker_settings (
-                        key VARCHAR(50) PRIMARY KEY,
-                        value TEXT,
-                        description TEXT,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
                 """)
                 # --- Insert default settings if they don't exist ---
                 cur.execute("""
