@@ -745,6 +745,11 @@ def worker_loop(root, db, cli_args):
         # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
         # and check for the stop command in between each chunk.
         stop_command_received = False
+        wait_seconds = args.rescan_delay_minutes * 60
+        if wait_seconds <= 0: wait_seconds = 60
+        current_time = datetime.now().strftime('%H:%M:%S')
+        print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
+
         time_waited = 0
         while time_waited < wait_seconds:
             # Check for the stop command every 5 seconds.
@@ -771,11 +776,6 @@ def worker_loop(root, db, cli_args):
 
         # When waiting between scans, the node is effectively idle.
         # Setting status to 'idle' here prevents the UI from flipping the start/stop buttons.
-        db.update_heartbeat("Idle (Waiting for next scan)", "N/A", 0, "0", VERSION, status='idle')
-        wait_seconds = args.rescan_delay_minutes * 60
-        if wait_seconds <= 0: wait_seconds = 60
-        current_time = datetime.now().strftime('%H:%M:%S')
-        print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
 
     print("\nWatcher stopped.")
     db.clear_node() 
