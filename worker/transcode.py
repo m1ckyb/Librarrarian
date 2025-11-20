@@ -105,6 +105,9 @@ class DatabaseHandler:
                         IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='failed_files' AND column_name='log') THEN
                             ALTER TABLE failed_files ADD COLUMN log TEXT;
                         END IF;
+                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='active_nodes' AND column_name='fps') THEN
+                            ALTER TABLE active_nodes ADD COLUMN fps INTEGER DEFAULT 0;
+                        END IF;
                     END;
                     $$
                 """)
@@ -172,10 +175,10 @@ class DatabaseHandler:
             finally:
                 conn.close()
 
-    def update_heartbeat(self, filename, codec, percent, speed, version, status='running'):
+    def update_heartbeat(self, filename, codec, percent, speed, version, status='running', fps=0):
         sql = """
-        INSERT INTO active_nodes (hostname, file, codec, percent, speed, last_updated, version, status)
-        VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s)
+        INSERT INTO active_nodes (hostname, file, codec, percent, speed, last_updated, version, status, fps)
+        VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s, %s)
         ON CONFLICT (hostname) 
         DO UPDATE SET 
             file = EXCLUDED.file,
@@ -184,13 +187,14 @@ class DatabaseHandler:
             speed = EXCLUDED.speed,
             status = EXCLUDED.status,
             last_updated = NOW(),
-            version = EXCLUDED.version;
+            version = EXCLUDED.version,
+            fps = EXCLUDED.fps;
         """
         conn = self.get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, filename, codec, percent, speed, version, status))
+                    cur.execute(sql, (HOSTNAME, filename, codec, percent, speed, version, status, fps))
                 # Heartbeats are too frequent to log
             except Exception as e:
                 print(f"Heartbeat Failed: {e}")
@@ -438,7 +442,7 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
                 err_log = [] 
 
                 if time.time() - last_update > 2:
-                    db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION)
+                    db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION, fps=int(fps))
                     last_update = time.time()
 
         remainder = process.stderr.read()
