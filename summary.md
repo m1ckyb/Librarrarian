@@ -203,3 +203,16 @@ This release focused on fixing a critical and complex UI stability bug related t
 
 - **Robust State Management**: Introduced a new intermediate `finishing` state for the worker. When a user presses "Stop" during an active transcode, the worker enters this state instead of immediately trying to become idle.
 - **UI Stability Fix**: The dashboard UI was updated to recognize the `finishing` state. This resolves a long-standing bug where the "Start" and "Stop" buttons would flip incorrectly. The UI now correctly shows that the worker is busy but will be stopping, and allows the user to press "Start" again to cancel the stop request.
+
+## 22. Version 0.8.6 - History, Stats & Cleanup
+
+This release focused on adding new data management and statistical overview features to the dashboard, while also improving the underlying worker logic.
+
+- **Stats Tab**: A new "Stats" tab was created to provide a high-level overview of the cluster's performance. It includes cards for total files encoded, total original vs. new size (in GB), and the average space reduction percentage.
+- **Stale File Cleanup**: A "Cleanup" tab was added to the UI. This feature allows an administrator to scan the media directory for stale temporary (`.tmp_`) and lock (`.lock`) files left behind by crashed workers and delete them safely through the dashboard.
+- **Advanced History Management**:
+  - The History tab now correctly displays an "In Progress" status for files that are currently being transcoded.
+  - A "Clear All History" button was added to allow for easy database maintenance.
+  - Users can now delete individual entries from the history log.
+- **Dynamic UI**: The "Stats" and "History" tabs were made dynamic, automatically refreshing their content every 5 seconds when they are the active tab.
+- **Modernized Worker Logging**: The worker script was updated to no longer use redundant `encoded.list` files, relying entirely on the central database for tracking encode history.
