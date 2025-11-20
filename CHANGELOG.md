@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+## [0.8.5] - 2025-11-20 - State Management & UI Stability
+
+### Fixed
+- **UI Stability**: Resolved a long-standing bug where the "Start" and "Stop" buttons would flip incorrectly. When "Stop" is pressed during a transcode, the worker now enters an intermediate `finishing` state. This allows the UI to correctly reflect the worker's intent to stop, enabling the "Start" button to cancel the stop request.
+
+### Bugs
+- **Quit Command Reliability**: The "Quit" command is not always responsive and can be ignored if a worker is in the middle of a long transcode process.
+
 ## [0.8.1] - 2025-11-20 - Granular Control & Advanced Config
 
 ### Added

@@ -189,14 +189,17 @@ This version focused on giving administrators finer control over the transcoding
   - A configurable list of file extensions for the scanner.
 - **Debug Flag**: The `--debug` command-line flag was re-introduced to the worker for easy local troubleshooting, allowing it to override the database setting and print the full `ffmpeg` command.
 
-## 19. Version 0.8.1 - Granular Control & Advanced Config
+## 20. Version 0.8.4 - The Buggy Release
 
-This version focused on giving administrators finer control over the transcoding process and individual worker states.
+This release was dedicated to fixing several persistent and complex bugs related to worker state management and UI stability.
 
-- **Granular Node Control**: The UI was enhanced with individual "Start", "Stop", and "Pause"/"Resume" buttons for each node, providing unambiguous control.
-- **Pause/Resume Functionality**: A core feature was added to allow pausing and resuming of transcodes. The worker now handles `SIGSTOP` and `SIGCONT` signals for the underlying `ffmpeg` process, managed via the dashboard.
-- **Advanced Configuration in UI**: The "Options" page was expanded to include advanced transcoding settings, moving them from hardcoded values into the database. This includes:
-  - Constant Quality (CQ/CRF) values for all encoder types and resolutions.
-  - The pixel width threshold for determining HD content.
-  - A configurable list of file extensions for the scanner.
-- **Debug Flag**: The `--debug` command-line flag was re-introduced to the worker for easy local troubleshooting, allowing it to override the database setting and print the full `ffmpeg` command.
+- **UI Stability Fix**: Resolved a long-standing issue where the "Start" and "Stop" buttons would incorrectly flip after a worker finished a scan. The worker's state reporting was corrected to ensure the UI remains stable and accurately reflects that the worker is idle.
+- **Reliable Quit Command**: Fixed a critical bug where the "Quit" command was unresponsive during an active transcode. The command is now detected within seconds, allowing for an immediate and reliable shutdown of the worker process.
+- **Robust Stop Logic**: The "Stop" command was overhauled to ensure the worker finishes its current file and then correctly returns to and stays in its idle state, preventing it from automatically starting another file.
+
+## 21. Version 0.8.5 - State Management & UI Stability
+
+This release focused on fixing a critical and complex UI stability bug related to worker state transitions.
+
+- **Robust State Management**: Introduced a new intermediate `finishing` state for the worker. When a user presses "Stop" during an active transcode, the worker enters this state instead of immediately trying to become idle.
+- **UI Stability Fix**: The dashboard UI was updated to recognize the `finishing` state. This resolves a long-standing bug where the "Start" and "Stop" buttons would flip incorrectly. The UI now correctly shows that the worker is busy but will be stopping, and allows the user to press "Start" again to cancel the stop request.

@@ -447,7 +447,14 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
                 err_log = [] 
 
                 if time.time() - last_update > 2:
-                    db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION, fps=int(fps))
+                    # Check for a stop command during the transcode
+                    current_command = db.get_node_command(HOSTNAME)
+                    if current_command == 'idle':
+                        # A stop command was issued. Enter 'finishing' state.
+                        db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION, status='finishing', fps=int(fps))
+                    else:
+                        # Otherwise, just send a normal running heartbeat.
+                        db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION, status='running', fps=int(fps))
                     last_update = time.time()
 
         remainder = process.stderr.read()
@@ -679,10 +686,11 @@ def worker_loop(root, db, cli_args):
                 finally:
                     if lock_file.exists(): lock_file.unlink()
 
-                    # After each file, check if a stop command has been issued.
-                    if db.get_node_command(HOSTNAME) == 'idle':
-                        # This is the key fix: We use a flag to break out of the inner loops
-                        if is_debug_mode: print("\nDEBUG: 'stop' command detected after file. Forcing idle state.")
+                    # After each file, check if we were in a 'finishing' state.
+                    # This means a stop was requested during the transcode.
+                    if db.get_node_command(HOSTNAME) == 'finishing':
+                        if is_debug_mode: print("\nDEBUG: File finished, honoring 'stop' request. Returning to idle.")
+                        # Force the state to idle and break out of the scan.
                         db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
                         stop_command_received = True
                         break # Exit the file loop (for fname in filenames)
