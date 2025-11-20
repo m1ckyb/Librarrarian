@@ -422,6 +422,30 @@
         });
     </script>
     <script>
+        // Function to send the 'start' command to a node
+        async function startNode(hostname) {
+            try {
+                const response = await fetch(`/api/nodes/${hostname}/start`, {
+                    method: 'POST',
+                });
+                if (response.ok) {
+                    // Immediately refresh the status to show the node has started
+                    updateStatus();
+                } else {
+                    alert(`Failed to send start command to ${hostname}.`);
+                }
+            } catch (error) {
+                console.error('Error starting node:', error);
+                alert(`An error occurred while trying to start ${hostname}.`);
+            }
+        }
+
+        // Placeholder for future per-node options
+        function showNodeOptions(hostname) {
+            alert(`Per-node options for '${hostname}' are not yet implemented.`);
+        }
+    </script>
+    <script>
         const delaySlider = document.getElementById('rescan_delay_minutes');
         const delayValue = document.getElementById('delay-value');
         delaySlider.addEventListener('input', (event) => {
