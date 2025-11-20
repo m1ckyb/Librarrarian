@@ -51,18 +51,6 @@ DB_CONFIG = {
     "dbname": os.environ.get("DB_NAME", "transcode_cluster")
 }
 
-CONFIG = {
-    "NVENC_CQ_HD": "32",   
-    "NVENC_CQ_SD": "28",   
-    "VAAPI_CQ_HD": "28",   
-    "VAAPI_CQ_SD": "24",   
-    "CPU_CQ_HD": "28",
-    "CPU_CQ_SD": "24",
-
-    "CQ_WIDTH_THRESHOLD": 1900,
-    "EXTENSIONS": {'.mkv', '.avi', '.mp4', '.mov', '.wmv', '.flv', '.m4v', '.ts', '.mpg', '.mpeg'}
-}
-
 # ===========================
 # Database Layer
 # ===========================
@@ -153,7 +141,15 @@ class DatabaseHandler:
                     ('hardware_acceleration', 'auto', 'Force a specific hardware encoder (auto, nvidia, qsv, vaapi, cpu).', NOW()),
                     ('auto_update', 'true', 'Enable the worker to automatically update itself.', NOW()),
                     ('clean_failures', 'false', 'Clean the failed jobs list when the worker starts.', NOW()),
-                    ('debug', 'false', 'Enable verbose debug logging for the worker.', NOW())
+                    ('debug', 'false', 'Enable verbose debug logging for the worker.', NOW()),
+                    ('nvenc_cq_hd', '32', 'Constant Quality (CQ) for NVIDIA NVENC on HD+ videos.', NOW()),
+                    ('nvenc_cq_sd', '28', 'Constant Quality (CQ) for NVIDIA NVENC on SD videos.', NOW()),
+                    ('vaapi_cq_hd', '28', 'Constant Quality (CQ) for Intel/AMD VAAPI on HD+ videos.', NOW()),
+                    ('vaapi_cq_sd', '24', 'Constant Quality (CQ) for Intel/AMD VAAPI on SD videos.', NOW()),
+                    ('cpu_cq_hd', '28', 'Constant Quality (CRF) for CPU encoding on HD+ videos.', NOW()),
+                    ('cpu_cq_sd', '24', 'Constant Quality (CRF) for CPU encoding on SD videos.', NOW()),
+                    ('cq_width_threshold', '1900', 'The video width (in pixels) to consider as High Definition (HD).', NOW()),
+                    ('extensions', '.mkv,.avi,.mp4,.mov,.wmv,.flv,.m4v,.ts,.mpg,.mpeg', 'Comma-separated list of file extensions to scan.', NOW())
                     ON CONFLICT (key) DO NOTHING;
                 """)
 
@@ -384,12 +380,29 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
     
     last_update = 0
     err_log = [] 
+    is_paused = False
 
     try:
         while True:
             if STOP_EVENT.is_set():
                 process.kill()
                 return -999, "Stopped by user command"
+
+            # --- Pause/Resume Logic ---
+            command = db.get_node_command(HOSTNAME)
+            if command == 'paused' and not is_paused:
+                print("\n⏸️ Pausing transcode...")
+                process.send_signal(signal.SIGSTOP)
+                is_paused = True
+                db.update_heartbeat("Paused", hw_settings['codec'], int(percent) if 'percent' in locals() else 0, "0", VERSION, status='paused')
+            elif command == 'running' and is_paused:
+                print("\n▶️ Resuming transcode...")
+                process.send_signal(signal.SIGCONT)
+                is_paused = False
+            
+            if is_paused:
+                time.sleep(2) # While paused, check for resume command every 2 seconds
+                continue
 
             char = process.stderr.read(1)
             if not char and process.poll() is not None: break
@@ -423,14 +436,14 @@ def run_with_progress(cmd, total_duration, db, filename, hw_settings):
         process.kill()
         return -1, str(e)
 
-def get_cq_value(width, hw_type):
-    is_hd = width >= CONFIG["CQ_WIDTH_THRESHOLD"]
+def get_cq_value(width, hw_type, settings):
+    is_hd = width >= int(settings.cq_width_threshold)
     if hw_type == "nvidia":
-        return CONFIG["NVENC_CQ_HD"] if is_hd else CONFIG["NVENC_CQ_SD"]
+        return settings.nvenc_cq_hd if is_hd else settings.nvenc_cq_sd
     elif hw_type == "intel":
-        return CONFIG["VAAPI_CQ_HD"] if is_hd else CONFIG["VAAPI_CQ_SD"]
+        return settings.vaapi_cq_hd if is_hd else settings.vaapi_cq_sd
     else:
-        return CONFIG["CPU_CQ_HD"] if is_hd else CONFIG["CPU_CQ_SD"]
+        return settings.cpu_cq_hd if is_hd else settings.cpu_cq_sd
 
 def worker_loop(root, db):
     print(f"🚀 Node Online: {HOSTNAME}")
@@ -473,8 +486,17 @@ def worker_loop(root, db):
             hardware_acceleration=settings_raw.get('hardware_acceleration', 'auto'),
             auto_update=settings_raw.get('auto_update', 'true').lower() == 'true',
             clean_failures=settings_raw.get('clean_failures', 'false').lower() == 'true',
-            debug=settings_raw.get('debug', 'false').lower() == 'true'
+            debug=settings_raw.get('debug', 'false').lower() == 'true',
+            nvenc_cq_hd=settings_raw.get('nvenc_cq_hd', '32'),
+            nvenc_cq_sd=settings_raw.get('nvenc_cq_sd', '28'),
+            vaapi_cq_hd=settings_raw.get('vaapi_cq_hd', '28'),
+            vaapi_cq_sd=settings_raw.get('vaapi_cq_sd', '24'),
+            cpu_cq_hd=settings_raw.get('cpu_cq_hd', '28'),
+            cpu_cq_sd=settings_raw.get('cpu_cq_sd', '24'),
+            cq_width_threshold=settings_raw.get('cq_width_threshold', '1900'),
+            extensions=settings_raw.get('extensions', '.mkv,.mp4')
         )
+        allowed_extensions = {ext.strip() for ext in args.extensions.split(',')}
 
         # Report that the node is starting a scan
         db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION, status='running')
@@ -497,7 +519,7 @@ def worker_loop(root, db):
                 fpath = dir_path / fname
                 
                 # --- Filtering Checks ---
-                if fpath.suffix.lower() not in CONFIG["EXTENSIONS"]: 
+                if fpath.suffix.lower() not in allowed_extensions: 
                     if args.debug: print(f"DEBUG: Skip: {fname} (Extension)")
                     continue
                 
@@ -552,7 +574,7 @@ def worker_loop(root, db):
                     print(f"\n✅ [Accepted] {fname}")
                     if args.debug: print(f"DEBUG: Processing: {fname}")
 
-                    cq = get_cq_value(info['width'], hw_settings['type'])
+                    cq = get_cq_value(info['width'], hw_settings['type'], args)
                     temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
                     
                     cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
@@ -591,8 +613,8 @@ def worker_loop(root, db):
                         # --- Fallback and Crash Reporting ---
                         if "minimum supported value" in err_log and hw_settings['type'] != 'cpu':
                             print(f"\n⚠️  HW encode failed for low resolution. Falling back to CPU for {fname}...")
-                            cpu_hw_settings = get_hw_config("cpu")
-                            cpu_cq = get_cq_value(info['width'], cpu_hw_settings['type'])
+                            cpu_hw_settings = get_hw_config("cpu") # This is fine, it's just a struct
+                            cpu_cq = get_cq_value(info['width'], cpu_hw_settings['type'], args)
                             
                             cmd[cmd.index(hw_settings['codec'])] = cpu_hw_settings['codec']
                             cmd[cmd.index(str(cq))] = str(cpu_cq)

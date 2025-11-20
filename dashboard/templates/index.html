@@ -197,6 +197,43 @@
                                 </div>
                             </div>
                         </div>
+                        <hr class="my-4">
+                        <h5>Advanced Transcoding Settings</h5>
+                        <div class="row">
+                            <div class="col-md-6">
+                                <div class="mb-3 p-3 border rounded">
+                                    <label class="form-label"><strong>Constant Quality (CQ / CRF)</strong></label>
+                                    <p class="form-text text-body-secondary">Lower is higher quality. NVENC: 0-51. VAAPI/CPU: 0-63.</p>
+                                    <div class="input-group input-group-sm mb-2">
+                                        <span class="input-group-text" style="width: 120px;">NVIDIA (HD)</span>
+                                        <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('value', 32) }}">
+                                        <span class="input-group-text" style="width: 120px;">NVIDIA (SD)</span>
+                                        <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('value', 28) }}">
+                                    </div>
+                                    <div class="input-group input-group-sm mb-2">
+                                        <span class="input-group-text" style="width: 120px;">Intel/AMD (HD)</span>
+                                        <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('value', 28) }}">
+                                        <span class="input-group-text" style="width: 120px;">Intel/AMD (SD)</span>
+                                        <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('value', 24) }}">
+                                    </div>
+                                    <div class="input-group input-group-sm">
+                                        <span class="input-group-text" style="width: 120px;">CPU (HD)</span>
+                                        <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('value', 28) }}">
+                                        <span class="input-group-text" style="width: 120px;">CPU (SD)</span>
+                                        <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('value', 24) }}">
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="col-md-6">
+                                <div class="mb-3 p-3 border rounded">
+                                    <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
+                                    <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
+                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('value', 1900) }}">
+                                    <label for="extensions" class="form-label mt-3"><strong>Allowed Extensions</strong></label>
+                                    <input type="text" class="form-control" id="extensions" name="extensions" value="{{ settings.get('extensions', {}).get('value', '.mkv,.mp4') }}">
+                                </div>
+                            </div>
+                        </div>
                         <button type="submit" class="btn btn-primary">Save Settings</button>
                     </form>
                 </div>
@@ -239,12 +276,10 @@
                 <div class="card-header fs-5 d-flex justify-content-between align-items-center">
                     <span>${node.hostname}</span>
                     <div>
-                        ${isIdle ? `
-                            <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')">Start</button>
-                        ` : `
-                            <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')">Stop</button>
-                        `}
                         <button class="btn btn-sm btn-outline-primary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
+                        <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status !== 'idle' ? 'disabled' : ''}>Start</button>
+                        <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.status === 'idle' ? 'disabled' : ''}>Stop</button>
+                        <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.status}')" ${node.status === 'idle' ? 'disabled' : ''}>${node.status === 'paused' ? 'Resume' : 'Pause'}</button>
                         <span class="badge bg-info">${node.version || 'N/A'}</span>
                     </div>
                 </div>
@@ -258,7 +293,7 @@
                         </div>
                     ` : `
                         <div class="text-center p-3">
-                            <h5 class="card-title text-muted">${node.file}</h5>
+                            <h5 class="card-title text-muted">${node.status === 'paused' ? 'Paused' : node.file}</h5>
                         </div>
                     `}
                 </div>
@@ -268,7 +303,7 @@
                         <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
                         <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
                     ` : `
-                        <span class="badge text-bg-secondary">${node.file || 'Idle'}</span>
+                        <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.file || 'Idle')}</span>
                     `}
                 </div>
             </div>`;
@@ -465,6 +500,24 @@
                 }
             } catch (error) {
                 console.error('Error stopping node:', error);
+            }
+        }
+
+        // Function to send 'pause' or 'resume' command
+        async function pauseResumeNode(hostname, currentStatus) {
+            const action = currentStatus === 'paused' ? 'resume' : 'pause';
+            try {
+                const response = await fetch(`/api/nodes/${hostname}/${action}`, {
+                    method: 'POST',
+                });
+                const result = await response.json();
+                if (result.success) {
+                    updateStatus(); // Refresh UI
+                } else {
+                    alert(`Failed to ${action} node ${hostname}: ${result.error || 'Unknown error'}`);
+                }
+            } catch (error) {
+                console.error(`Error ${action}ing node:`, error);
             }
         }
 

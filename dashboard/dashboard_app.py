@@ -266,6 +266,15 @@ def options():
             'auto_update': 'true' if 'auto_update' in request.form else 'false',
             'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
             'debug': 'true' if 'debug' in request.form else 'false',
+            # Advanced settings
+            'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
+            'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
+            'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
+            'vaapi_cq_sd': request.form.get('vaapi_cq_sd', '24'),
+            'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
+            'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
+            'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
+            'extensions': request.form.get('extensions', '.mkv,.mp4'),
         }
 
         errors = []
@@ -335,6 +344,22 @@ def api_stop_node(hostname):
     if not success:
         return jsonify(success=False, error=error), 500
     return jsonify(success=True, message=f"Stop command sent to node '{hostname}'.")
+
+@app.route('/api/nodes/<hostname>/pause', methods=['POST'])
+def api_pause_node(hostname):
+    """API endpoint to send a 'pause' command to a node."""
+    success, error = set_node_status(hostname, 'paused')
+    if not success:
+        return jsonify(success=False, error=error), 500
+    return jsonify(success=True, message=f"Pause command sent to node '{hostname}'.")
+
+@app.route('/api/nodes/<hostname>/resume', methods=['POST'])
+def api_resume_node(hostname):
+    """API endpoint to send a 'resume' command to a node."""
+    success, error = set_node_status(hostname, 'running') # Resuming just sets it back to running
+    if not success:
+        return jsonify(success=False, error=error), 500
+    return jsonify(success=True, message=f"Resume command sent to node '{hostname}'.")
 
 @app.route('/api/history', methods=['GET'])
 def api_history():
