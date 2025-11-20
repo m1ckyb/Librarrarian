@@ -686,11 +686,10 @@ def worker_loop(root, db, cli_args):
                 finally:
                     if lock_file.exists(): lock_file.unlink()
 
-                    # After each file, check if we were in a 'finishing' state.
-                    # This means a stop was requested during the transcode.
-                    if db.get_node_command(HOSTNAME) == 'finishing':
-                        if is_debug_mode: print("\nDEBUG: File finished, honoring 'stop' request. Returning to idle.")
-                        # Force the state to idle and break out of the scan.
+                    # After each file, check if a stop command has been issued.
+                    # This is the most critical point to check.
+                    if db.get_node_command(HOSTNAME) == 'idle':
+                        if is_debug_mode: print("\nDEBUG: 'stop' command detected after file. Forcing idle state.")
                         db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
                         stop_command_received = True
                         break # Exit the file loop (for fname in filenames)
@@ -707,8 +706,11 @@ def worker_loop(root, db, cli_args):
         # Unified wait logic at the end of every scan cycle.
         # If a stop command was received during the scan, skip the wait and go straight back to idle.
         if 'stop_command_received' in locals() and stop_command_received:
-            if is_debug_mode: print("\nDEBUG: Stop command processed. Forcing return to idle state.")
-            continue
+            # This is the critical fix. By using 'continue', we force the main loop
+            # to restart. The first thing in the main loop is the idle state,
+            # which is exactly where we want the worker to go and stay after a stop.
+            if is_debug_mode: print("\nDEBUG: Stop command processed. Forcing main loop to restart in idle state.")
+            continue # This forces the worker back to the top of the main `while` loop.
 
         # --- Responsive Wait Loop ---
         # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
