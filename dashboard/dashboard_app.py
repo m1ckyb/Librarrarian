@@ -168,7 +168,7 @@ def set_node_status(hostname, status):
     try:
         with db.cursor() as cur:
             cur.execute(
-                "UPDATE active_nodes SET status = %s, updated_at = NOW() WHERE hostname = %s;",
+                "UPDATE active_nodes SET status = %s, last_updated = NOW() WHERE hostname = %s;",
                 (status, hostname)
             )
             # The above command will not fail if the node doesn't exist, but it also won't update anything.
