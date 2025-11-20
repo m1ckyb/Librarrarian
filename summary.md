@@ -176,3 +176,15 @@ This version marks a major milestone in usability and cluster management by cent
   - **Database-Driven Workers**: The worker script was refactored to fetch all its settings from the database upon starting a scan. This dramatically simplifies deployment, as the worker now only needs the media directory path to run.
 - **Improved Hardware Detection**: The hardware probing logic was made more robust to correctly prioritize NVIDIA GPUs, especially in complex environments like Windows Subsystem for Linux (WSL).
 - **Bug Fixes**: Resolved a cascade of bugs related to the new start/stop functionality, ensuring reliable communication between the dashboard and the workers.
+
+## 19. Version 0.8.1 - Granular Control & Advanced Config
+
+This version focused on giving administrators finer control over the transcoding process and individual worker states.
+
+- **Granular Node Control**: The UI was enhanced with individual "Start", "Stop", and "Pause"/"Resume" buttons for each node, providing unambiguous control.
+- **Pause/Resume Functionality**: A core feature was added to allow pausing and resuming of transcodes. The worker now handles `SIGSTOP` and `SIGCONT` signals for the underlying `ffmpeg` process, managed via the dashboard.
+- **Advanced Configuration in UI**: The "Options" page was expanded to include advanced transcoding settings, moving them from hardcoded values into the database. This includes:
+  - Constant Quality (CQ/CRF) values for all encoder types and resolutions.
+  - The pixel width threshold for determining HD content.
+  - A configurable list of file extensions for the scanner.
+- **Debug Flag**: The `--debug` command-line flag was re-introduced to the worker for easy local troubleshooting, allowing it to override the database setting and print the full `ffmpeg` command.

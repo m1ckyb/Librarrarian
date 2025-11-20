@@ -2,6 +2,20 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.8.1] - 2025-11-20 - Granular Control & Advanced Config
+
+### Added
+- **Granular Node Control**: Replaced the single toggle button with individual "Start", "Stop", and "Pause"/"Resume" buttons for clearer and more precise control over each worker.
+- **Pause/Resume Functionality**: Implemented the ability to pause a transcode in progress and resume it later. The worker sends the appropriate signals (`SIGSTOP`/`SIGCONT`) to the `ffmpeg` process.
+- **Advanced Transcoding Configuration**: Exposed core transcoding parameters in the "Options" tab of the UI, allowing for dynamic configuration of:
+  - Constant Quality (CQ/CRF) values for each encoder type (NVIDIA, VAAPI, CPU) and resolution (HD/SD).
+  - The pixel width threshold that defines a video as "HD".
+  - The list of scannable file extensions.
+- **Debug Flag**: Re-introduced the `--debug` command-line flag for the worker script. When used, it overrides the database setting and prints the full `ffmpeg` command to the console for easier troubleshooting.
+
+### Changed
+- The worker's main loop was refactored to fetch and use the new advanced transcoding settings from the database.
+
 ## [0.8.0] - 2025-11-20 - Remote Control & Centralization
 
 ### Added
