@@ -32,13 +32,10 @@
                 <button class="nav-link active" id="nodes-tab" data-bs-toggle="tab" data-bs-target="#nodes-tab-pane" type="button" role="tab">Active Nodes</button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="stats-tab" data-bs-toggle="tab" data-bs-target="#stats-tab-pane" type="button" role="tab">Stats</button>
+                <button class="nav-link" id="history-stats-tab" data-bs-toggle="tab" data-bs-target="#history-stats-tab-pane" type="button" role="tab">History & Stats</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="cleanup-tab" data-bs-toggle="tab" data-bs-target="#cleanup-tab-pane" type="button" role="tab">Cleanup</button>
-            </li>
-            <li class="nav-item" role="presentation">
-                <button class="nav-link" id="history-tab" data-bs-toggle="tab" data-bs-target="#history-tab-pane" type="button" role="tab">History</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="options-tab" data-bs-toggle="tab" data-bs-target="#options-tab-pane" type="button" role="tab">Options</button>
@@ -91,11 +88,11 @@
                     {% endif %}
                 </div>
             </div>
-            <!-- Stats Tab -->
-            <div class="tab-pane fade" id="stats-tab-pane" role="tabpanel">
+            <!-- History & Stats Tab -->
+            <div class="tab-pane fade" id="history-stats-tab-pane" role="tabpanel">
                 <div class="mt-3">
+                    <!-- Stat cards will be loaded here by JavaScript -->
                     <div class="row text-center g-3" id="stats-cards-container">
-                        <!-- Stat cards will be loaded here by JavaScript -->
                         <div class="col-12">
                             <div class="spinner-border text-primary" role="status">
                                 <span class="visually-hidden">Loading...</span>
@@ -103,39 +100,14 @@
                         </div>
                     </div>
                     <hr class="my-4">
-                    <h5>Recently Encoded Files</h5>
-                    <div class="table-responsive">
-                        <table class="table table-hover">
-                            <thead>
-                                <tr>
-                                    <th>File</th>
-                                    <th>Node</th>
-                                    <th>Codec</th>
-                                    <th>Size (GB)</th>
-                                    <th>Reduction</th>
-                                    <th>Date</th>
-                                </tr>
-                            </thead>
-                            <tbody id="stats-history-table-body">
-                                <tr>
-                                    <td colspan="6" class="text-center">
-                                        <div class="spinner-border spinner-border-sm" role="status">
-                                            <span class="visually-hidden">Loading...</span>
-                                        </div>
-                                    </td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
-            <!-- History Tab -->
-            <div class="tab-pane fade" id="history-tab-pane" role="tabpanel">
-                <div class="mt-3">
-                    <div class="d-flex justify-content-end mb-3">
+                    <div class="d-flex justify-content-between align-items-center mb-3">
+                        <div class="w-50">
+                            <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node...">
+                        </div>
                         <button class="btn btn-danger" id="clear-history-btn">Clear All History</button>
                     </div>
-                    <table class="table table-hover">
+                    <!-- Full History Table -->
+                    <table class="table table-hover table-sm">
                         <thead>
                             <tr>
                                 <th>File</th>
@@ -144,10 +116,16 @@
                                 <th>Size (GB)</th>
                                 <th>Reduction</th>
                                 <th>Date</th>
+                                <th></th> <!-- For delete button -->
                             </tr>
                         </thead>
                         <tbody id="history-table-body"></tbody>
                     </table>
+                    <nav>
+                        <ul class="pagination justify-content-center" id="history-pagination">
+                            <!-- Pagination links will be generated by JavaScript -->
+                        </ul>
+                    </nav>
                 </div>
             </div>
             <!-- Options Tab -->
@@ -469,36 +447,6 @@
             }
         }
 
-        // Function to fetch and display history
-        async function updateHistory() {
-            const historyBody = document.getElementById('history-table-body');
-            try {
-                const response = await fetch('/api/history');
-                const data = await response.json();
-                if (data.history && data.history.length > 0) {
-                    historyBody.innerHTML = data.history.map(item => `
-                        <tr>
-                            <td style="word-break: break-all;">${item.filename}</td>
-                            <td>${item.hostname}</td>
-                            <td><span class="badge text-bg-secondary">${item.codec}</span></td>
-                            ${item.status === 'encoding' ? `
-                                <td colspan="2" class="text-center"><span class="badge text-bg-primary">In Progress</span></td>
-                            ` : `
-                                <td>${item.original_size_gb} → ${item.new_size_gb}</td>
-                                <td><span class="badge text-bg-success">${item.reduction_percent}%</span></td>
-                            `}
-                            <td>${item.encoded_at}</td>
-                        </tr>
-                    `).join('');
-                } else {
-                    historyBody.innerHTML = '<tr><td colspan="6" class="text-center">No encoded files found.</td></tr>';
-                }
-            } catch (error) {
-                console.error("Failed to fetch history:", error);
-                historyBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Failed to load history.</td></tr>';
-            }
-        }
-
         // Function to fetch and display failures in the modal
         document.getElementById('view-errors-btn').addEventListener('click', async () => {
             const tableBody = document.getElementById('failures-table-body');
@@ -555,77 +503,13 @@
             await updateStatus();
 
             // Check which tab is active and update its content if needed
-            if (document.querySelector('#stats-tab.active')) {
-                await updateStats();
-            } else if (document.querySelector('#history-tab.active')) {
-                await updateHistory();
+            if (document.querySelector('#history-stats-tab.active')) {
+                await updateHistoryAndStats();
             }
         }
 
         // Run initial update on page load
         updateStatus();
-
-        // Start the main update loop
-        setInterval(mainUpdateLoop, 5000);
-
-        // Update history when the tab is shown
-        const historyTab = document.querySelector('#history-tab');
-        historyTab.addEventListener('shown.bs.tab', event => {
-            updateHistory();
-        });
-
-        // Update stats when the tab is shown
-        const statsTab = document.querySelector('#stats-tab');
-        statsTab.addEventListener('shown.bs.tab', event => {
-            updateStats();
-        });
-
-        // Function to fetch and display stats
-        async function updateStats() {
-            const statsCardsContainer = document.getElementById('stats-cards-container');
-            const statsHistoryBody = document.getElementById('stats-history-table-body');
-            try {
-                const response = await fetch('/api/stats');
-                const data = await response.json();
-
-                // Update the summary cards
-                statsCardsContainer.innerHTML = `
-                    <div class="col-md-3"><div class="card"><div class="card-body">
-                        <h5 class="card-title">${data.stats.total_files}</h5><p class="card-text text-muted">Files Encoded</p>
-                    </div></div></div>
-                    <div class="col-md-3"><div class="card"><div class="card-body">
-                        <h5 class="card-title">${data.stats.total_original_size_gb} GB</h5><p class="card-text text-muted">Original Size</p>
-                    </div></div></div>
-                    <div class="col-md-3"><div class="card"><div class="card-body">
-                        <h5 class="card-title">${data.stats.total_new_size_gb} GB</h5><p class="card-text text-muted">New Size</p>
-                    </div></div></div>
-                    <div class="col-md-3"><div class="card bg-success text-white"><div class="card-body">
-                        <h5 class="card-title">${data.stats.total_reduction_percent}%</h5><p class="card-text">Average Reduction</p>
-                    </div></div></div>
-                `;
-
-                // Update the history table on the stats page
-                if (data.history && data.history.length > 0) {
-                    statsHistoryBody.innerHTML = data.history.map(item => `
-                        <tr>
-                            <td style="word-break: break-all;">${item.filename}</td>
-                            <td>${item.hostname}</td>
-                            <td><span class="badge text-bg-secondary">${item.codec}</span></td>
-                            <td>${item.original_size_gb} → ${item.new_size_gb}</td>
-                            <td><span class="badge text-bg-success">${item.reduction_percent}%</span></td>
-                            <td>${item.encoded_at}</td>
-                        </tr>
-                    `).join('');
-                } else {
-                    statsHistoryBody.innerHTML = '<tr><td colspan="6" class="text-center">No encoded files found.</td></tr>';
-                }
-
-            } catch (error) {
-                console.error("Failed to fetch stats:", error);
-                statsCardsContainer.innerHTML = '<div class="col-12"><div class="alert alert-danger">Failed to load statistics.</div></div>';
-                statsHistoryBody.innerHTML = '<tr><td colspan="6" class="text-center text-danger">Failed to load history.</td></tr>';
-            }
-        }
 
         // Function to clear all history
         document.getElementById('clear-history-btn').addEventListener('click', async () => {
@@ -636,18 +520,12 @@
                 const response = await fetch('/api/history/clear', { method: 'POST' });
                 if (response.ok) {
                     // Refresh the history table to show it's empty
-                    updateHistory();
+                    updateHistoryAndStats();
                 }
             } catch (error) {
                 console.error('Error clearing history:', error);
                 alert('An error occurred while trying to clear the history.');
             }
-        });
-
-        // Add event listener for the cleanup tab
-        const cleanupTab = document.querySelector('#cleanup-tab');
-        cleanupTab.addEventListener('shown.bs.tab', event => {
-            // You could add logic here to auto-scan if desired
         });
 
         // Cleanup Tab Logic
@@ -707,6 +585,127 @@
                 alert('An error occurred while deleting files.');
             }
         });
+
+        // --- History & Stats Page Logic ---
+        let fullHistoryData = [];
+        let historyCurrentPage = 1;
+        const historyItemsPerPage = 15;
+
+        // Combined function to fetch and display stats and history
+        async function updateHistoryAndStats() {
+            const statsCardsContainer = document.getElementById('stats-cards-container');
+            const historyBody = document.getElementById('history-table-body');
+
+            try {
+                // Fetch both stats and history in parallel
+                const [statsResponse, historyResponse] = await Promise.all([
+                    fetch('/api/stats'),
+                    fetch('/api/history')
+                ]);
+
+                // Process Stats
+                const statsData = await statsResponse.json();
+                statsCardsContainer.innerHTML = `
+                    <div class="col-md-3"><div class="card"><div class="card-body">
+                        <h5 class="card-title">${statsData.stats.total_files}</h5><p class="card-text text-muted">Files Encoded</p>
+                    </div></div></div>
+                    <div class="col-md-3"><div class="card"><div class="card-body">
+                        <h5 class="card-title">${statsData.stats.total_original_size_gb} GB</h5><p class="card-text text-muted">Original Size</p>
+                    </div></div></div>
+                    <div class="col-md-3"><div class="card"><div class="card-body">
+                        <h5 class="card-title">${statsData.stats.total_new_size_gb} GB</h5><p class="card-text text-muted">New Size</p>
+                    </div></div></div>
+                    <div class="col-md-3"><div class="card bg-success text-white"><div class="card-body">
+                        <h5 class="card-title">${statsData.stats.total_reduction_percent}%</h5><p class="card-text">Average Reduction</p>
+                    </div></div></div>
+                `;
+
+                // Process History
+                const historyData = await historyResponse.json();
+                fullHistoryData = historyData.history || [];
+                renderHistoryTable(); // Render the table with the new data
+
+            } catch (error) {
+                console.error("Failed to fetch history/stats:", error);
+                statsCardsContainer.innerHTML = '<div class="col-12"><div class="alert alert-danger">Failed to load statistics.</div></div>';
+                historyBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Failed to load history.</td></tr>';
+            }
+        }
+
+        // Function to render the history table with search and pagination
+        function renderHistoryTable() {
+            const historyBody = document.getElementById('history-table-body');
+            const paginationContainer = document.getElementById('history-pagination');
+            const searchTerm = document.getElementById('history-search-input').value.toLowerCase();
+
+            const filteredData = fullHistoryData.filter(item => 
+                item.filename.toLowerCase().includes(searchTerm) ||
+                item.hostname.toLowerCase().includes(searchTerm)
+            );
+
+            const totalPages = Math.ceil(filteredData.length / historyItemsPerPage);
+            if (historyCurrentPage > totalPages) {
+                historyCurrentPage = totalPages || 1;
+            }
+            const startIndex = (historyCurrentPage - 1) * historyItemsPerPage;
+            const paginatedData = filteredData.slice(startIndex, startIndex + historyItemsPerPage);
+
+            // Render table rows
+            if (paginatedData.length > 0) {
+                historyBody.innerHTML = paginatedData.map(item => `
+                    <tr>
+                        <td style="word-break: break-all;">${item.filename}</td>
+                        <td>${item.hostname}</td>
+                        <td><span class="badge text-bg-secondary">${item.codec}</span></td>
+                        ${item.status === 'encoding' ? `
+                            <td colspan="2" class="text-center"><span class="badge text-bg-primary">In Progress</span></td>
+                        ` : `
+                            <td>${item.original_size_gb} → ${item.new_size_gb}</td>
+                            <td><span class="badge text-bg-success">${item.reduction_percent}%</span></td>
+                        `}
+                        <td>${item.encoded_at}</td>
+                        <td><button class="btn btn-xs btn-outline-danger" title="Delete this entry">&times;</button></td>
+                    </tr>
+                `).join('');
+            } else {
+                historyBody.innerHTML = `<tr><td colspan="7" class="text-center">${searchTerm ? 'No matching files found.' : 'No encoded files found.'}</td></tr>`;
+            }
+
+            // Render pagination
+            paginationContainer.innerHTML = '';
+            if (totalPages > 1) {
+                for (let i = 1; i <= totalPages; i++) {
+                    const li = document.createElement('li');
+                    li.className = `page-item ${i === historyCurrentPage ? 'active' : ''}`;
+                    li.innerHTML = `<a class="page-link" href="#">${i}</a>`;
+                    li.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        historyCurrentPage = i;
+                        renderHistoryTable();
+                    });
+                    paginationContainer.appendChild(li);
+                }
+            }
+        }
+
+        // Event listener for the search input
+        document.getElementById('history-search-input').addEventListener('input', () => {
+            historyCurrentPage = 1; // Reset to first page on search
+            renderHistoryTable();
+        });
+
+        // Update history/stats when the tab is shown
+        const historyStatsTab = document.querySelector('#history-stats-tab');
+        historyStatsTab.addEventListener('shown.bs.tab', () => {
+            updateHistoryAndStats(); // Fetch fresh data when tab is clicked
+        }
+
+        // Start the main update loop
+        setInterval(mainUpdateLoop, 5000);
+
+        // Update history/stats when the tab is shown
+        const historyStatsTab = document.querySelector('#history-stats-tab');
+        historyStatsTab.addEventListener('shown.bs.tab', updateHistoryAndStats);
     </script>
     <script>
         // Function to send the 'start' command to a node
