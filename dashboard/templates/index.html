@@ -351,8 +351,10 @@
             const isIdle = node.status === 'idle' || node.percent === 0;
             return `
             <div class="card mb-3">
-                <div class="card-header fs-5 d-flex justify-content-between align-items-center">
-                    <span>${node.hostname}</span>
+                <div id="node-${node.hostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
+                    <span>
+                        <span class="health-icon me-2" title="Calculating...">●</span>${node.hostname}
+                    </span>
                     <div>
                         <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
                         <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'running' || node.status === 'paused' ? 'disabled' : ''}>Start</button>
@@ -442,6 +444,23 @@
                     </div>`;
                 }
 
+                // --- NEW: Update Health Icons ---
+                data.nodes.forEach(node => {
+                    const cardHeader = document.getElementById(`node-${node.hostname}`);
+                    if (cardHeader) {
+                        const healthIcon = cardHeader.querySelector('.health-icon');
+                        if (node.age < 30) {
+                            healthIcon.style.color = 'green';
+                            healthIcon.title = `Healthy (last seen ${Math.round(node.age)}s ago)`;
+                        } else if (node.age < 60) {
+                            healthIcon.style.color = 'orange';
+                            healthIcon.title = `Warning (last seen ${Math.round(node.age)}s ago)`;
+                        } else {
+                            healthIcon.style.color = 'red';
+                            healthIcon.title = `Critical (last seen ${Math.round(node.age)}s ago)`;
+                        }
+                    }
+                });
             } catch (error) {
                 console.error("Failed to fetch status:", error);
                 const errorAlert = document.getElementById('db-error-alert');
