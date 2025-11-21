@@ -405,9 +405,27 @@
                 if (failCount > 0) {
                     viewErrorsBtn.classList.add('btn-danger');
                     failCountBadge.classList.add('text-bg-light');
+                } else {
+                    // If there are no errors, color the button based on the average reduction.
+                    // We need to fetch the stats to get this value.
+                    try {
+                        const statsResponse = await fetch('/api/stats');
+                        const statsData = await statsResponse.json();
+                        const reductionPercent = parseFloat(statsData.stats.total_reduction_percent);
+                        
+                        let reductionColorClass = 'btn-success';
+                        if (reductionPercent < 50) {
+                            reductionColorClass = 'btn-danger';
+                        } else if (reductionPercent < 75) {
+                            reductionColorClass = 'btn-warning';
+                        }
+                        viewErrorsBtn.classList.add(reductionColorClass);
+                        failCountBadge.classList.add('text-bg-light');
+                    } catch (e) {
+                        // If stats fail to load, default to a neutral color.
+                        viewErrorsBtn.classList.add('btn-secondary');
+                    }
                 }
-                // If there are no errors, its color will be set by the updateHistoryAndStats function
-                // based on the average reduction percentage.
                 
                 // Update DB error alert
                 const errorAlert = document.getElementById('db-error-alert');
@@ -618,14 +636,6 @@
                     reductionColorClass = 'bg-danger';
                 } else if (reductionPercent < 75) {
                     reductionColorClass = 'bg-warning text-dark'; // Add text-dark for better contrast on yellow
-                }
-
-                // Update the "View Errors" button color if there are no errors
-                const failCount = parseInt(document.getElementById('fail-count-badge').innerText, 10);
-                if (failCount === 0) {
-                    const viewErrorsBtn = document.getElementById('view-errors-btn');
-                    viewErrorsBtn.classList.remove('btn-success', 'btn-warning', 'btn-danger');
-                    viewErrorsBtn.classList.add(reductionColorClass.replace('bg-', 'btn-').split(' ')[0]);
                 }
 
                 statsCardsContainer.innerHTML = `
