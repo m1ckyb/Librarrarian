@@ -525,6 +525,9 @@ def worker_loop(root, db, cli_args):
         # The node joins the cluster (or returns to) an idle state and waits for a 'start' command.
         db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
         while not STOP_EVENT.is_set():
+            # Send a heartbeat on each loop to keep the node visible in the dashboard while idle.
+            db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
+
             initial_command = db.get_node_command(HOSTNAME)
             if initial_command == 'quit':
                 if is_debug_mode: print("\nDEBUG: Received 'quit' command while idle. Shutting down.")
