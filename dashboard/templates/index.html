@@ -697,15 +697,11 @@
         // Update history/stats when the tab is shown
         const historyStatsTab = document.querySelector('#history-stats-tab');
         historyStatsTab.addEventListener('shown.bs.tab', () => {
-            updateHistoryAndStats(); // Fetch fresh data when tab is clicked
-        }
+            updateHistoryAndStats();
+        });
 
         // Start the main update loop
         setInterval(mainUpdateLoop, 5000);
-
-        // Update history/stats when the tab is shown
-        const historyStatsTab = document.querySelector('#history-stats-tab');
-        historyStatsTab.addEventListener('shown.bs.tab', updateHistoryAndStats);
     </script>
     <script>
         // Function to send the 'start' command to a node
