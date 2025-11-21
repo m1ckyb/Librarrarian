@@ -540,6 +540,7 @@ def worker_loop(root, db, cli_args):
         # If the quit command was received, exit the main loop immediately.
         if STOP_EVENT.is_set(): break
 
+        stop_command_received = False
         files_processed_this_scan = 0
 
         # Fetch the latest settings at the start of each full scan
