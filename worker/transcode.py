@@ -521,261 +521,258 @@ def worker_loop(root, db, cli_args):
     # This outer loop allows the worker to return to an idle state after being stopped.
     while not STOP_EVENT.is_set():
 
-        # --- Initial State: Idle ---
-        # The node joins the cluster (or returns to) an idle state and waits for a 'start' command.
-        db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-        while not STOP_EVENT.is_set():
-            command = db.get_node_command(HOSTNAME)
-            if command == 'quit':
-                if is_debug_mode: print("\nDEBUG: Received 'quit' command while idle. Shutting down.")
-                STOP_EVENT.set()
-                break
-            if command == 'running':
-                # This is the 'Start' command
-                if is_debug_mode:
-                    print("DEBUG: Received command from dashboard: 'start'")
-                break # Exit idle loop and start scanning
+        # --- State-Driven Main Loop ---
+        command = db.get_node_command(HOSTNAME)
+
+        if command == 'quit':
+            if is_debug_mode: print("\nDEBUG: Received 'quit' command. Shutting down.")
+            STOP_EVENT.set()
+            break
+
+        if command == 'idle' or command == 'paused' or command == 'finishing':
+            # Send a heartbeat on each loop to keep the node visible in the dashboard while idle.
+            status_message = "Idle (Awaiting Start)" if command == 'idle' else command.capitalize()
+            db.update_heartbeat(status_message, "N/A", 0, "0", VERSION, status=command)
             time.sleep(5) # Check for command every 5 seconds
-
-        # If the quit command was received, exit the main loop immediately.
-        if STOP_EVENT.is_set(): break
-
-        files_processed_this_scan = 0
-
-        # Fetch the latest settings at the start of each full scan
-        settings_raw = db.get_worker_settings()
-
-        # Check if command-line debug flag is set. If so, it overrides the DB setting.
-        db_debug = settings_raw.get('debug', 'false').lower() == 'true'
-        is_debug_mode = cli_args.debug or db_debug
+            continue # Restart the loop to fetch the next command
         
-        # Define a simple structure for settings
-        WorkerArgs = namedtuple('WorkerArgs', settings_raw.keys())
-        args = WorkerArgs(
-            rescan_delay_minutes=int(settings_raw.get('rescan_delay_minutes', 5)),
-            skip_encoded_folder=settings_raw.get('skip_encoded_folder', 'true').lower() == 'true',
-            min_length=float(settings_raw.get('min_length', 1.5)),
-            recursive_scan=settings_raw.get('recursive_scan', 'true').lower() == 'true',
-            keep_original=settings_raw.get('keep_original', 'false').lower() == 'true',
-            backup_directory=settings_raw.get('backup_directory', ''),
-            allow_hevc=settings_raw.get('allow_hevc', 'false').lower() == 'true',
-            allow_av1=settings_raw.get('allow_av1', 'false').lower() == 'true',
-            hardware_acceleration=settings_raw.get('hardware_acceleration', 'auto'),
-            auto_update=settings_raw.get('auto_update', 'true').lower() == 'true',
-            clean_failures=settings_raw.get('clean_failures', 'false').lower() == 'true',
-            debug=is_debug_mode,
-            nvenc_cq_hd=settings_raw.get('nvenc_cq_hd', '32'),
-            nvenc_cq_sd=settings_raw.get('nvenc_cq_sd', '28'),
-            vaapi_cq_hd=settings_raw.get('vaapi_cq_hd', '28'),
-            vaapi_cq_sd=settings_raw.get('vaapi_cq_sd', '24'),
-            cpu_cq_hd=settings_raw.get('cpu_cq_hd', '28'),
-            cpu_cq_sd=settings_raw.get('cpu_cq_sd', '24'),
-            cq_width_threshold=settings_raw.get('cq_width_threshold', '1900'),
-            extensions=settings_raw.get('extensions', '.mkv,.mp4')
-        )
-        allowed_extensions = {ext.strip() for ext in args.extensions.split(',')}
+        # If the command is 'running', proceed to scan.
+        if command == 'running':
 
-        # Report that the node is starting a scan
-        db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION, status='running')
-        
-        # Get a fresh list of failed files for each scan
-        global_failures = db.get_failed_files()
+            files_processed_this_scan = 0
+            stop_command_received = False
 
-        # Get a fresh list of already encoded files from the history
-        encoded_history = db.get_encoded_files()
-        
-        # Get a fresh iterator for each scan
-        iterator = os.walk(root) if args.recursive_scan else [(str(root), [], os.listdir(root))]
+            # Fetch the latest settings at the start of each full scan
+            settings_raw = db.get_worker_settings()
 
-        for dirpath, dirnames, filenames in iterator:
-            if STOP_EVENT.is_set(): break
+            # Check if command-line debug flag is set. If so, it overrides the DB setting.
+            db_debug = settings_raw.get('debug', 'false').lower() == 'true'
+            is_debug_mode = cli_args.debug or db_debug
+            
+            # Define a simple structure for settings
+            WorkerArgs = namedtuple('WorkerArgs', settings_raw.keys())
+            args = WorkerArgs(
+                rescan_delay_minutes=int(settings_raw.get('rescan_delay_minutes', 5)),
+                skip_encoded_folder=settings_raw.get('skip_encoded_folder', 'true').lower() == 'true',
+                min_length=float(settings_raw.get('min_length', 1.5)),
+                recursive_scan=settings_raw.get('recursive_scan', 'true').lower() == 'true',
+                keep_original=settings_raw.get('keep_original', 'false').lower() == 'true',
+                backup_directory=settings_raw.get('backup_directory', ''),
+                allow_hevc=settings_raw.get('allow_hevc', 'false').lower() == 'true',
+                allow_av1=settings_raw.get('allow_av1', 'false').lower() == 'true',
+                hardware_acceleration=settings_raw.get('hardware_acceleration', 'auto'),
+                auto_update=settings_raw.get('auto_update', 'true').lower() == 'true',
+                clean_failures=settings_raw.get('clean_failures', 'false').lower() == 'true',
+                debug=is_debug_mode,
+                nvenc_cq_hd=settings_raw.get('nvenc_cq_hd', '32'),
+                nvenc_cq_sd=settings_raw.get('nvenc_cq_sd', '28'),
+                vaapi_cq_hd=settings_raw.get('vaapi_cq_hd', '28'),
+                vaapi_cq_sd=settings_raw.get('vaapi_cq_sd', '24'),
+                cpu_cq_hd=settings_raw.get('cpu_cq_hd', '28'),
+                cpu_cq_sd=settings_raw.get('cpu_cq_sd', '24'),
+                cq_width_threshold=settings_raw.get('cq_width_threshold', '1900'),
+                extensions=settings_raw.get('extensions', '.mkv,.mp4')
+            )
+            allowed_extensions = {ext.strip() for ext in args.extensions.split(',')}
 
-            if args.skip_encoded_folder and 'encoded' in dirnames:
-                dirnames.remove('encoded') # This stops os.walk from descending into it
+            # Report that the node is starting a scan
+            db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION, status='running')
+            
+            # Get a fresh list of failed files for each scan
+            global_failures = db.get_failed_files()
 
-            dir_path = Path(dirpath)
-            for fname in filenames:
+            # Get a fresh list of already encoded files from the history
+            encoded_history = db.get_encoded_files()
+            
+            # Get a fresh iterator for each scan
+            iterator = os.walk(root) if args.recursive_scan else [(str(root), [], os.listdir(root))]
+
+            for dirpath, dirnames, filenames in iterator:
                 if STOP_EVENT.is_set(): break
-                fpath = dir_path / fname
-                
-                # --- Filtering Checks ---
-                if fpath.suffix.lower() not in allowed_extensions: 
-                    if args.debug: print(f"DEBUG: Skip: {fname} (Extension)")
-                    continue
-                
-                if fname in global_failures:
-                    if args.debug: print(f"DEBUG: Skip: {fname} (Global Fail)")
-                    continue
 
-                lock_file = fpath.with_suffix('.lock')
-                if lock_file.exists(): 
-                    if args.debug: print(f"DEBUG: Skip: {fname} (Locked)")
-                    continue 
+                if args.skip_encoded_folder and 'encoded' in dirnames:
+                    dirnames.remove('encoded') # This stops os.walk from descending into it
+
+                dir_path = Path(dirpath)
+                for fname in filenames:
+                    if STOP_EVENT.is_set(): break
+                    fpath = dir_path / fname
                     
-                if fname in encoded_history:
-                    if args.debug: print(f"DEBUG: Skip: {fname} (Already in DB History)")
-                    continue
-
-                info = get_media_info(fpath)
-                if not info or (info['duration'] / 60) < args.min_length:
-                    if args.debug: print(f"DEBUG: Skip: {fname} (Too short or not media)")
-                    continue
-                # --- End Filtering Checks ---
-
-                try:
-                    # Attempt to lock (claim file)
-                    with open(lock_file, 'w') as f: f.write(HOSTNAME)
-                except: 
-                    # Failed to lock (e.g., permissions issue)
-                    continue
-                
-                if args.debug: print(f"DEBUG: Lock Acquired: {fname}")
-                files_processed_this_scan += 1
-
-                try:
-                    should_skip = False
-                    if not info: 
-                        if args.debug: print(f"DEBUG: Skip: {fname} (FFprobe failed)")
-                        should_skip = True
-                    elif info['codec'] == 'hevc' and not args.allow_hevc: 
-                        if args.debug: print(f"DEBUG: Skip: {fname} (HEVC codec, not allowed)")
-                        should_skip = True
-                    elif info['codec'] == 'av1' and not args.allow_av1: 
-                        if args.debug: print(f"DEBUG: Skip: {fname} (AV1 codec, not allowed)")
-                        should_skip = True
-
-                    if should_skip:
-                        lock_file.unlink()
+                    # --- Filtering Checks ---
+                    if fpath.suffix.lower() not in allowed_extensions: 
+                        if args.debug: print(f"DEBUG: Skip: {fname} (Extension)")
+                        continue
+                    
+                    if fname in global_failures:
+                        if args.debug: print(f"DEBUG: Skip: {fname} (Global Fail)")
                         continue
 
-                    print(f"\n✅ [Accepted] {fname}")
-                    if args.debug: print(f"DEBUG: Processing: {fname}")
+                    lock_file = fpath.with_suffix('.lock')
+                    if lock_file.exists(): 
+                        if args.debug: print(f"DEBUG: Skip: {fname} (Locked)")
+                        continue 
+                        
+                    if fname in encoded_history:
+                        if args.debug: print(f"DEBUG: Skip: {fname} (Already in DB History)")
+                        continue
 
-                    cq = get_cq_value(info['width'], hw_settings['type'], args)
-                    # Log the start of the transcode to the history table
-                    history_id = db.report_start(fname, HOSTNAME, hw_settings['codec'], info['size'])
+                    info = get_media_info(fpath)
+                    if not info or (info['duration'] / 60) < args.min_length:
+                        if args.debug: print(f"DEBUG: Skip: {fname} (Too short or not media)")
+                        continue
+                    # --- End Filtering Checks ---
 
-                    temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
+                    try:
+                        # Attempt to lock (claim file)
+                        with open(lock_file, 'w') as f: f.write(HOSTNAME)
+                    except: 
+                        # Failed to lock (e.g., permissions issue)
+                        continue
                     
-                    cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
-                    cmd.extend(hw_settings["hw_pre_args"])
-                    cmd.extend(['-i', str(fpath)])
-                    cmd.extend(['-map', f"0:{info['stream_index']}", '-map', '0:a?', '-map', '0:s?'])
-                    cmd.extend(['-c:v', hw_settings["codec"]])
-                    if hw_settings["preset"]: cmd.extend(['-preset', hw_settings["preset"]])
-                    cmd.extend([hw_settings["cq_flag"], str(cq)] + hw_settings["extra"])
-                    cmd.extend(['-c:a', 'aac', '-b:a', '256k'])
-                    cmd.extend(['-c:s', 'copy', str(temp_out)])
+                    if args.debug: print(f"DEBUG: Lock Acquired: {fname}")
+                    files_processed_this_scan += 1
 
-                    if args.debug:
-                        # Print the full command for debugging purposes
-                        print(f"\nDEBUG: Running command:\n{' '.join(cmd)}\n")
+                    try:
+                        should_skip = False
+                        if not info: 
+                            if args.debug: print(f"DEBUG: Skip: {fname} (FFprobe failed)")
+                            should_skip = True
+                        elif info['codec'] == 'hevc' and not args.allow_hevc: 
+                            if args.debug: print(f"DEBUG: Skip: {fname} (HEVC codec, not allowed)")
+                            should_skip = True
+                        elif info['codec'] == 'av1' and not args.allow_av1: 
+                            if args.debug: print(f"DEBUG: Skip: {fname} (AV1 codec, not allowed)")
+                            should_skip = True
 
-                    # Start FFmpeg subprocess
-                    ret, err_log = run_with_progress(cmd, info['duration'], db, fname, hw_settings)
+                        if should_skip:
+                            lock_file.unlink()
+                            continue
 
-                    # --- Naming Logic ---
-                    hw_tag = 'NVENC' if hw_settings['type'] == 'nvidia' else 'VAAPI'
-                    new_filename_base = f"{fpath.stem}.{hw_tag}.mkv"
+                        print(f"\n✅ [Accepted] {fname}")
+                        if args.debug: print(f"DEBUG: Processing: {fname}")
+
+                        cq = get_cq_value(info['width'], hw_settings['type'], args)
+                        # Log the start of the transcode to the history table
+                        history_id = db.report_start(fname, HOSTNAME, hw_settings['codec'], info['size'])
+
+                        temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
+                        
+                        cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
+                        cmd.extend(hw_settings["hw_pre_args"])
+                        cmd.extend(['-i', str(fpath)])
+                        cmd.extend(['-map', f"0:{info['stream_index']}", '-map', '0:a?', '-map', '0:s?'])
+                        cmd.extend(['-c:v', hw_settings["codec"]])
+                        if hw_settings["preset"]: cmd.extend(['-preset', hw_settings["preset"]])
+                        cmd.extend([hw_settings["cq_flag"], str(cq)] + hw_settings["extra"])
+                        cmd.extend(['-c:a', 'aac', '-b:a', '256k'])
+                        cmd.extend(['-c:s', 'copy', str(temp_out)])
+
+                        if args.debug:
+                            # Print the full command for debugging purposes
+                            print(f"\nDEBUG: Running command:\n{' '.join(cmd)}\n")
+
+                        # Start FFmpeg subprocess
+                        ret, err_log = run_with_progress(cmd, info['duration'], db, fname, hw_settings)
+
+                        # --- Naming Logic ---
+                        hw_tag = 'NVENC' if hw_settings['type'] == 'nvidia' else 'VAAPI'
+                        new_filename_base = f"{fpath.stem}.{hw_tag}.mkv"
 
 
-                    # --- Post-Processing ---
-                    if ret == 0:
-                        if temp_out.exists() and temp_out.stat().st_size < info['size']:                        
-                            finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
-                            print("\n✅ Finished.")
+                        # --- Post-Processing ---
+                        if ret == 0:
+                            if temp_out.exists() and temp_out.stat().st_size < info['size']:                        
+                                finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
+                                print("\n✅ Finished.")
+
+                            else:
+                                if args.debug: print(f"DEBUG: Discarded: {fname} (Too Large or Missing Output)")
+                                if temp_out.exists(): temp_out.unlink()
+                                print("\n⚠️ Larger or missing output, discarded.")
 
                         else:
-                            if args.debug: print(f"DEBUG: Discarded: {fname} (Too Large or Missing Output)")
-                            if temp_out.exists(): temp_out.unlink()
-                            print("\n⚠️ Larger or missing output, discarded.")
+                            # --- Fallback and Crash Reporting ---
+                            if "minimum supported value" in err_log and hw_settings['type'] != 'cpu':
+                                print(f"\n⚠️  HW encode failed for low resolution. Falling back to CPU for {fname}...")
+                                cpu_hw_settings = get_hw_config("cpu") # This is fine, it's just a struct
+                                cpu_cq = get_cq_value(info['width'], cpu_hw_settings['type'], args)
+                                
+                                cmd[cmd.index(hw_settings['codec'])] = cpu_hw_settings['codec']
+                                cmd[cmd.index(str(cq))] = str(cpu_cq)
+                                
+                                ret, err_log = run_with_progress(cmd, info['duration'], db, fname, cpu_hw_settings, VERSION)
 
-                    else:
-                        # --- Fallback and Crash Reporting ---
-                        if "minimum supported value" in err_log and hw_settings['type'] != 'cpu':
-                            print(f"\n⚠️  HW encode failed for low resolution. Falling back to CPU for {fname}...")
-                            cpu_hw_settings = get_hw_config("cpu") # This is fine, it's just a struct
-                            cpu_cq = get_cq_value(info['width'], cpu_hw_settings['type'], args)
-                            
-                            cmd[cmd.index(hw_settings['codec'])] = cpu_hw_settings['codec']
-                            cmd[cmd.index(str(cq))] = str(cpu_cq)
-                            
-                            ret, err_log = run_with_progress(cmd, info['duration'], db, fname, cpu_hw_settings, VERSION)
-
-                            if ret == 0 and temp_out.exists() and temp_out.stat().st_size < info['size']:
-                                finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
-                                print("\n✅ Finished (CPU Fallback).")
+                                if ret == 0 and temp_out.exists() and temp_out.stat().st_size < info['size']:
+                                    finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
+                                    print("\n✅ Finished (CPU Fallback).")
+                                else:
+                                    report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
                             else:
                                 report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
-                        else:
-                            report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
 
 
-                except Exception as e:
-                    print(f"Fatal Error on {fname}: {e}")
-                finally:
-                    if lock_file.exists(): lock_file.unlink()
+                    except Exception as e:
+                        print(f"Fatal Error on {fname}: {e}")
+                    finally:
+                        if lock_file.exists(): lock_file.unlink()
 
-                    # After each file, check if a stop command has been issued.
-                    # This is the most critical point to check.
-                    if db.get_node_command(HOSTNAME) == 'idle':
-                        if is_debug_mode: print("\nDEBUG: 'stop' command detected after file. Forcing idle state.")
-                        db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-                        stop_command_received = True
-                        break # Exit the file loop (for fname in filenames)
-                    # Also check for a quit command after each file.
-                    if db.get_node_command(HOSTNAME) == 'quit':
-                        if is_debug_mode: print("\nDEBUG: 'quit' command detected after file. Shutting down.")
-                        STOP_EVENT.set()
-                        stop_command_received = True # Use this to break outer loops
-                        break
-                    
-                    if args.debug: print(f"DEBUG: Lock Released: {fname}")
-            if 'stop_command_received' in locals() and stop_command_received: break
+                        # After each file, check if a stop command has been issued.
+                        # This is the most critical point to check.
+                        if db.get_node_command(HOSTNAME) == 'idle':
+                            if is_debug_mode: print("\nDEBUG: 'stop' command detected after file. Forcing idle state.")
+                            db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
+                            stop_command_received = True
+                            break # Exit the file loop (for fname in filenames)
+                        # Also check for a quit command after each file.
+                        if db.get_node_command(HOSTNAME) == 'quit':
+                            if is_debug_mode: print("\nDEBUG: 'quit' command detected after file. Shutting down.")
+                            STOP_EVENT.set()
+                            stop_command_received = True # Use this to break outer loops
+                            break
+                        
+                        if args.debug: print(f"DEBUG: Lock Released: {fname}")
+                # This check is inside the directory loop. If a stop is received,
+                # we must break out of this loop to proceed to the main check below.
+                if stop_command_received:
+                    break
 
-        # Unified wait logic at the end of every scan cycle.
-        # If a stop or quit command was received, we must 'continue' to force the main loop
-        # to restart, which will either enter the idle state or exit completely.
-        if 'stop_command_received' in locals() and stop_command_received:
-            if is_debug_mode: print("\nDEBUG: Stop/Quit command processed. Restarting main loop.")
-            # This 'continue' is the key to preventing a new scan from starting.
-            continue # This forces the worker back to the top of the main `while` loop.
+            # After the scan is complete (or was broken by a stop command), check if we need to loop.
+            # If a stop/quit was received, we break out of this inner scan/wait loop.
+            if stop_command_received or STOP_EVENT.is_set():
+                if is_debug_mode: print("\nDEBUG: Stop/Quit command processed. Returning to main loop.")
+                continue # This goes back to the top of the main `while` loop, which will then enter the idle state.
 
-        # --- Responsive Wait Loop ---
-        # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
-        # and check for the stop command in between each chunk.
-        stop_command_received = False
-        time_waited = 0
-        while time_waited < wait_seconds:
-            # Check for the stop command every 5 seconds.
-            command = db.get_node_command(HOSTNAME)
-            if command == 'quit':
-                if is_debug_mode: print("\nDEBUG: Received 'quit' command during wait. Shutting down.")
-                STOP_EVENT.set()
-                break
-            if db.get_node_command(HOSTNAME) == 'idle':
-                if is_debug_mode:
-                    print("\nDEBUG: Received 'stop' command. Returning to idle state.")
-                # Force the state to idle in the database immediately.
-                db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-                stop_command_received = True
-                break # Exit the wait loop
+            # --- Responsive Wait Loop ---
+            # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
+            # and check for the stop command in between each chunk.
+            wait_seconds = args.rescan_delay_minutes * 60
+            if wait_seconds <= 0: wait_seconds = 60
+            current_time = datetime.now().strftime('%H:%M:%S')
+            print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
+
+            time_waited = 0
+            while time_waited < wait_seconds:
+                # Check for the stop command every 5 seconds.
+                command = db.get_node_command(HOSTNAME)
+                if command == 'quit':
+                    if is_debug_mode: print("\nDEBUG: Received 'quit' command during wait. Shutting down.")
+                    STOP_EVENT.set()
+                    stop_command_received = True
+                    break
+                if db.get_node_command(HOSTNAME) == 'idle':
+                    if is_debug_mode:
+                        print("\nDEBUG: Received 'stop' command. Returning to idle state.")
+                    # Force the state to idle in the database immediately.
+                    db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
+                    stop_command_received = True
+                    break # Exit the wait loop
+                
+                time.sleep(5)
+                time_waited += 5
             
-            time.sleep(5)
-            time_waited += 5
-        if stop_command_received or STOP_EVENT.is_set():
-            # If STOP_EVENT is set (from a 'quit' command), we must break the main loop.
-            if STOP_EVENT.is_set():
-                break
-            continue # Go to the next iteration of the main loop, which starts at idle.
-
-        # When waiting between scans, the node is effectively idle.
-        # Setting status to 'idle' here prevents the UI from flipping the start/stop buttons.
-        db.update_heartbeat("Idle (Waiting for next scan)", "N/A", 0, "0", VERSION, status='idle')
-        wait_seconds = args.rescan_delay_minutes * 60
-        if wait_seconds <= 0: wait_seconds = 60
-        current_time = datetime.now().strftime('%H:%M:%S')
-        print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
+            if stop_command_received:
+                continue # Go back to the top of the main loop.
+            # If the wait completes, the main loop will restart, triggering a new scan.
 
     print("\nWatcher stopped.")
     db.clear_node() 

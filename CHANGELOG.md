@@ -2,6 +2,25 @@
 
 ### Added
 
+## [0.8.7] - 2025-11-21 - UI Refinements & Bug Fixes
+
+### Added
+- **Node Health Indicator**: Added a colored dot (green/orange/red) next to each worker's hostname to provide an at-a-glance view of its health based on the last heartbeat.
+- **Search & Pagination**: Implemented search and pagination for the history table, making it easier to navigate large numbers of encoded files.
+
+### Changed
+- **Consolidated UI**: Merged the "History" and "Stats" tabs into a single "History & Stats" tab to simplify the interface.
+- **UI Polish**:
+  - The "View Errors" button is now consistently styled and only turns red when errors are present, otherwise remaining in its default outline style.
+  - The footer now has a more pronounced "glass" effect with increased transparency.
+
+### Fixed
+- **Layout & Stability**: Fixed numerous UI bugs, including:
+  - A floating pagination bar on the history tab.
+  - Inconsistent button colors between tabs.
+  - JavaScript errors that broke UI components like the node control buttons.
+  - A typo in the footer HTML (`/span>`).
+
 ## [0.8.6] - 2025-11-20 - History, Stats & Cleanup
 
 ### Added

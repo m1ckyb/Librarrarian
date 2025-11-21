@@ -214,5 +214,18 @@ This release focused on adding new data management and statistical overview feat
   - The History tab now correctly displays an "In Progress" status for files that are currently being transcoded.
   - A "Clear All History" button was added to allow for easy database maintenance.
   - Users can now delete individual entries from the history log.
-- **Dynamic UI**: The "Stats" and "History" tabs were made dynamic, automatically refreshing their content every 5 seconds when they are the active tab.
+- **Dynamic UI**: The "Stats" and "History" tabs were made dynamic, automatically refreshing their content when they are the active tab.
 - **Modernized Worker Logging**: The worker script was updated to no longer use redundant `encoded.list` files, relying entirely on the central database for tracking encode history.
+
+## 23. Version 0.8.7 - UI Refinements & Bug Fixes
+
+This version focused heavily on improving the dashboard's user experience with new features and significant bug fixes.
+
+- **Node Health Indicators**: To provide a quick visual assessment of the cluster, a colored dot now appears next to each worker's hostname. The color (green, orange, or red) is based on the age of its last heartbeat.
+- **History & Stats Tab Enhancements**:
+  - The "History" and "Stats" tabs were merged into a single, streamlined "History & Stats" view.
+  - The history table is now fully interactive, with real-time search and pagination to handle a large number of entries.
+- **UI Stability and Polish**:
+  - The "View Errors" button logic was simplified. It now remains in its default outline style and only turns red when errors are detected.
+  - The "glass" effect on the footer was enhanced by increasing its transparency.
+  - A cascade of JavaScript bugs was resolved, fixing issues with missing node control buttons, broken UI elements, and inconsistent component styling between tabs.
