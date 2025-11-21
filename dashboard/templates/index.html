@@ -405,26 +405,6 @@
                 if (failCount > 0) {
                     viewErrorsBtn.classList.add('btn-danger');
                     failCountBadge.classList.add('text-bg-light');
-                } else {
-                    // If there are no errors, color the button based on the average reduction.
-                    // We need to fetch the stats to get this value.
-                    try {
-                        const statsResponse = await fetch('/api/stats');
-                        const statsData = await statsResponse.json();
-                        const reductionPercent = parseFloat(statsData.stats.total_reduction_percent);
-                        
-                        let reductionColorClass = 'btn-success';
-                        if (reductionPercent < 50) {
-                            reductionColorClass = 'btn-danger';
-                        } else if (reductionPercent < 75) {
-                            reductionColorClass = 'btn-warning';
-                        }
-                        viewErrorsBtn.classList.add(reductionColorClass);
-                        failCountBadge.classList.add('text-bg-light');
-                    } catch (e) {
-                        // If stats fail to load, default to a neutral color.
-                        viewErrorsBtn.classList.add('btn-secondary');
-                    }
                 }
                 
                 // Update DB error alert
