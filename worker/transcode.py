@@ -774,8 +774,8 @@ def worker_loop(root, db, cli_args):
                 break
             continue # Go to the next iteration of the main loop, which starts at idle.
 
-        # When waiting between scans, the node is effectively idle.
-        # Setting status to 'idle' here prevents the UI from flipping the start/stop buttons.
+        # If the wait completes without a stop/quit command, loop back for another scan.
+        continue
 
     print("\nWatcher stopped.")
     db.clear_node() 
