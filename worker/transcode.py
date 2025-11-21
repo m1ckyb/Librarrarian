@@ -521,31 +521,23 @@ def worker_loop(root, db, cli_args):
     # This outer loop allows the worker to return to an idle state after being stopped.
     while not STOP_EVENT.is_set():
 
-        # --- Initial State: Idle ---
-        # The node joins the cluster (or returns to) an idle state and waits for a 'start' command.
-        db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-        while not STOP_EVENT.is_set():
+        # --- State-Driven Main Loop ---
+        command = db.get_node_command(HOSTNAME)
+
+        if command == 'quit':
+            if is_debug_mode: print("\nDEBUG: Received 'quit' command. Shutting down.")
+            STOP_EVENT.set()
+            break
+
+        if command == 'idle' or command == 'paused' or command == 'finishing':
             # Send a heartbeat on each loop to keep the node visible in the dashboard while idle.
-            db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-
-            # Always fetch the latest command on each iteration of the idle loop.
-            if db.get_node_command(HOSTNAME) == 'quit':
-                if is_debug_mode: print("\nDEBUG: Received 'quit' command while idle. Shutting down.")
-                STOP_EVENT.set()
-                break
-            if db.get_node_command(HOSTNAME) == 'running':
-                # This is the 'Start' command
-                if is_debug_mode:
-                    print("DEBUG: Received command from dashboard: 'start'")
-                break # Exit idle loop and start scanning
+            status_message = "Idle (Awaiting Start)" if command == 'idle' else command.capitalize()
+            db.update_heartbeat(status_message, "N/A", 0, "0", VERSION, status=command)
             time.sleep(5) # Check for command every 5 seconds
-
-        # If the initial command was 'quit', exit the main loop immediately.
-        if STOP_EVENT.is_set(): break
-
-        # --- Scan & Wait Loop ---
-        # This loop will continue to scan and wait until a 'stop' or 'quit' command is received.
-        while db.get_node_command(HOSTNAME) not in ['idle', 'quit'] and not STOP_EVENT.is_set():
+            continue # Restart the loop to fetch the next command
+        
+        # If the command is 'running', proceed to scan.
+        if command == 'running':
 
             files_processed_this_scan = 0
             stop_command_received = False
@@ -746,9 +738,9 @@ def worker_loop(root, db, cli_args):
 
             # After the scan is complete (or was broken by a stop command), check if we need to loop.
             # If a stop/quit was received, we break out of this inner scan/wait loop.
-            if stop_command_received:
-                if is_debug_mode: print("\nDEBUG: Stop/Quit command processed. Returning to idle state.")
-                break # This breaks out of the scan/wait loop and goes back to the idle loop.
+            if stop_command_received or STOP_EVENT.is_set():
+                if is_debug_mode: print("\nDEBUG: Stop/Quit command processed. Returning to main loop.")
+                continue # This goes back to the top of the main `while` loop, which will then enter the idle state.
 
             # --- Responsive Wait Loop ---
             # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
@@ -779,9 +771,8 @@ def worker_loop(root, db, cli_args):
                 time_waited += 5
             
             if stop_command_received:
-                break # Exit the scan/wait loop
-
-            # If the wait completes without a stop/quit command, this inner loop will just continue.
+                continue # Go back to the top of the main loop.
+            # If the wait completes, the main loop will restart, triggering a new scan.
 
     print("\nWatcher stopped.")
     db.clear_node() 
