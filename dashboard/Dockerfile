@@ -20,4 +20,4 @@ COPY static ./static/
 EXPOSE 5000
 
 # The command to run the application using Gunicorn (a production-ready web server)
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "dashboard_app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--log-level", "debug", "--error-logfile", "-", "dashboard_app:app"]
