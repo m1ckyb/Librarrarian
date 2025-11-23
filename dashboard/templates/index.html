@@ -917,21 +917,15 @@
             // --- Dynamic Plex Library Loading ---
             async function loadPlexLibraries() {
                 const container = document.getElementById('plex-libraries-list');
-                const plexUrlInput = document.getElementById('plex_url');
+                // Use the settings rendered directly into the page by the server.
+                // This completely avoids any race conditions with the DOM.
                 const hasToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
+                const hasUrl = "{{ settings.get('plex_url', {}).get('setting_value') }}" !== "";
 
-                // If we have a token but the input value isn't rendered yet, wait a moment.
-                // This solves the race condition after saving the URL.
-                if (hasToken && !plexUrlInput.value) {
-                    setTimeout(loadPlexLibraries, 200); // Retry in 200ms
+                if (!hasToken || !hasUrl) {
+                    container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and link your account to see libraries.</p>`;
                     return;
                 }
-
-                // If there's still no URL, then prompt the user.
-                 if (!plexUrlInput.value) {
-                     container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and save settings to see libraries.</p>`;
-                     return;
-                 }
 
                 const response = await fetch('/api/plex/libraries');
                 const data = await response.json();
