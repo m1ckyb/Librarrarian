@@ -363,8 +363,18 @@ def options():
         else:
             flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
     
-    # Redirect back to the main dashboard page after handling the POST request.
-    return redirect(url_for('dashboard', _anchor='options-tab-pane'))
+    # Instead of redirecting (which can cause race conditions),
+    # re-fetch all data and render the template directly.
+    # This ensures the UI has the absolute latest settings.
+    nodes, fail_count, db_error = get_cluster_status()
+    settings, settings_db_error = get_worker_settings()
+    return render_template(
+        'index.html',
+        nodes=nodes,
+        fail_count=fail_count,
+        db_error=db_error or settings_db_error,
+        settings=settings
+    )
 
 @app.route('/api/status')
 def api_status():
