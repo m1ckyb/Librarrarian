@@ -361,6 +361,19 @@ def options():
     # Redirect back to the main page, anchoring to the options tab
     return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
+@app.route('/api/jobs/clear', methods=['POST'])
+def api_clear_jobs():
+    """Clears all jobs from the job_queue table."""
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute("TRUNCATE TABLE jobs RESTART IDENTITY;")
+        db.commit()
+        return jsonify(success=True, message="Job queue cleared successfully.")
+    except Exception as e:
+        print(f"Error clearing job queue: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
 @app.route('/api/jobs', methods=['GET'])
 def api_jobs():
     """Returns a paginated list of the current job queue as JSON."""
@@ -397,6 +410,7 @@ def api_jobs():
 def api_status():
     """Returns cluster status data as JSON."""
     nodes, fail_count, db_error = get_cluster_status()
+    settings, _ = get_worker_settings()
     
     # Add the color key for the frontend to use
     for node in nodes:
@@ -412,6 +426,7 @@ def api_status():
         nodes=nodes,
         fail_count=fail_count,
         db_error=db_error,
+        queue_paused=settings.get('pause_job_distribution', {}).get('setting_value') == 'true',
         last_updated=datetime.now().strftime('%H:%M:%S')
     )
 
@@ -730,12 +745,30 @@ def plex_scanner_thread():
             # This block is reached if delay is 0 and the wait times out (which it won't, but as a fallback)
             pass # Do nothing, just loop and wait for a manual trigger
 
+@app.route('/api/queue/toggle_pause', methods=['POST'])
+def toggle_pause_queue():
+    """Toggles the paused state of the job queue."""
+    settings, _ = get_worker_settings()
+    current_state = settings.get('pause_job_distribution', {}).get('setting_value', 'false')
+    new_state = 'false' if current_state == 'true' else 'true'
+    success, error = update_worker_setting('pause_job_distribution', new_state)
+    if success:
+        return jsonify(success=True, new_state=new_state)
+    else:
+        return jsonify(success=False, error=error), 500
+
 @app.route('/api/request_job', methods=['POST'])
 def request_job():
     """Endpoint for workers to request a new job."""
     worker_hostname = request.json.get('hostname')
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
+    
+    # Check if the queue is paused
+    settings, _ = get_worker_settings()
+    if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
+        print(f"[{datetime.now()}] Job request from {worker_hostname} denied: Queue is paused.")
+        return jsonify({}) # Return empty response as if no jobs are available
 
     conn = get_db()
     cur = conn.cursor(cursor_factory=RealDictCursor)

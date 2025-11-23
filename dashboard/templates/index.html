@@ -105,12 +105,18 @@
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">Job Queue</h1>
                     <div>
-                        <div class="btn-group" role="group">
-                            <button class="btn btn-primary" id="manual-scan-btn"><span class="mdi mdi-sync"></span> Manual Scan</button>
-                            <div class="input-group-text">
-                                <input class="form-check-input mt-0" type="checkbox" id="force-rescan-checkbox" title="Force Rescan">
-                                <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
+                        <div class="btn-toolbar" role="toolbar" aria-label="Job queue actions">
+                            <div class="btn-group me-2" role="group" aria-label="Scan controls">
+                                <button class="btn btn-primary" id="manual-scan-btn" title="Trigger a manual scan of your Plex libraries"><span class="mdi mdi-sync"></span> Manual Scan</button>
+                                <div class="input-group-text" title="Force the scanner to re-add files that are already in the queue or history">
+                                    <input class="form-check-input mt-0" type="checkbox" id="force-rescan-checkbox">
+                                    <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
+                                </div>
                             </div>
+                            <div class="btn-group me-2" role="group" aria-label="Queue controls">
+                                <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
+                            </div>
+                            <button class="btn btn-danger" id="clear-jobs-btn"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
                         </div>
                     </div>
                 </div>
@@ -565,7 +571,7 @@
 
             // Update job queue if its tab is active
             if (document.querySelector('#jobs-tab.active')) {
-                await updateJobQueue();
+                await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
             }
         }
 
@@ -590,7 +596,7 @@
         });
 
         // Function to update the job queue
-        let jobQueueCurrentPage = 1;
+        let jobQueueCurrentPage = 1; // Keep track of the current page
         async function updateJobQueue(page = 1) {
             jobQueueCurrentPage = page;
             try {
@@ -623,27 +629,7 @@
                     tableBody.innerHTML += row;
                 });
 
-                // Render pagination controls
-                const paginationContainer = document.getElementById('job-queue-pagination');
-                paginationContainer.innerHTML = '';
-                const totalPages = Math.ceil(data.total_jobs / data.per_page);
-
-                if (totalPages > 1) {
-                    // Previous button
-                    const prevLi = document.createElement('li');
-                    prevLi.className = `page-item ${data.page === 1 ? 'disabled' : ''}`;
-                    prevLi.innerHTML = `<a class="page-link" href="#">Previous</a>`;
-                    prevLi.addEventListener('click', (e) => { e.preventDefault(); if (data.page > 1) updateJobQueue(data.page - 1); });
-                    paginationContainer.appendChild(prevLi);
-
-                    // Next button
-                    const nextLi = document.createElement('li');
-                    nextLi.className = `page-item ${data.page >= totalPages ? 'disabled' : ''}`;
-                    nextLi.innerHTML = `<a class="page-link" href="#">Next</a>`;
-                    nextLi.addEventListener('click', (e) => { e.preventDefault(); if (data.page < totalPages) updateJobQueue(data.page + 1); });
-                    paginationContainer.appendChild(nextLi);
-                }
-
+                renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
             } catch (error) {
                 console.error('Error fetching job queue:', error);
                 document.getElementById('job-queue-table-body').innerHTML = `<tr><td colspan="6" class="text-danger">Failed to fetch job queue.</td></tr>`;
@@ -779,6 +765,61 @@
             historyCurrentPage = 1; // Reset to first page on search
             renderHistoryTable();
         });
+
+        // --- NEW: Smart Pagination Renderer ---
+        function renderJobQueuePagination(currentPage, totalPages) {
+            const paginationContainer = document.getElementById('job-queue-pagination');
+            paginationContainer.innerHTML = '';
+            if (totalPages <= 1) return;
+
+            const pageWindow = 5; // How many pages to show around the current page
+
+            // Helper to create a page link
+            const createPageLink = (page, text, isDisabled = false, isActive = false) => {
+                const li = document.createElement('li');
+                li.className = `page-item ${isDisabled ? 'disabled' : ''} ${isActive ? 'active' : ''}`;
+                const a = document.createElement('a');
+                a.className = 'page-link';
+                a.href = '#';
+                a.innerText = text;
+                if (!isDisabled) {
+                    a.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        updateJobQueue(page);
+                    });
+                }
+                li.appendChild(a);
+                return li;
+            };
+
+            // Previous Button
+            paginationContainer.appendChild(createPageLink(currentPage - 1, 'Previous', currentPage === 1));
+
+            // Page numbers
+            let startPage = Math.max(1, currentPage - pageWindow);
+            let endPage = Math.min(totalPages, currentPage + pageWindow);
+
+            if (startPage > 1) {
+                paginationContainer.appendChild(createPageLink(1, '1'));
+                if (startPage > 2) {
+                    paginationContainer.appendChild(createPageLink(0, '...', true));
+                }
+            }
+
+            for (let i = startPage; i <= endPage; i++) {
+                paginationContainer.appendChild(createPageLink(i, i.toString(), false, i === currentPage));
+            }
+
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationContainer.appendChild(createPageLink(0, '...', true));
+                }
+                paginationContainer.appendChild(createPageLink(totalPages, totalPages.toString()));
+            }
+
+            // Next Button
+            paginationContainer.appendChild(createPageLink(currentPage + 1, 'Next', currentPage === totalPages));
+        }
 
         // Update history/stats when the tab is shown
         const historyStatsTab = document.querySelector('#history-stats-tab');
@@ -1016,6 +1057,35 @@
                 } finally {
                     manualScanBtn.disabled = false;
                     manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Manual Scan`;
+                }
+            });
+
+            // --- Clear All Jobs Logic ---
+            const clearJobsBtn = document.getElementById('clear-jobs-btn');
+            clearJobsBtn.addEventListener('click', async () => {
+                if (!confirm('Are you sure you want to permanently clear the entire job queue? This action cannot be undone.')) {
+                    return;
+                }
+                try {
+                    const response = await fetch('/api/jobs/clear', { method: 'POST' });
+                    if (response.ok) {
+                        updateJobQueue(1); // Refresh the queue to show it's empty
+                    }
+                } catch (error) {
+                    alert('An error occurred while trying to clear the job queue.');
+                }
+            });
+
+            // --- Pause Queue Button Logic ---
+            const pauseQueueBtn = document.getElementById('pause-queue-btn');
+            pauseQueueBtn.addEventListener('click', async () => {
+                try {
+                    const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
+                    if (response.ok) {
+                        mainUpdateLoop(); // Immediately refresh the UI to show the new state
+                    }
+                } catch (error) {
+                    alert('An error occurred while trying to toggle the queue state.');
                 }
             });
         });

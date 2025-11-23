@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-#!/usr/bin/env python3
 import os
 import sys
 import time
@@ -10,6 +9,7 @@ import socket
 import threading
 import json
 from pathlib import Path
+import re
 from datetime import datetime
 import requests
 
@@ -26,7 +26,7 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://dashboard:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
-VERSION = "1.0-beta"
+VERSION = "1.1.0" # Updated version
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 
@@ -34,7 +34,7 @@ STOP_EVENT = threading.Event()
 # Read DB config from environment variables, with fallbacks for local testing
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
-    "user": os.environ.get("POSTGRES_USER", "transcode"),
+    "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("POSTGRES_PASSWORD", "password"),
     "dbname": os.environ.get("POSTGRES_DB", "codecshift")
 }
@@ -47,7 +47,7 @@ class DatabaseHandler:
     def __init__(self, conn_params):
         self.conn_params = conn_params
 
-    def get_conn(self):
+    def _get_conn(self):
         return psycopg2.connect(**self.conn_params)
 
     def update_heartbeat(self, status, current_file=None, progress=None, fps=None):
@@ -63,7 +63,7 @@ class DatabaseHandler:
             progress = EXCLUDED.progress,
             fps = EXCLUDED.fps;
         """
-        conn = self.get_conn()
+        conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
@@ -76,7 +76,7 @@ class DatabaseHandler:
 
     def get_node_command(self, hostname):
         """Fetches the status for a specific node, which can act as a command."""
-        conn = self.get_conn()
+        conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
@@ -88,11 +88,11 @@ class DatabaseHandler:
         return 'idle'
 
     def clear_node(self):
-        conn = self.get_conn()
+        conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM active_nodes WHERE hostname = %s", (HOSTNAME,))
+                    cur.execute("DELETE FROM nodes WHERE hostname = %s", (HOSTNAME,))
                 conn.commit()
             finally:
                 conn.close()
@@ -165,6 +165,18 @@ def detect_hardware_settings(accel_mode):
 # Worker Logic
 # ===========================
 
+def get_dashboard_settings():
+    """Fetches all worker settings from the dashboard's API."""
+    try:
+        response = requests.get(f"{DASHBOARD_URL}/api/settings", timeout=10)
+        response.raise_for_status()
+        settings_data = response.json().get('settings', {})
+        # Flatten the settings for easier access
+        return {key: value['setting_value'] for key, value in settings_data.items()}
+    except requests.exceptions.RequestException as e:
+        print(f"[{datetime.now()}] API Error: Could not fetch settings. {e}")
+        return {}
+
 def request_job_from_dashboard():
     """Requests a new job from the dashboard's API."""
     try:
@@ -172,7 +184,7 @@ def request_job_from_dashboard():
         response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, timeout=10)
         response.raise_for_status()
         job_data = response.json()
-        if job_data and 'job_id' in job_data:
+        if job_data and job_data.get('job_id'):
             print(f"[{datetime.now()}] Received job {job_data['job_id']} for file: {job_data['filepath']}")
             return job_data
         else:
@@ -195,34 +207,105 @@ def update_job_status(job_id, status, details=None):
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not update job {job_id}. {e}")
 
-def process_file(filepath, db):
-    """
-    Placeholder for the actual ffmpeg transcoding logic.
-    Returns a tuple: (success, details_dict).
-    """
+def process_file(filepath, db, settings):
+    """Handles the full transcoding process for a given file using ffmpeg."""
     print(f"[{datetime.now()}] Starting transcode for: {filepath}")
     db.update_heartbeat('encoding', current_file=os.path.basename(filepath), progress=0, fps=0)
+
+    # --- Get settings from the dashboard ---
+    hw_mode = settings.get('hardware_acceleration', 'auto')
+    hw_config = detect_hardware_settings(hw_mode)
     
-    # --- Placeholder for your complex ffmpeg logic ---
-    # This is where you would build and run the ffmpeg command,
-    # parse its output for progress, and handle hardware acceleration.
-    
+    # Determine which CQ value to use based on video width
     try:
-        # Simulate a transcode process
-        original_size = os.path.getsize(filepath)
-        time.sleep(15) # Simulate work
+        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width", "-of", "csv=s=x:p=0", filepath]
+        width_str = subprocess.check_output(ffprobe_cmd, text=True).strip()
+        video_width = int(width_str)
+        cq_width_threshold = int(settings.get('cq_width_threshold', '1900'))
         
-        # In a real implementation, you would get the new size from the output file.
-        new_size = original_size * 0.4 
-
-        # Simulate success
-        print(f"[{datetime.now()}] Finished transcode for: {filepath}")
-        return True, {"original_size": original_size, "new_size": new_size}
-
+        if video_width >= cq_width_threshold:
+            cq_value = settings.get(f"{hw_config['type']}_cq_hd", '28')
+        else:
+            cq_value = settings.get(f"{hw_config['type']}_cq_sd", '24')
     except Exception as e:
-        # Simulate failure
-        print(f"[{datetime.now()}] FAILED transcode for: {filepath}. Reason: {e}")
-        return False, {"reason": "Placeholder processing error", "log": str(e)}
+        print(f"⚠️ Could not determine video width, falling back to SD quality. Error: {e}")
+        cq_value = settings.get(f"{hw_config['type']}_cq_sd", '24')
+
+    # --- Prepare file paths ---
+    original_path = Path(filepath)
+    temp_output_path = original_path.parent / f".tmp_{original_path.name}"
+    final_output_path = original_path.with_suffix('.mkv') # Always output to MKV
+
+    # --- Build FFmpeg Command ---
+    ffmpeg_cmd = ["ffmpeg", "-y", "-hide_banner"]
+    ffmpeg_cmd.extend(hw_config["hw_pre_args"])
+    ffmpeg_cmd.extend(["-i", str(original_path)])
+    ffmpeg_cmd.extend([
+        "-map", "0", "-c", "copy", "-c:v:0", hw_config["codec"],
+        hw_config["cq_flag"], str(cq_value)
+    ])
+    if hw_config["preset"]:
+        ffmpeg_cmd.extend(["-preset", hw_config["preset"]])
+    ffmpeg_cmd.extend(hw_config["extra"])
+    ffmpeg_cmd.append(str(temp_output_path))
+
+    print(f"🔩 FFmpeg command: {' '.join(ffmpeg_cmd)}")
+
+    # --- Execute FFmpeg and Capture Output ---
+    process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True)
+    
+    total_duration_seconds = 0
+    log_buffer = []
+
+    for line in process.stdout:
+        log_buffer.append(line)
+        if "Duration:" in line:
+            match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
+            if match:
+                h, m, s, ms = map(int, match.groups())
+                total_duration_seconds = h * 3600 + m * 60 + s + ms / 100.0
+
+        if "frame=" in line and total_duration_seconds > 0:
+            time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
+            fps_match = re.search(r'fps=\s*([\d\.]+)', line)
+            if time_match:
+                h, m, s, ms = map(int, time_match.groups())
+                current_seconds = h * 3600 + m * 60 + s + ms / 100.0
+                progress = round((current_seconds / total_duration_seconds) * 100)
+                fps = float(fps_match.group(1)) if fps_match else 0
+                db.update_heartbeat('encoding', current_file=os.path.basename(filepath), progress=progress, fps=fps)
+
+    process.wait()
+
+    # --- Process Results ---
+    if process.returncode == 0:
+        print(f"[{datetime.now()}] Finished transcode for: {filepath}")
+        original_size = os.path.getsize(filepath)
+        new_size = os.path.getsize(temp_output_path)
+
+        # Handle file replacement
+        if settings.get('keep_original') == 'true':
+            backup_dir_str = settings.get('backup_directory', '')
+            if backup_dir_str:
+                backup_path = Path(backup_dir_str) / original_path.name
+                print(f"  -> Moving original to backup: {backup_path}")
+                backup_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(original_path, backup_path)
+            else:
+                print("  -> Keeping original file (no backup directory specified).")
+        else:
+            print(f"  -> Deleting original file: {original_path}")
+            os.remove(original_path)
+        
+        print(f"  -> Renaming temporary file to final output: {final_output_path}")
+        os.rename(temp_output_path, final_output_path)
+
+        return True, {"original_size": original_size, "new_size": new_size}
+    else:
+        print(f"[{datetime.now()}] FAILED transcode for: {filepath}. FFmpeg exited with code {process.returncode}")
+        if os.path.exists(temp_output_path):
+            os.remove(temp_output_path)
+        return False, {"reason": f"FFmpeg failed with code {process.returncode}", "log": "".join(log_buffer)}
 
 def cleanup_file(filepath, db):
     """
@@ -249,45 +332,38 @@ def main_loop(db):
     db.update_heartbeat('booting')
     time.sleep(2) # Stagger startup
 
+    settings = get_dashboard_settings()
+    if not settings:
+        print("❌ Could not fetch settings from dashboard on startup. Will retry.")
+
     while not STOP_EVENT.is_set():
         db.update_heartbeat('idle')
         command = db.get_node_command(HOSTNAME)
 
         if command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")
-            STOP_EVENT.set()
             db.update_heartbeat('offline')
             break
 
-        if command == 'start':
-            job = request_job_from_dashboard()
-
-            if job:
-                # Check the job type and call the appropriate function
-                if job.get('job_type') == 'cleanup':
-                    success, details = cleanup_file(job['filepath'], db)
-                else: # Default to 'transcode'
-                    success, details = process_file(job['filepath'], db)
-
-                # Report the result back to the dashboard
-                if success:
-                    update_job_status(job['job_id'], 'completed', details)
-                else:
-                    update_job_status(job['job_id'], 'failed', details)
-                
-                # Immediately check for another job without waiting
-                continue 
-
-            else:
-                # No jobs were available, wait before asking again
-                print(f"[{datetime.now()}] No jobs. Waiting for 60 seconds...")
-                db.update_heartbeat('idle')
-                time.sleep(60)
-        
-        else: # idle, stop, pause, etc.
+        if command in ['idle', 'paused', 'finishing']:
             print(f"[{datetime.now()}] In '{command}' state. Standing by...")
             db.update_heartbeat(command)
             time.sleep(30) # Check for new commands every 30 seconds
+            continue
+
+        # --- Main Job Request Logic ---
+        job = request_job_from_dashboard()
+        if job:
+            settings = get_dashboard_settings() # Refresh settings before each job
+            if job.get('job_type') == 'cleanup':
+                success, details = cleanup_file(job['filepath'], db)
+            else: # Default to 'transcode'
+                success, details = process_file(job['filepath'], db, settings)
+            update_job_status(job['job_id'], 'completed' if success else 'failed', details)
+        else:
+            # No jobs were available, wait before asking again
+            print(f"[{datetime.now()}] No jobs. Waiting for 30 seconds...")
+            time.sleep(30)
 
 # ===========================
 # Main Execution
@@ -295,7 +371,7 @@ def main_loop(db):
 
 def main():
     # Connect to DB using centralized config
-    db = DatabaseHandler(DB_CONFIG)
+    db = DatabaseHandler(DB_CONFIG) # This is now just for heartbeats and commands
     if not db.get_conn():
         sys.exit(1)
 
@@ -311,7 +387,7 @@ def main():
         STOP_EVENT.set()
         worker_thread.join() # Wait for the thread to exit
     finally:
-        # db.clear_node() # Optional: decide if node should be cleared on exit
+        db.clear_node()
         print("Node offline.")
 
 if __name__ == "__main__":
