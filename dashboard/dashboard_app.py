@@ -517,13 +517,14 @@ def api_resume_node(hostname):
 @app.route('/api/history', methods=['GET'])
 def api_history():
     """Returns the encoding history as JSON."""
-    history, db_error = get_history()
+    history, db_error = get_history() # get_history is defined elsewhere
     for item in history:
         # Format datetime and sizes for display
         item['encoded_at'] = item['encoded_at'].strftime('%Y-%m-%d %H:%M:%S')
         item['original_size_gb'] = round(item['original_size'] / (1024**3), 2)
         item['new_size_gb'] = round(item['new_size'] / (1024**3), 2)
         item['reduction_percent'] = round((1 - item['new_size'] / item['original_size']) * 100, 1) if item['original_size'] > 0 else 0
+        item['codec'] = 'hevc' # Add the missing codec key
     return jsonify(history=history, db_error=db_error)
 
 @app.route('/api/history/clear', methods=['POST'])
@@ -573,6 +574,7 @@ def api_stats():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Get aggregate stats for completed files
+            # Alias encoded_by to hostname to match the frontend template
             cur.execute("""
                 SELECT
                     COUNT(*) AS total_files,
@@ -584,7 +586,10 @@ def api_stats():
             agg_stats = cur.fetchone()
 
             # Get recent history (same as history tab)
-            cur.execute("SELECT * FROM encoded_files WHERE status = 'completed' ORDER BY encoded_at DESC LIMIT 100")
+            cur.execute("""
+                SELECT *, encoded_by as hostname 
+                FROM encoded_files WHERE status = 'completed' ORDER BY encoded_at DESC LIMIT 100
+            """)
             history = cur.fetchall()
 
         # Process stats for display
@@ -603,6 +608,7 @@ def api_stats():
             item['original_size_gb'] = round(item['original_size'] / (1024**3), 2)
             item['new_size_gb'] = round(item['new_size'] / (1024**3), 2)
             item['reduction_percent'] = round((1 - item['new_size'] / item['original_size']) * 100, 1) if item['original_size'] > 0 else 0
+            item['codec'] = 'hevc' # Add the missing codec key
 
     except Exception as e:
         db_error = f"Database query failed: {e}"
