@@ -303,6 +303,12 @@ def dashboard():
             node['color'] = 'success'
         elif node.get('status') == 'idle':
             node['color'] = 'secondary'
+        else:
+            node['color'] = 'warning'
+        
+        # Add the 'percent' key that the template expects, defaulting to 0 if 'progress' is null
+        if 'progress' in node:
+            node['percent'] = node['progress'] or 0
         else: node['color'] = 'warning'
 
     return render_template(

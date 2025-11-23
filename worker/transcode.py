@@ -174,7 +174,10 @@ def get_dashboard_settings():
         # Flatten the settings for easier access
         return {key: value['setting_value'] for key, value in settings_data.items()}
     except requests.exceptions.RequestException as e:
-        print(f"[{datetime.now()}] API Error: Could not fetch settings. {e}")
+        print(f"[{datetime.now()}] API Error: Could not fetch settings from {DASHBOARD_URL}. {e}")
+        print("    Ensure the dashboard is running and accessible from this machine.")
+        if 'localhost' in DASHBOARD_URL:
+            print("    If running the worker on a different machine, set the DASHBOARD_URL environment variable. Example: DASHBOARD_URL=http://<dashboard_ip>:5000 ./transcode.py")
         return {}
 
 def request_job_from_dashboard():
