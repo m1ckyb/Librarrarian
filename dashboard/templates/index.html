@@ -70,7 +70,7 @@
                             </div>
                             <div class="card-body">
                                 {% if node.percent > 0 %}
-                                    <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">{{ node.file }}</p>
+                                    <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">{{ node.current_file }}</p>
                                     <div class="progress" role="progressbar">
                                         <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-{{ node.color }}" style="width: {{ node.percent }}%">
                                             <b>{{ node.percent }}%</b>
@@ -78,7 +78,7 @@
                                     </div>
                                 {% else %}
                                     <div class="text-center p-3">
-                                        <h5 class="card-title text-muted">{{ node.file }}</h5>
+                                        <h5 class="card-title text-muted">{{ node.current_file or 'Idle' }}</h5>
                                     </div>
                                 {% endif %}
                             </div>
@@ -406,7 +406,7 @@
                 </div>
                 <div class="card-body">
                     ${node.percent > 0 ? `
-                        <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.file || 'N/A'}</p>
+                        <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.current_file || 'N/A'}</p>
                         <div class="progress" role="progressbar">
                             <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-${node.color}" style="width: ${node.percent}%">
                                 <b>${node.percent}%</b>
@@ -414,7 +414,7 @@
                         </div>
                     ` : `
                         <div class="text-center p-3">
-                            <h5 class="card-title text-muted">${node.status === 'paused' ? 'Paused' : (node.status === 'finishing' ? 'Finishing...' : node.file)}</h5>
+                            <h5 class="card-title text-muted">${node.status === 'paused' ? 'Paused' : (node.status === 'finishing' ? 'Finishing...' : (node.current_file || 'Idle'))}</h5>
                         </div>
                     `}
                 </div>
