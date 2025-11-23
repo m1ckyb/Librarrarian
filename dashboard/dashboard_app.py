@@ -578,6 +578,9 @@ def plex_get_libraries():
     plex_url = settings.get('plex_url', {}).get('setting_value')
     plex_token = settings.get('plex_token', {}).get('setting_value')
 
+    # Debugging: Print the values to the console
+    print(f"Attempting to connect to Plex. URL: '{plex_url}', Token: '{plex_token[:5]}...'")
+
     if not all([plex_url, plex_token]):
         return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
 
