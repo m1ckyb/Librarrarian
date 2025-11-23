@@ -369,8 +369,9 @@ def main_loop(db):
             update_job_status(job['job_id'], 'completed' if success else 'failed', details)
         else:
             # No jobs were available, wait before asking again
-            print(f"[{datetime.now()}] No jobs. Waiting for 30 seconds...")
-            time.sleep(30)
+            poll_interval = int(settings.get('worker_poll_interval', 30))
+            print(f"[{datetime.now()}] No jobs. Waiting for {poll_interval} seconds...")
+            time.sleep(poll_interval)
 
 # ===========================
 # Main Execution

@@ -1,5 +1,9 @@
 # [Unreleased]
 
+### Added
+- **Refined Authentication Controls**: Implemented a master `AUTH_ENABLED` switch. Added distinct `OIDC_ENABLED` and `LOCAL_LOGIN_ENABLED` flags for more granular control over login methods. Renamed `FALLBACK_*` variables to `LOCAL_*` for clarity.
+- **Enhanced Security**: The `LOCAL_PASSWORD` for the local login is now expected to be base64 encoded in the environment file to avoid storing it in plain text.
+
 ---
 
 ## [0.10.3] - 2025-11-24 - The Polishing Act

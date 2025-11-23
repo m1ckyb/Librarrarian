@@ -3,10 +3,11 @@ import sys
 import time
 import threading
 import uuid
+import base64
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from flask import Flask, render_template, g, request, flash, redirect, url_for
-from flask import jsonify
+from flask import jsonify, session
 
 try:
     from plexapi.server import PlexServer
@@ -18,6 +19,12 @@ except ImportError:
     sys.exit(1)
 # ===========================
 # Configuration
+try:
+    from authlib.integrations.flask_client import OAuth
+except ImportError:
+    print("❌ Error: Missing 'authlib' package for OIDC authentication.")
+    print("   Please run: pip install authlib")
+    sys.exit(1)
 # ===========================
 app = Flask(__name__)
 # A secret key is required for session management (e.g., for flash messages)
@@ -32,6 +39,29 @@ DB_CONFIG = {
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "codecshift")
 }
+
+# --- OIDC Authentication Setup ---
+OIDC_ENABLED = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
+if OIDC_ENABLED:
+    oauth = OAuth(app)
+    oauth.register(
+        name='oidc_provider',
+        client_id=os.environ.get('OIDC_CLIENT_ID'),
+        client_secret=os.environ.get('OIDC_CLIENT_SECRET'),
+        server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
+        client_kwargs={'scope': 'openid email profile'}
+    )
+
+@app.before_request
+def require_login():
+    """Protects all routes by requiring OIDC login if enabled."""
+    if not OIDC_ENABLED:
+        return # Do nothing if OIDC is disabled
+
+    if 'user' in session or request.path in ['/login', '/authorize', '/logout']:
+        return # Allow access to auth routes or if already logged in
+
+    return redirect(url_for('login'))
 
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
@@ -327,6 +357,62 @@ def dashboard():
         version=get_project_version()
     )
 
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handles user login for both OIDC and the local fallback mechanism."""
+    if not AUTH_ENABLED:
+        return "Authentication is not enabled.", 404
+
+    # Handle local login form submission
+    if request.method == 'POST':
+        if not LOCAL_LOGIN_ENABLED: return "Local login is disabled.", 403
+        username = request.form.get('username')
+        password = request.form.get('password')
+        local_user = os.environ.get('LOCAL_USER')
+        encoded_pass = os.environ.get('LOCAL_PASSWORD')
+        local_pass = None
+
+        if encoded_pass:
+            try:
+                local_pass = base64.b64decode(encoded_pass).decode('utf-8')
+            except (base64.binascii.Error, UnicodeDecodeError):
+                print("⚠️ WARNING: LOCAL_PASSWORD is not a valid base64 string.")
+                flash('Server configuration error for local login.', 'danger')
+                return redirect(url_for('login'))
+
+        if local_user and local_pass and username == local_user and password == local_pass:
+            session['user'] = {'email': local_user, 'name': 'Local Admin'}
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid credentials.', 'danger')
+            return redirect(url_for('login'))
+
+    # If OIDC is the only method, redirect immediately.
+    if OIDC_ENABLED and not LOCAL_LOGIN_ENABLED:
+        redirect_uri = url_for('authorize', _external=True)
+        return oauth.oidc_provider.authorize_redirect(redirect_uri)
+
+    # Otherwise, render the login page which can handle both.
+    return render_template('login.html', oidc_enabled=OIDC_ENABLED, local_login_enabled=LOCAL_LOGIN_ENABLED)
+
+@app.route('/authorize')
+def authorize():
+    """Callback route for the OIDC provider."""
+    if not AUTH_ENABLED or not OIDC_ENABLED:
+        return "OIDC authentication is not enabled.", 404
+    token = oauth.oidc_provider.authorize_access_token()
+    session['user'] = token.get('userinfo')
+    return redirect(url_for('dashboard'))
+
+@app.route('/logout')
+def logout():
+    """Logs the user out."""
+    session.pop('user', None)
+    if AUTH_ENABLED and OIDC_ENABLED and 'oidc_provider' in oauth.clients:
+        # For a full SSO logout, redirect to the provider's logout endpoint
+        return redirect(oauth.oidc_provider.server_metadata.get('end_session_endpoint'))
+    return redirect(url_for('dashboard'))
+
 @app.route('/options', methods=['POST'])
 def options():
     """
@@ -336,6 +422,7 @@ def options():
     # A dictionary to hold all settings from the form
     settings_to_update = {
         'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
+        'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
         'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),

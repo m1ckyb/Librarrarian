@@ -254,6 +254,11 @@
                                     <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
+                                    <label for="worker_poll_interval" class="form-label"><strong>Worker Poll Interval</strong></label>
+                                    <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
+                                    <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">
+                                </div>
+                                <div class="mb-3 p-3 border rounded">
                                     <label class="form-label"><strong>Hardware Acceleration</strong></label>
                                     <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
                                     {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}

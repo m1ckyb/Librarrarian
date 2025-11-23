@@ -51,6 +51,22 @@ This is the recommended method for running CodecShift.
     # --- Web Application Secret ---
     # Generate a random string for this, e.g., by running: openssl rand -hex 32
     FLASK_SECRET_KEY=your_flask_secret_key
+    
+    # --- Authentication Settings (Optional) ---
+    # Master switch to enable authentication features.
+    AUTH_ENABLED=false
+    
+    # OIDC Provider Settings (if AUTH_ENABLED is true)
+    OIDC_ENABLED=false
+    OIDC_ISSUER_URL=https://your-provider.com/auth/realms/your-realm
+    OIDC_CLIENT_ID=your-client-id
+    OIDC_CLIENT_SECRET=your-client-secret
+    
+    # Local Login Settings (if AUTH_ENABLED is true)
+    LOCAL_LOGIN_ENABLED=false
+    LOCAL_USER=admin
+    # The password must be base64 encoded. To generate, run: echo -n 'your_password' | base64
+    LOCAL_PASSWORD=eW91cl9zdXBlcl9zZWNyZXRfcGFzc3dvcmQ=
     ```
 
 ### 3. Running the Cluster

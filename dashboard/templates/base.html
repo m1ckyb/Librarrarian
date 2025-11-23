@@ -86,7 +86,14 @@
             <div class="d-flex align-items-center">
                 <span class="me-3">Web Dashboard v0.10.3</span>
             </div>
-            <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
+            <div>
+                {% if session.user %}
+                    <span class="me-3">Logged in as: <strong>{{ session.user.email or session.user.name }}</strong></span>
+                    <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">Logout</a>
+                {% elif oidc_enabled %}
+                    <a href="{{ url_for('login') }}" class="btn btn-sm btn-primary">Login</a>
+                {% endif %}
+            </div>
         </div>
     </footer>
 
