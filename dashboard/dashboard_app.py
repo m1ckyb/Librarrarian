@@ -308,8 +308,7 @@ def dashboard():
         
         # Add the 'percent' key that the template expects, defaulting to 0 if 'progress' is null
         if 'progress' in node:
-            node['percent'] = node['progress'] or 0
-        else: node['color'] = 'warning'
+            node['percent'] = int(node['progress'] or 0)
 
     return render_template(
         'index.html', 
@@ -406,7 +405,19 @@ def api_jobs():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Query for the paginated list of jobs
-            cur.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
+            # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
+            cur.execute("""
+                SELECT * FROM jobs
+                ORDER BY
+                    CASE status
+                        WHEN 'encoding' THEN 1
+                        WHEN 'pending' THEN 2
+                        WHEN 'failed' THEN 3
+                        ELSE 4
+                    END,
+                    created_at DESC
+                LIMIT %s OFFSET %s
+            """, (per_page, offset))
             jobs = cur.fetchall()
             for job in jobs:
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
@@ -435,6 +446,9 @@ def api_status():
             node['color'] = 'secondary'
         else:
             node['color'] = 'warning'
+        
+        # Also add the 'percent' key for the client-side rendering
+        node['percent'] = int(node.get('progress') or 0)
 
     return jsonify(
         nodes=nodes,
