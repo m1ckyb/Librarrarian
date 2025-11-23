@@ -920,9 +920,8 @@
                 // Use the settings rendered directly into the page by the server.
                 // This completely avoids any race conditions with the DOM.
                 const hasToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
-                const hasUrl = "{{ settings.get('plex_url', {}).get('setting_value') }}" !== "";
 
-                if (!hasToken || !hasUrl) {
+                if (!hasToken) {
                     container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and link your account to see libraries.</p>`;
                     return;
                 }
