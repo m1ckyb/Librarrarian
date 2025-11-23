@@ -315,66 +315,51 @@ def dashboard():
         version=get_project_version()
     )
 
-@app.route('/options', methods=['GET', 'POST'])
+@app.route('/options', methods=['POST'])
 def options():
     """
     Handles the form submission for worker settings from the main dashboard.
-    The GET method is no longer used as the form is on the main page.
+    This route now follows the Post-Redirect-Get pattern to prevent form resubmission warnings.
     """
-    if request.method == 'POST':
-        # A dictionary to hold all settings from the form
-        settings_to_update = {
-            'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '5'),
-            'min_length': request.form.get('min_length', '1.5'),
-            'backup_directory': request.form.get('backup_directory', ''),
-            'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
-            # Checkboxes return 'true' if checked, otherwise they are not in the form data
-            'recursive_scan': 'true' if 'recursive_scan' in request.form else 'false',
-            'skip_encoded_folder': 'true' if 'skip_encoded_folder' in request.form else 'false',
-            'keep_original': 'true' if 'keep_original' in request.form else 'false',
-            'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
-            'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
-            'auto_update': 'true' if 'auto_update' in request.form else 'false',
-            'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
-            'debug': 'true' if 'debug' in request.form else 'false',
-            # Advanced settings
-            'plex_url': request.form.get('plex_url', ''),
-            'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
-            'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
-            'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
-            'vaapi_cq_sd': request.form.get('vaapi_cq_sd', '24'),
-            'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
-            'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
-            'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
-        }
+    # A dictionary to hold all settings from the form
+    settings_to_update = {
+        'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
+        'min_length': request.form.get('min_length', '0.5'),
+        'backup_directory': request.form.get('backup_directory', ''),
+        'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
+        'keep_original': 'true' if 'keep_original' in request.form else 'false',
+        'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
+        'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
+        'auto_update': 'true' if 'auto_update' in request.form else 'false',
+        'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
+        'debug': 'true' if 'debug' in request.form else 'false',
+        'plex_url': request.form.get('plex_url', ''),
+        'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
+        'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
+        'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
+        'vaapi_cq_sd': request.form.get('vaapi_cq_sd', '24'),
+        'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
+        'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
+        'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
+    }
 
-        # Handle multi-select for Plex libraries
-        plex_libraries = request.form.getlist('plex_libraries')
-        settings_to_update['plex_libraries'] = ','.join(plex_libraries)
+    # Handle multi-select for Plex libraries
+    plex_libraries = request.form.getlist('plex_libraries')
+    settings_to_update['plex_libraries'] = ','.join(plex_libraries)
 
-        errors = []
-        for key, value in settings_to_update.items():
-            success, error = update_worker_setting(key, value)
-            if not success:
-                errors.append(error)
+    errors = []
+    for key, value in settings_to_update.items():
+        success, error = update_worker_setting(key, value)
+        if not success:
+            errors.append(error)
 
-        if not errors:
-            flash('Worker settings have been updated successfully!', 'success')
-        else:
-            flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
-    
-    # Instead of redirecting (which can cause race conditions),
-    # re-fetch all data and render the template directly.
-    # This ensures the UI has the absolute latest settings.
-    nodes, fail_count, db_error = get_cluster_status()
-    settings, settings_db_error = get_worker_settings()
-    return render_template(
-        'index.html',
-        nodes=nodes,
-        fail_count=fail_count,
-        db_error=db_error or settings_db_error,
-        settings=settings
-    )
+    if not errors:
+        flash('Worker settings have been updated successfully!', 'success')
+    else:
+        flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
+
+    # Redirect back to the main page, anchoring to the options tab
+    return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
 @app.route('/api/status')
 def api_status():
@@ -660,9 +645,10 @@ def run_plex_scan(force_scan=False):
                         if cur.rowcount > 0:
                             new_files_found += 1
             
+            # Commit all the inserts at the end of the scan
             conn.commit()
-            cur.close()
             message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+            cur.close()
             return {"success": True, "message": message}
     finally:
         scanner_lock.release()
@@ -684,8 +670,8 @@ def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
     while True:
         print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
-        # Use the rescan delay from settings, default to 5 minutes (300 seconds)
-        delay = 0 # Default to 0 (disabled)
+        # Use the rescan delay from settings, default to 0 (disabled)
+        delay = 0 
         try:
             with app.app_context():
                 settings, _ = get_worker_settings()
