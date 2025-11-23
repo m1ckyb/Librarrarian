@@ -1,6 +1,16 @@
 # [Unreleased]
 
-### Added
+## [0.10.1] - 2025-11-23 - The Scanner Awakens
+
+This is a stability release that ensures the new Plex integration features from `v0.10.0` run correctly in a production Docker environment.
+
+### Changed
+- **Database Initialization**: The database initialization logic is now handled by a dedicated `init_db.py` script. The `docker-compose.yml` file has been updated to run this script before starting the web server, ensuring the database is ready and preventing race conditions.
+
+### Fixed
+- **Plex Scanner in Docker**: Corrected a critical bug where the background Plex scanner thread would not start when the application was run with Gunicorn inside a Docker container. The scanner now initializes correctly, allowing for automated job creation in production.
+
+---
 
 ## [0.10.0] - 2025-11-23 - User-Friendly Plex Integration
 
