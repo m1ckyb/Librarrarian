@@ -648,24 +648,22 @@ def run_plex_scan():
                 library = plex_server.library.section(title=lib_name)
                 print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
                 for video in library.all():
-                    job_created_for_video = False
-                    if not hasattr(video, 'media'): continue
-                    for media_item in video.media:
-                        if not hasattr(media_item, 'parts'): continue
-                        for part in media_item.parts:
-                            filepath = part.file
-                            codec = None
-                            if hasattr(part, 'videoStreams') and part.videoStreams():
-                                codec = part.videoStreams()[0].codec
-                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                            if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
-                                print(f"    -> Found non-HEVC file. Adding to queue.")
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                                if cur.rowcount > 0: new_files_found += 1
-                                job_created_for_video = True
-                                break # Found a transcodable part, move to next video
-                        if job_created_for_video:
-                            break # Break from the media_item loop
+                    # Must reload to get all media part and stream details
+                    video.reload()
+                    
+                    # Use the primary media object's codec for simplicity and reliability
+                    if not hasattr(video, 'media') or not video.media:
+                        continue
+
+                    codec = video.media[0].videoCodec
+                    filepath = video.media[0].parts[0].file
+
+                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                    if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
+                        print(f"    -> Found non-HEVC file. Adding to queue.")
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                        if cur.rowcount > 0:
+                            new_files_found += 1
             
             conn.commit()
             cur.close()
