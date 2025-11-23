@@ -881,24 +881,26 @@
         }
 
         // Handle the Plex login form submission
-        const plexLoginForm = document.getElementById('plex-login-form');
-        if (plexLoginForm) {
-            plexLoginForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const username = e.target.username.value;
-                const password = e.target.password.value;
+        const plexSignInBtn = document.getElementById('plex-signin-btn');
+        if (plexSignInBtn) {
+            plexSignInBtn.addEventListener('click', async () => {
+                const usernameInput = document.getElementById('plex-username');
+                const passwordInput = document.getElementById('plex-password');
                 const statusDiv = document.getElementById('plex-login-status');
                 statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
 
                 const response = await fetch('/api/plex/login', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ username, password })
+                    body: JSON.stringify({ 
+                        username: usernameInput.value, 
+                        password: passwordInput.value 
+                    })
                 });
                 const data = await response.json();
                 if (data.success) {
                     statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                    setTimeout(() => window.location.reload(), 1500);
+                    setTimeout(() => window.location.href = '/#options-tab-pane', 1500); // Redirect with anchor
                 } else {
                     statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
                 }
@@ -950,7 +952,7 @@
                             <label for="plex-password" class="form-label">Plex Password</label>
                             <input type="password" class="form-control" id="plex-password" name="password" required>
                         </div>
-                        <button type="submit" class="btn btn-primary w-100" type="button">Sign In</button>
+                        <button id="plex-signin-btn" type="button" class="btn btn-primary w-100">Sign In</button>
                     </form>
                     <div id="plex-login-status" class="mt-3"></div>
                 </div>
