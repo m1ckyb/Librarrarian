@@ -536,8 +536,9 @@ def plex_login():
         os.environ['PLEXAPI_HEADER_VERSION'] = get_project_version()
         os.environ['PLEXAPI_HEADER_IDENTIFIER'] = str(uuid.uuid4())
 
-        account = MyPlexAccount()
-        pin_data = account.get_pin()
+        # get_pin() should be called as a class method, not on an instance.
+        # This avoids the constructor which tries to log in with user/pass.
+        pin_data = MyPlexAccount.get_pin()
         return jsonify(success=True, pin=pin_data['code'], url=pin_data['url'])
     except Exception as e:
         return jsonify(success=False, error=str(e)), 500
