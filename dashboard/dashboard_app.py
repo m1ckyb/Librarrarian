@@ -24,10 +24,10 @@ app = Flask(__name__)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
 
-# Use the same DB config as the worker script
-# It is recommended to use environment variables for sensitive data
+# Use environment variables for DB config. The fallback is for local dev only.
+# In Docker, the DB_HOST should always be the service name 'db'.
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "host": os.environ.get("DB_HOST", "db"),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "codecshift")
@@ -588,8 +588,8 @@ def plex_get_libraries():
         plex = PlexServer(plex_url, plex_token)
         libraries = [
             {"title": section.title, "key": section.key}
-            for section in plex.library.sections()
-            if section.type == 'movie' or section.type == 'show'
+            for section in plex.library.sections() # Include movie, show, music video, and 'other video' types
+            if section.type in ['movie', 'show', 'artist', 'photo']
         ]
         return jsonify(libraries=libraries)
     except Exception as e:
@@ -744,11 +744,18 @@ def update_job(job_id):
     cur.close()
     return jsonify({"message": message})
 
-
-# Start the background scanner thread when the app is initialized by Gunicorn.
-scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
-scanner_thread.start()
-
 if __name__ == '__main__':
     # Use host='0.0.0.0' to make the app accessible on your network
+    # This block runs for local development (e.g., `python dashboard_app.py`)
+    print("INFO: Flask development server starting. Initializing background threads.")
+    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+    scanner_thread.start()
     app.run(debug=True, host='0.0.0.0', port=5000)
+else:
+    # This block runs when started by a WSGI server like Gunicorn (in Docker).
+    # Gunicorn can fork multiple processes; this ensures we only start the
+    # scanner thread in the main process, not in every worker.
+    print("INFO: Gunicorn startup detected. Initializing background threads.")
+    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+    scanner_thread.start()
+    print("INFO: Plex scanner thread started.")
