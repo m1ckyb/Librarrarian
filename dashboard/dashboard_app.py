@@ -531,13 +531,12 @@ def api_stats():
 def plex_login():
     """Initiates the Plex PIN authentication process."""
     try:
-        # Plex requires client identification headers for the PIN auth flow.
-        headers = {
-            'X-Plex-Product': 'CodecShift',
-            'X-Plex-Version': get_project_version(),
-            'X-Plex-Client-Identifier': str(uuid.uuid4())
-        }
-        account = MyPlexAccount(headers=headers)
+        # The plexapi library reads identification from environment variables.
+        os.environ['PLEXAPI_HEADER_PRODUCT'] = 'CodecShift'
+        os.environ['PLEXAPI_HEADER_VERSION'] = get_project_version()
+        os.environ['PLEXAPI_HEADER_IDENTIFIER'] = str(uuid.uuid4())
+
+        account = MyPlexAccount()
         pin_data = account.get_pin()
         return jsonify(success=True, pin=pin_data['code'], url=pin_data['url'])
     except Exception as e:
