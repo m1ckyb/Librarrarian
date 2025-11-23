@@ -613,6 +613,9 @@ def run_plex_scan():
     try:
         with app.app_context():
             settings, db_error = get_worker_settings()
+            # Get the 'force' flag from the request JSON
+            force_scan = request.json.get('force', False) if request.is_json else False
+
             if db_error:
                 return {"success": False, "message": "Database not available."}
 
@@ -632,10 +635,9 @@ def run_plex_scan():
             except Exception as e:
                 return {"success": False, "message": f"Could not connect to Plex server: {e}"}
 
-            cur.execute("SELECT filepath FROM jobs")
-            existing_jobs = {row['filepath'] for row in cur.fetchall()}
-            cur.execute("SELECT filename FROM encoded_files")
-            encoded_history = {row['filename'] for row in cur.fetchall()}
+            # Only check existing jobs/history if it's NOT a forced scan
+            existing_jobs = set() if force_scan else {row['filepath'] for row in (cur.execute("SELECT filepath FROM jobs"), cur.fetchall())[1]}
+            encoded_history = set() if force_scan else {row['filename'] for row in (cur.execute("SELECT filename FROM encoded_files"), cur.fetchall())[1]}
             
             new_files_found = 0
             print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
@@ -670,11 +672,12 @@ def run_plex_scan():
 @app.route('/api/plex/scan', methods=['POST'])
 def api_plex_scan():
     """API endpoint to manually trigger a Plex scan."""
+    # The actual scan is now run in the background thread, this just triggers it.
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
     print(f"[{datetime.now()}] Manual scan requested via API.")
-    scan_now_event.set() # Signal the background thread to run immediately
+    scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
 def plex_scanner_thread():

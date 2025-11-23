@@ -105,7 +105,13 @@
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">Job Queue</h1>
                     <div>
-                        <button class="btn btn-primary" id="manual-scan-btn"><span class="mdi mdi-sync"></span> Manual Scan</button>
+                        <div class="btn-group" role="group">
+                            <button class="btn btn-primary" id="manual-scan-btn"><span class="mdi mdi-sync"></span> Manual Scan</button>
+                            <div class="input-group-text">
+                                <input class="form-check-input mt-0" type="checkbox" id="force-rescan-checkbox" title="Force Rescan">
+                                <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
+                            </div>
+                        </div>
                     </div>
                 </div>
                 <div id="scan-status" class="mb-3"></div>
@@ -960,14 +966,16 @@
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');
             const scanStatusDiv = document.getElementById('scan-status');
+            const forceRescanCheckbox = document.getElementById('force-rescan-checkbox');
 
             manualScanBtn.addEventListener('click', async () => {
                 manualScanBtn.disabled = true;
                 manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
                 scanStatusDiv.innerHTML = '';
+                const isForced = forceRescanCheckbox.checked;
 
                 try {
-                    const response = await fetch('/api/plex/scan', { method: 'POST' });
+                    const response = await fetch('/api/plex/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
                     const data = await response.json();
                     const alertClass = data.success ? 'alert-success' : 'alert-warning';
                     scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
