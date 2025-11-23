@@ -2,6 +2,7 @@ import os
 import sys
 import time
 import threading
+import uuid
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount
 from flask import Flask, render_template, g, request, flash, redirect, url_for
@@ -530,7 +531,13 @@ def api_stats():
 def plex_login():
     """Initiates the Plex PIN authentication process."""
     try:
-        account = MyPlexAccount()
+        # Plex requires client identification headers for the PIN auth flow.
+        headers = {
+            'X-Plex-Product': 'CodecShift',
+            'X-Plex-Version': get_project_version(),
+            'X-Plex-Client-Identifier': str(uuid.uuid4())
+        }
+        account = MyPlexAccount(headers=headers)
         pin_data = account.get_pin()
         return jsonify(success=True, pin=pin_data['code'], url=pin_data['url'])
     except Exception as e:
