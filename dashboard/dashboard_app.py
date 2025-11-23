@@ -540,7 +540,8 @@ def plex_login():
         os.environ['PLEXAPI_HEADER_IDENTIFIER'] = str(uuid.uuid4())
 
         # Use the correct MyPlexPinLogin class for the OAuth flow
-        pin_login = MyPlexPinLogin(oauth=True)
+        # The `oauth=True` parameter is not needed as the class itself handles the PIN flow.
+        pin_login = MyPlexPinLogin()
         pin_login.run(timeout=300) # Start the background thread, timeout after 5 mins
 
         # Store the object in our global dict, keyed by the pin
