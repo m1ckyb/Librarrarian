@@ -177,21 +177,25 @@
                                 <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
                                 <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
                             </div>
-                            <div class="mb-3">
-                                <label class="form-label"><strong>Authentication</strong></label>
-                                <div>
-                                    {% if plex_token %}
-                                        <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
-                                        <span class="ms-2 text-success">✓ Account Linked</span>
-                                    {% else %}
-                                        <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
-                                    {% endif %}
+                            <div class="row">
+                                <!-- Left Column: Authentication -->
+                                <div class="col-md-6 mb-3">
+                                    <label class="form-label"><strong>Authentication</strong></label>
+                                    <div>
+                                        {% if plex_token %}
+                                            <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
+                                            <span class="ms-2 text-success">✓ Account Linked</span>
+                                        {% else %}
+                                            <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
+                                        {% endif %}
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
-                                <label class="form-label"><strong>Monitored Libraries</strong></label>
-                                <div id="plex-libraries-list">
-                                    <!-- Checkboxes will be dynamically inserted here -->
+                                <!-- Right Column: Monitored Libraries -->
+                                <div class="col-md-6 mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
+                                    <label class="form-label"><strong>Monitored Libraries</strong></label>
+                                    <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
+                                        <!-- Checkboxes will be dynamically inserted here -->
+                                    </div>
                                 </div>
                             </div>
                         </div>
