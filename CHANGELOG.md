@@ -1,5 +1,33 @@
 # [Unreleased]
 
+This release focuses on massive stability improvements, extensive bug fixing, and adding critical quality-of-life features for queue and cluster management.
+
+### Added
+- **Manual Plex Scan**: A "Manual Scan" button has been added to the Job Queue page, allowing users to trigger a library scan on demand for immediate feedback.
+- **Force Rescan**: A "Force" checkbox was added next to the manual scan button. When checked, the scanner will ignore the existing job and history lists, re-queueing any non-HEVC files it finds.
+- **Pause/Resume Job Queue**: A "Pause Queue" button has been added to the UI. When paused, the dashboard will stop distributing new jobs to workers, allowing the cluster to gracefully finish its current work.
+- **Clear Job Queue**: A "Clear Queue" button was added to instantly and permanently delete all jobs from the pending queue.
+- **Configurable Auto-Scan**: A "Rescan Delay" setting has been added to the Options page. This allows users to define how many minutes the system should wait between automatic scans. Setting it to `0` disables automatic scanning entirely.
+- **Job Queue Pagination**: Implemented a full, smart pagination system for the Job Queue page. This prevents the UI from locking up when loading thousands of jobs and makes navigation easy.
+
+### Changed
+- **Asynchronous Scanning**: The manual scan process is now fully asynchronous. The API endpoint immediately returns a response to the UI while the actual scan runs in the background, fixing all Gunicorn worker timeout errors.
+- **UI Layout**: The Plex settings on the Options page have been reorganized into a cleaner two-column layout.
+
+### Fixed
+- **Critical Scanner Bugs**:
+    - Resolved a series of `AttributeError` and `TypeError` crashes that prevented the scanner from correctly reading video codec information from the Plex API.
+    - The scanner now correctly calls `video.reload()` to fetch full media details, fixing an issue where all codecs were reported as `N/A`.
+    - The scanner now correctly iterates through all of a video's "parts", ensuring it finds the correct video stream even in libraries with optimized versions.
+    - The library filter was fixed to correctly identify and scan "Music Videos" and "Other Videos" (e.g., YouTube) libraries.
+- **Job Queue Failures**:
+    - Fixed a bug where the UI would show "Failed to fetch job queue" because the `/api/jobs` endpoint was missing.
+    - Fixed a database commit issue where the scanner would identify files but fail to save them to the job queue.
+- **Background Thread Stability**: Fixed a `RuntimeError: Working outside of request context` crash that occurred when the automatic scanner tried to access web request data.
+- **UI Auto-Refresh Bug**: The Job Queue page no longer reverts to page 1 on auto-refresh and now correctly stays on the user's currently selected page.
+- **Form Resubmission Error**: Implemented the Post-Redirect-Get (PRG) pattern for the Options page, eliminating the browser warning on page refresh after saving settings.
+
+
 ## [0.10.1] - 2025-11-23 - The Scanner Awakens
 
 This is a stability release that ensures the new Plex integration features from `v0.10.0` run correctly in a production Docker environment.

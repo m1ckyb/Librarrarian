@@ -615,19 +615,19 @@
                     return;
                 }
 
-                data.jobs.forEach(job => {
-                    const row = `
-                        <tr>
-                            <td>${job.id}</td>
-                            <td style="word-break: break-all;">${job.filepath}</td>
-                            <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
-                            <td>${job.status}</td>
-                            <td>${job.assigned_to || 'N/A'}</td>
-                            <td>${new Date(job.created_at).toLocaleString()}</td>
-                        </tr>
-                    `;
-                    tableBody.innerHTML += row;
-                });
+                // Build the entire table HTML at once and set it. This is much more efficient
+                // and prevents the "ghost row" rendering bug.
+                const rowsHtml = data.jobs.map(job => `
+                    <tr>
+                        <td>${job.id}</td>
+                        <td style="word-break: break-all;">${job.filepath}</td>
+                        <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
+                        <td>${job.status}</td>
+                        <td>${job.assigned_to || 'N/A'}</td>
+                        <td>${new Date(job.created_at).toLocaleString()}</td>
+                    </tr>
+                `).join('');
+                tableBody.innerHTML = rowsHtml;
 
                 renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
             } catch (error) {
