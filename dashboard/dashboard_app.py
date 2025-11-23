@@ -649,8 +649,9 @@ def plex_scanner_thread():
                         
                         # Correctly get the codec from the video stream object
                         codec = None
-                        if hasattr(part, 'videoStreams') and part.videoStreams:
-                            codec = part.videoStreams[0].codec
+                        # videoStreams is a method, so it must be called with ()
+                        if hasattr(part, 'videoStreams') and part.videoStreams():
+                            codec = part.videoStreams()[0].codec
 
                         # Check if the file should be added to the queue
                         if codec and codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
