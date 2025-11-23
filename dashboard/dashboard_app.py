@@ -541,7 +541,8 @@ def plex_login():
         return jsonify(success=False, error="Username and password are required."), 400
 
     try:
-        account = MyPlexAccount.signin(username, password)
+        # Instantiate the account object with username and password to sign in.
+        account = MyPlexAccount(username, password)
         token = account.authenticationToken
         if token:
             update_worker_setting('plex_token', token)
