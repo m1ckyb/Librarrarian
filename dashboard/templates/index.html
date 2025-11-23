@@ -229,6 +229,11 @@
                             <div class="col-md-6">
                                 <h5>Transcoding &amp; System</h5>
                                 <div class="mb-3 p-3 border rounded">
+                                    <label for="rescan_delay_minutes" class="form-label"><strong>Automatic Rescan Delay</strong></label>
+                                    <p class="form-text text-body-secondary">Time in minutes between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
+                                    <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
+                                </div>
+                                <div class="mb-3 p-3 border rounded">
                                     <label class="form-label"><strong>Hardware Acceleration</strong></label>
                                     <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
                                     {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}

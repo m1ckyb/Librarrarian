@@ -595,20 +595,15 @@ def plex_get_libraries():
     except Exception as e:
         return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
 
-@app.route('/api/plex/scan', methods=['POST'])
-def api_plex_scan():
-    """API endpoint to manually trigger a Plex scan."""
-    result = run_plex_scan()
-    return jsonify(result)
-
 # --- New Background Scanner and Worker API ---
 
 scanner_lock = threading.Lock()
+scan_now_event = threading.Event()
 
 def run_plex_scan():
     """
     The core logic for scanning Plex libraries. This function is designed to be
-    called by both the background thread and the manual scan API endpoint.
+    called ONLY by the background scanner thread.
     It uses a lock to prevent concurrent scans.
     """
     if not scanner_lock.acquire(blocking=False):
@@ -672,26 +667,45 @@ def run_plex_scan():
     finally:
         scanner_lock.release()
 
+@app.route('/api/plex/scan', methods=['POST'])
+def api_plex_scan():
+    """API endpoint to manually trigger a Plex scan."""
+    if scanner_lock.locked():
+        return jsonify({"success": False, "message": "A scan is already in progress."})
+    
+    print(f"[{datetime.now()}] Manual scan requested via API.")
+    scan_now_event.set() # Signal the background thread to run immediately
+    return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
+
 def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
-    # This function is now just a wrapper for the main scan logic.
-    # It ensures the automatic scan doesn't run if a manual one is in progress.
     while True:
         print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
         # Use the rescan delay from settings, default to 5 minutes (300 seconds)
-        delay = 300 
+        delay = 0 # Default to 0 (disabled)
         try:
             with app.app_context():
                 settings, _ = get_worker_settings()
-                delay_str = settings.get('rescan_delay_minutes', {}).get('setting_value', '5')
+                delay_str = settings.get('rescan_delay_minutes', {}).get('setting_value', '0')
                 delay = int(float(delay_str) * 60)
         except Exception as e:
-            print(f"[{datetime.now()}] Could not get rescan delay from settings, defaulting to 5 minutes. Error: {e}")
-
-        time.sleep(delay)
-
-        print(f"[{datetime.now()}] Triggering automatic Plex scan.")
-        run_plex_scan()
+            print(f"[{datetime.now()}] Could not get rescan delay from settings, defaulting to disabled. Error: {e}")
+        
+        # If delay is 0, wait indefinitely until a manual scan is triggered.
+        # Otherwise, wait for the specified delay.
+        wait_timeout = None if delay <= 0 else delay
+        scan_triggered = scan_now_event.wait(timeout=wait_timeout)
+        
+        if scan_triggered:
+            print(f"[{datetime.now()}] Manual scan trigger received.")
+            scan_now_event.clear() # Reset the event for the next time
+            run_plex_scan() # Run the scan
+        elif delay > 0:
+            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
+            run_plex_scan() # Run the scan
+        else:
+            # This block is reached if delay is 0 and the wait times out (which it won't, but as a fallback)
+            pass # Do nothing, just loop and wait for a manual trigger
 
 @app.route('/api/request_job', methods=['POST'])
 def request_job():
