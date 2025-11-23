@@ -361,6 +361,28 @@ def options():
     # Redirect back to the main page, anchoring to the options tab
     return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
+@app.route('/api/jobs', methods=['GET'])
+def api_jobs():
+    """Returns the current job queue as JSON."""
+    db = get_db()
+    jobs = []
+    db_error = None
+
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return jsonify(jobs=jobs, db_error=db_error)
+
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+            jobs = cur.fetchall()
+            for job in jobs:
+                job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+
+    return jsonify(jobs=jobs, db_error=db_error)
+
 @app.route('/api/status')
 def api_status():
     """Returns cluster status data as JSON."""
