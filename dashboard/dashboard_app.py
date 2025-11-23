@@ -676,71 +676,24 @@ def run_plex_scan():
 
 def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    # This function is now just a wrapper for the main scan logic.
+    # It ensures the automatic scan doesn't run if a manual one is in progress.
     while True:
+        print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
+        # Use the rescan delay from settings, default to 5 minutes (300 seconds)
+        delay = 300 
         try:
             with app.app_context():
-                settings, db_error = get_worker_settings()
-                if db_error:
-                    print(f"[{datetime.now()}] Plex Scanner: Database not available. Retrying in 60s.")
-                    time.sleep(60)
-                    continue
-
-                plex_url = settings.get('plex_url', {}).get('setting_value')
-                plex_token = settings.get('plex_token', {}).get('setting_value')
-                plex_libraries_str = settings.get('plex_libraries', {}).get('setting_value', '')
-                plex_libraries = [lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()]
-
-                if not all([plex_url, plex_token, plex_libraries]):
-                    # print("⚠️ Plex integration is not fully configured. The scanner will wait.")
-                    time.sleep(60) # Wait and check again later
-                    continue
-
-                conn = get_db()
-                cur = conn.cursor(cursor_factory=RealDictCursor)
-
-                try:
-                    plex_server = PlexServer(plex_url, plex_token)
-                except Exception as e:
-                    print(f"[{datetime.now()}] Plex Scanner: Could not connect to Plex server. Error: {e}")
-                    time.sleep(300)
-                    continue
-
-                # Get existing files from jobs and history to avoid duplicates
-                cur.execute("SELECT filepath FROM jobs")
-                existing_jobs = {row['filepath'] for row in cur.fetchall()}
-                cur.execute("SELECT filename FROM encoded_files")
-                encoded_history = {row['filename'] for row in cur.fetchall()}
-                
-                new_files_found = 0
-                print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
-                for lib_name in plex_libraries:
-                    library = plex_server.library.section(title=lib_name)
-                    print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
-                    for video in library.all():
-                        # Check the codec of the main video stream
-                        codec = video.media[0].video_codec
-                        filepath = video.media[0].parts[0].file
-
-                        if codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
-                            print(f"  -> Found non-HEVC file: {os.path.basename(filepath)} (Codec: {codec})")
-                            cur.execute(
-                                "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, %s, %s) ON CONFLICT (filepath) DO NOTHING",
-                                (filepath, 'transcode', 'pending')
-                            )
-                            new_files_found += 1
-                
-                conn.commit()
-                if new_files_found > 0:
-                    print(f"[{datetime.now()}] Plex Scanner: Added {new_files_found} new transcode jobs to the queue.")
-                else:
-                    print(f"[{datetime.now()}] Plex Scanner: Scan complete. No new files to add.")
-
-                cur.close()
+                settings, _ = get_worker_settings()
+                delay_str = settings.get('rescan_delay_minutes', {}).get('setting_value', '5')
+                delay = int(float(delay_str) * 60)
         except Exception as e:
-            print(f"[{datetime.now()}] Scanner Error: {e}")
-        
-        # Wait for 5 minutes before the next scan
-        time.sleep(300)
+            print(f"[{datetime.now()}] Could not get rescan delay from settings, defaulting to 5 minutes. Error: {e}")
+
+        time.sleep(delay)
+
+        print(f"[{datetime.now()}] Triggering automatic Plex scan.")
+        run_plex_scan()
 
 @app.route('/api/request_job', methods=['POST'])
 def request_job():
