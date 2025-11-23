@@ -534,14 +534,16 @@ def api_stats():
 def plex_login():
     """Initiates the Plex PIN authentication process."""
     try:
-        # The plexapi library reads identification from environment variables.
-        os.environ['PLEXAPI_HEADER_PRODUCT'] = 'CodecShift'
-        os.environ['PLEXAPI_HEADER_VERSION'] = get_project_version()
-        os.environ['PLEXAPI_HEADER_IDENTIFIER'] = str(uuid.uuid4())
+        # Recent versions of plexapi require headers to be passed directly
+        # to the constructor for the PIN flow, along with oauth=True.
+        headers = {
+            'X-Plex-Product': 'CodecShift',
+            'X-Plex-Version': get_project_version(),
+            'X-Plex-Client-Identifier': str(uuid.uuid4())
+        }
 
-        # Use the correct MyPlexPinLogin class for the OAuth flow
-        # The `oauth=True` parameter is not needed as the class itself handles the PIN flow.
-        pin_login = MyPlexPinLogin()
+        # This specific combination of arguments is required to satisfy the library's checks.
+        pin_login = MyPlexPinLogin(headers=headers, oauth=True)
         pin_login.run(timeout=300) # Start the background thread, timeout after 5 mins
 
         # Store the object in our global dict, keyed by the pin
