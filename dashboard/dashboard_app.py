@@ -363,25 +363,35 @@ def options():
 
 @app.route('/api/jobs', methods=['GET'])
 def api_jobs():
-    """Returns the current job queue as JSON."""
+    """Returns a paginated list of the current job queue as JSON."""
     db = get_db()
     jobs = []
     db_error = None
+    total_jobs = 0
+    page = request.args.get('page', 1, type=int)
+    per_page = 50 # Number of jobs per page
+    offset = (page - 1) * per_page
 
     if db is None:
         db_error = "Cannot connect to the PostgreSQL database."
-        return jsonify(jobs=jobs, db_error=db_error)
+        return jsonify(jobs=jobs, db_error=db_error, total_jobs=0, page=page, per_page=per_page)
 
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM jobs ORDER BY created_at DESC")
+            # Query for the paginated list of jobs
+            cur.execute("SELECT * FROM jobs ORDER BY created_at DESC LIMIT %s OFFSET %s", (per_page, offset))
             jobs = cur.fetchall()
             for job in jobs:
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Query for the total number of jobs to calculate total pages
+            cur.execute("SELECT COUNT(*) FROM jobs")
+            total_jobs = cur.fetchone()['count']
+
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
-    return jsonify(jobs=jobs, db_error=db_error)
+    return jsonify(jobs=jobs, db_error=db_error, total_jobs=total_jobs, page=page, per_page=per_page)
 
 @app.route('/api/status')
 def api_status():
