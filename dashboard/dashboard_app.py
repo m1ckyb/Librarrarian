@@ -33,9 +33,6 @@ DB_CONFIG = {
     "dbname": os.environ.get("DB_NAME", "codecshift")
 }
 
-# Global dictionary to store active PIN login flows, keyed by the PIN
-active_pin_logins = {}
-
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
     try:
@@ -532,49 +529,23 @@ def api_stats():
 
 @app.route('/api/plex/login', methods=['POST'])
 def plex_login():
-    """Initiates the Plex PIN authentication process."""
+    """Logs into Plex using username/password and saves the auth token."""
+    username = request.json.get('username')
+    password = request.json.get('password')
+
+    if not username or not password:
+        return jsonify(success=False, error="Username and password are required."), 400
+
     try:
-        # Recent versions of plexapi require headers to be passed directly
-        # to the constructor for the PIN flow, along with oauth=True.
-        headers = {
-            'X-Plex-Product': 'CodecShift',
-            'X-Plex-Version': get_project_version(),
-            'X-Plex-Client-Identifier': str(uuid.uuid4())
-        }
-
-        # This specific combination of arguments is required to satisfy the library's checks.
-        pin_login = MyPlexPinLogin(headers=headers, oauth=True)
-        pin_login.run(timeout=300) # Start the background thread, timeout after 5 mins
-
-        # Store the object in our global dict, keyed by the pin
-        active_pin_logins[pin_login.pin] = pin_login
-
-        return jsonify(success=True, pin=pin_login.pin, url=pin_login.oauthUrl())
-    except Exception as e:
-        return jsonify(success=False, error=str(e)), 500
-
-@app.route('/api/plex/check_pin', methods=['POST'])
-def plex_check_pin():
-    """Checks if the user has authenticated the PIN and saves the token."""
-    pin = request.json.get('pin')
-    try:
-        pin_login = active_pin_logins.get(pin)
-        if not pin_login:
-            return jsonify(success=False, error="PIN not found or expired. Please try again."), 404
-
-        if pin_login.checkLogin():
-            # Save the token to the database
-            update_worker_setting('plex_token', pin_login.token)
-            # Clean up the completed login object
-            del active_pin_logins[pin]
+        account = MyPlexAccount.signin(username, password)
+        token = account.authenticationToken
+        if token:
+            update_worker_setting('plex_token', token)
             return jsonify(success=True, message="Plex account linked successfully!")
-        elif pin_login.expired:
-            return jsonify(success=False, error="PIN has expired. Please try again."), 410
         else:
-            # PIN not yet authenticated
-            return jsonify(success=False, message="Waiting for authentication...")
+            return jsonify(success=False, error="Login failed. Please check your credentials."), 401
     except Exception as e:
-        return jsonify(success=False, error=str(e)), 500
+        return jsonify(success=False, error=f"Plex login failed: {e}"), 401
 
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
