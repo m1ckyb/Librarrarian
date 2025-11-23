@@ -2,6 +2,20 @@
 
 ---
 
+## [0.10.3] - 2025-11-24 - The Polishing Act
+
+This is a significant stability and bug-fix release that addresses numerous issues across the entire stack, from the worker's core logic to the dashboard's UI rendering.
+
+### Fixed
+- **Job Distribution**: Fixed a critical bug where the dashboard would incorrectly report the job queue as "paused", preventing workers from receiving jobs.
+- **Progress Bar**: Fixed an issue where the progress bar on worker nodes was not displaying or updating during a transcode.
+- **UI State & Rendering**:
+    - The "Pause Queue" button now correctly updates to "Resume Queue" to reflect the current state.
+    - The "Node" and "Codec" columns in the History table now display correct information instead of "undefined".
+    - Fixed a bug causing "undefined" to appear on idle node cards.
+    - The live FPS and Speed metrics have been re-implemented and are now correctly displayed in the node card footer.
+- **Job Queue Sorting**: The job queue is now correctly sorted to always show "Encoding" jobs at the top for better visibility.
+
 ## [0.10.2] - 2025-11-24 - Cluster Control
 
 This release focuses on massive stability improvements, extensive bug fixing, and adding critical quality-of-life features for queue and cluster management.
