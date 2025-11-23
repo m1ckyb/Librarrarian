@@ -280,7 +280,10 @@ def get_history():
         return history, db_error
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM encoded_files ORDER BY encoded_at DESC LIMIT 100")
+            cur.execute("""
+                SELECT *, encoded_by as hostname 
+                FROM encoded_files ORDER BY encoded_at DESC LIMIT 100
+            """)
             history = cur.fetchall()
     except Exception as e:
         db_error = f"Database query failed: {e}"
