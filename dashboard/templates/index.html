@@ -104,7 +104,11 @@
             <div class="tab-pane fade" id="jobs-tab-pane" role="tabpanel" aria-labelledby="jobs-tab" tabindex="0">
                 <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
                     <h1 class="h2">Job Queue</h1>
+                    <div>
+                        <button class="btn btn-primary" id="manual-scan-btn"><span class="mdi mdi-sync"></span> Manual Scan</button>
+                    </div>
                 </div>
+                <div id="scan-status" class="mb-3"></div>
                 <div class="table-responsive">
                     <table class="table table-striped table-sm">
                         <thead>
@@ -182,12 +186,14 @@
                                     </div>
                                     <div class="mb-3">
                                         <label class="form-label"><strong>Authentication</strong></label>
-                                        {% if plex_token %}
-                                            <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
-                                            <span class="ms-2 text-success">✓ Account Linked</span>
-                                        {% else %}
-                                            <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
-                                        {% endif %}
+                                        <div>
+                                            {% if plex_token %}
+                                                <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
+                                                <div class="mt-2 text-success">✓ Account Linked</div>
+                                            {% else %}
+                                                <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
+                                            {% endif %}
+                                        </div>
                                     </div>
                                 </div>
                                 <!-- Right Column: Monitored Libraries -->
@@ -945,6 +951,30 @@
             if (document.getElementById('plex-libraries-container').style.display !== 'none') {
                 loadPlexLibraries();
             }
+
+            // --- Manual Plex Scan Logic ---
+            const manualScanBtn = document.getElementById('manual-scan-btn');
+            const scanStatusDiv = document.getElementById('scan-status');
+
+            manualScanBtn.addEventListener('click', async () => {
+                manualScanBtn.disabled = true;
+                manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+                scanStatusDiv.innerHTML = '';
+
+                try {
+                    const response = await fetch('/api/plex/scan', { method: 'POST' });
+                    const data = await response.json();
+                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
+                    scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    // Refresh the job queue to show any newly added jobs
+                    updateJobQueue();
+                } catch (error) {
+                    scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                } finally {
+                    manualScanBtn.disabled = false;
+                    manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Manual Scan`;
+                }
+            });
         });
     </script>
     <!-- Plex Login Modal -->

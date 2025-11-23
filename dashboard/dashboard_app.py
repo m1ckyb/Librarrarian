@@ -589,13 +589,90 @@ def plex_get_libraries():
         libraries = [
             {"title": section.title, "key": section.key}
             for section in plex.library.sections()
-            if section.type in ['movie', 'show', 'artist', 'photo']
+            if section.type == 'movie' or section.type == 'show'
         ]
         return jsonify(libraries=libraries)
     except Exception as e:
         return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
 
+@app.route('/api/plex/scan', methods=['POST'])
+def api_plex_scan():
+    """API endpoint to manually trigger a Plex scan."""
+    result = run_plex_scan()
+    return jsonify(result)
+
 # --- New Background Scanner and Worker API ---
+
+scanner_lock = threading.Lock()
+
+def run_plex_scan():
+    """
+    The core logic for scanning Plex libraries. This function is designed to be
+    called by both the background thread and the manual scan API endpoint.
+    It uses a lock to prevent concurrent scans.
+    """
+    if not scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Scan trigger ignored: A scan is already in progress.")
+        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+
+    try:
+        with app.app_context():
+            settings, db_error = get_worker_settings()
+            if db_error:
+                return {"success": False, "message": "Database not available."}
+
+            plex_url = settings.get('plex_url', {}).get('setting_value')
+            plex_token = settings.get('plex_token', {}).get('setting_value')
+            plex_libraries_str = settings.get('plex_libraries', {}).get('setting_value', '')
+            plex_libraries = [lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()]
+
+            if not all([plex_url, plex_token, plex_libraries]):
+                return {"success": False, "message": "Plex integration is not fully configured."}
+
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            try:
+                plex_server = PlexServer(plex_url, plex_token)
+            except Exception as e:
+                return {"success": False, "message": f"Could not connect to Plex server: {e}"}
+
+            cur.execute("SELECT filepath FROM jobs")
+            existing_jobs = {row['filepath'] for row in cur.fetchall()}
+            cur.execute("SELECT filename FROM encoded_files")
+            encoded_history = {row['filename'] for row in cur.fetchall()}
+            
+            new_files_found = 0
+            print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
+            for lib_name in plex_libraries:
+                library = plex_server.library.section(title=lib_name)
+                print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
+                for video in library.all():
+                    job_created_for_video = False
+                    if not hasattr(video, 'media'): continue
+                    for media_item in video.media:
+                        if not hasattr(media_item, 'parts'): continue
+                        for part in media_item.parts:
+                            filepath = part.file
+                            codec = None
+                            if hasattr(part, 'videoStreams') and part.videoStreams():
+                                codec = part.videoStreams()[0].codec
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
+                                print(f"    -> Found non-HEVC file. Adding to queue.")
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                if cur.rowcount > 0: new_files_found += 1
+                                job_created_for_video = True
+                                break # Found a transcodable part, move to next video
+                        if job_created_for_video:
+                            break # Break from the media_item loop
+            
+            conn.commit()
+            cur.close()
+            message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+            return {"success": True, "message": message}
+    finally:
+        scanner_lock.release()
 
 def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
@@ -641,16 +718,16 @@ def plex_scanner_thread():
                     print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
                     for video in library.all():
                         # Check the codec of the main video stream
-                        codec = video.media[0].parts[0].videoStreams()[0].codec if hasattr(video.media[0].parts[0], 'videoStreams') and video.media[0].parts[0].videoStreams() else None
+                        codec = video.media[0].video_codec
                         filepath = video.media[0].parts[0].file
 
-                        if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
+                        if codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
                             print(f"  -> Found non-HEVC file: {os.path.basename(filepath)} (Codec: {codec})")
                             cur.execute(
                                 "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, %s, %s) ON CONFLICT (filepath) DO NOTHING",
                                 (filepath, 'transcode', 'pending')
                             )
-                            if cur.rowcount > 0: new_files_found += 1
+                            new_files_found += 1
                 
                 conn.commit()
                 if new_files_found > 0:
