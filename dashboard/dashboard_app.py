@@ -745,12 +745,10 @@ def update_job(job_id):
     return jsonify({"message": message})
 
 
+# Start the background scanner thread when the app is initialized by Gunicorn.
+scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+scanner_thread.start()
+
 if __name__ == '__main__':
-    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
-    scanner_thread.start()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
-
-# Initialize the database when the application module is loaded.
-with app.app_context():
-    init_db()
