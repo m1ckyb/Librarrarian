@@ -589,7 +589,7 @@ def plex_get_libraries():
         libraries = [
             {"title": section.title, "key": section.key}
             for section in plex.library.sections()
-            if section.type == 'movie' or section.type == 'show'
+            if section.type in ['movie', 'show', 'artist', 'photo']
         ]
         return jsonify(libraries=libraries)
     except Exception as e:
@@ -640,25 +640,17 @@ def plex_scanner_thread():
                     library = plex_server.library.section(title=lib_name)
                     print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
                     for video in library.all():
-                        # Defensive check: Ensure the video has media parts and video streams before processing
-                        if not hasattr(video, 'media') or not video.media or not hasattr(video.media[0], 'parts'):
-                            continue
-                        
-                        part = video.media[0].parts[0]
-                        filepath = part.file
-                        
-                        # Correctly get the codec from the video stream object
-                        codec = None
-                        # videoStreams is a method, so it must be called with ()
-                        if hasattr(part, 'videoStreams') and part.videoStreams():
-                            codec = part.videoStreams()[0].codec
+                        # Check the codec of the main video stream
+                        codec = video.media[0].parts[0].videoStreams()[0].codec if hasattr(video.media[0].parts[0], 'videoStreams') and video.media[0].parts[0].videoStreams() else None
+                        filepath = video.media[0].parts[0].file
 
-                        # Check if the file should be added to the queue
-                        if codec and codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
+                        if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
                             print(f"  -> Found non-HEVC file: {os.path.basename(filepath)} (Codec: {codec})")
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                            if cur.rowcount > 0:
-                                new_files_found += 1
+                            cur.execute(
+                                "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, %s, %s) ON CONFLICT (filepath) DO NOTHING",
+                                (filepath, 'transcode', 'pending')
+                            )
+                            if cur.rowcount > 0: new_files_found += 1
                 
                 conn.commit()
                 if new_files_found > 0:
