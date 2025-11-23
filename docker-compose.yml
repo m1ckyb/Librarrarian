@@ -3,32 +3,37 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/your-github-username/codecshift-dashboard:latest # Replace with your GitHub username
+    build: ./dashboard # Build from the dashboard directory
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
       - DB_HOST=db
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
+      - POSTGRES_USER=${POSTGRES_USER}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
     depends_on:
       - db
+    volumes:
+      - ./media:/media
+    # The command is now defined in the dashboard/Dockerfile
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/your-github-username/codecshift-worker:latest # Replace with your GitHub username
+    build: ./worker # Build from the worker directory
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       - db
     environment:
       - DB_HOST=db
       - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - DASHBOARD_URL=http://dashboard:5000
     volumes:
       - ./media:/media
-    command: ["python", "transcode.py", "/media", "--debug"]
+    # The command is now defined in the worker/Dockerfile
 
   # The PostgreSQL database service
   db:

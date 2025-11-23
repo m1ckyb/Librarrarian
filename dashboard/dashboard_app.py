@@ -1,25 +1,24 @@
 import os
 import sys
 import time
+import threading
 from datetime import datetime
+from plexapi.myplex import MyPlexAccount
 from flask import Flask, render_template, g, request, flash, redirect, url_for
 from flask import jsonify
-# Check for Postgres Driver
+
 try:
+    from plexapi.server import PlexServer
     import psycopg2
     from psycopg2.extras import RealDictCursor
 except ImportError:
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
     sys.exit(1)
-
-
 # ===========================
 # Configuration
 # ===========================
-
 app = Flask(__name__)
-
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
@@ -41,10 +40,10 @@ def get_project_version():
     except FileNotFoundError:
         return "unknown"
 
+
 # ===========================
 # Database Layer
 # ===========================
-
 def get_db():
     """Opens a new database connection if there is none yet for the current application context."""
     if 'db' not in g:
@@ -54,11 +53,76 @@ def get_db():
             g.db = None # Fail gracefully if DB is down
     return g.db
 
+
 @app.teardown_appcontext
 def close_db(error):
     """Closes the database again at the end of the request."""
     if hasattr(g, 'db') and g.db is not None:
         g.db.close()
+
+
+def init_db():
+    """Initializes the database and creates all necessary tables if they don't exist."""
+    conn = get_db()
+    if not conn:
+        print("DB Init Error: Could not connect to database.")
+        return
+
+    with conn.cursor() as cur:
+        # Renamed from active_nodes to nodes for clarity
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS nodes (
+                id SERIAL PRIMARY KEY,
+                hostname VARCHAR(255) UNIQUE NOT NULL,
+                status VARCHAR(50),
+                last_heartbeat TIMESTAMP,
+                version VARCHAR(50),
+                command VARCHAR(50) DEFAULT 'idle',
+                progress REAL,
+                fps REAL,
+                current_file TEXT
+            );
+        """)
+        # New table for the job queue
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id SERIAL PRIMARY KEY,
+                filepath TEXT NOT NULL UNIQUE,
+                job_type VARCHAR(20) NOT NULL DEFAULT 'transcode',
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                assigned_to VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS worker_settings (
+                id SERIAL PRIMARY KEY,
+                setting_name VARCHAR(255) UNIQUE NOT NULL,
+                setting_value TEXT
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS encoded_files (
+                id SERIAL PRIMARY KEY,
+                filename TEXT,
+                original_size BIGINT,
+                new_size BIGINT,
+                encoded_by TEXT,
+                encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(20)
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS failed_files (
+                id SERIAL PRIMARY KEY,
+                filename TEXT,
+                reason TEXT,
+                log TEXT,
+                failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+    conn.commit()
 
 def get_cluster_status():
     """Fetches node and failure data from the database."""
@@ -74,9 +138,10 @@ def get_cluster_status():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Get active nodes (updated in the last 5 minutes)
+            # Using the new 'nodes' table schema
             cur.execute("""
-                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_updated)) as age 
-                FROM active_nodes 
+                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age
+                FROM nodes
                 WHERE last_updated > NOW() - INTERVAL '5 minutes'
                 ORDER BY hostname
             """)
@@ -135,10 +200,11 @@ def get_worker_settings():
         db_error = "Cannot connect to the PostgreSQL database."
         return settings, db_error
     try:
+        # Using new settings table schema
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT key, value, description FROM worker_settings")
+            cur.execute("SELECT setting_name, setting_value, 'description' as description FROM worker_settings")
             for row in cur.fetchall():
-                settings[row['key']] = row
+                settings[row['setting_name']] = row
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return settings, db_error
@@ -153,8 +219,8 @@ def update_worker_setting(key, value):
     try:
         with db.cursor() as cur:
             cur.execute(
-                "UPDATE worker_settings SET value = %s, updated_at = NOW() WHERE key = %s",
-                (value, key)
+                "UPDATE worker_settings SET setting_value = %s WHERE setting_name = %s",
+                (value, key) # Note: updated_at is not in the new schema, can be added if needed
             )
         db.commit()
     except Exception as e:
@@ -176,14 +242,14 @@ def set_node_status(hostname, status):
     try:
         with db.cursor() as cur:
             cur.execute(
-                "UPDATE active_nodes SET status = %s, last_updated = NOW() WHERE hostname = %s;",
+                "UPDATE nodes SET command = %s, last_heartbeat = NOW() WHERE hostname = %s;",
                 (status, hostname)
             )
             # The above command will not fail if the node doesn't exist, but it also won't update anything.
             # We check rowcount to see if a change was made.
             if cur.rowcount == 0:
                 # If no rows were updated, it means the node isn't in the table yet.
-                # This can happen if a worker is stopped before its first heartbeat.
+                # This can happen if a worker is controlled before its first heartbeat.
                 # We'll insert it with the desired status.
                 cur.execute(
                     "INSERT INTO active_nodes (hostname, status, file, last_updated) VALUES (%s, %s, 'N/A', NOW()) ON CONFLICT (hostname) DO NOTHING;",
@@ -216,7 +282,6 @@ def get_history():
 # ===========================
 # Flask Routes
 # ===========================
-
 @app.route('/')
 def dashboard():
     """Renders the main dashboard page."""
@@ -226,13 +291,13 @@ def dashboard():
 
     # Add a 'color' key for easy templating
     for node in nodes:
-        codec = node.get('codec', '')
-        if 'nvenc' in codec:
-            node['color'] = 'success' # Green
-        elif 'vaapi' in codec or 'qsv' in codec:
-            node['color'] = 'primary' # Blue
-        else:
-            node['color'] = 'warning' # Yellow
+        # This logic is now handled on the frontend, but we can keep it as a fallback
+        # A better approach would be to determine color based on status ('encoding', 'idle', etc.)
+        if node.get('status') == 'encoding':
+            node['color'] = 'success'
+        elif node.get('status') == 'idle':
+            node['color'] = 'secondary'
+        else: node['color'] = 'warning'
 
     return render_template(
         'index.html', 
@@ -267,6 +332,7 @@ def options():
             'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
             'debug': 'true' if 'debug' in request.form else 'false',
             # Advanced settings
+            'plex_url': request.form.get('plex_url', ''),
             'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
             'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
             'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
@@ -274,8 +340,11 @@ def options():
             'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
             'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
             'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
-            'extensions': request.form.get('extensions', '.mkv,.mp4'),
         }
+
+        # Handle multi-select for Plex libraries
+        plex_libraries = request.form.getlist('plex_libraries')
+        settings_to_update['plex_libraries'] = ','.join(plex_libraries)
 
         errors = []
         for key, value in settings_to_update.items():
@@ -298,13 +367,13 @@ def api_status():
     
     # Add the color key for the frontend to use
     for node in nodes:
-        codec = node.get('codec', '')
-        if 'nvenc' in codec:
-            node['color'] = 'success' # Green
-        elif 'vaapi' in codec or 'qsv' in codec:
-            node['color'] = 'primary' # Blue
+        # Simplified color logic based on status
+        if node.get('status') == 'encoding':
+            node['color'] = 'success'
+        elif node.get('status') == 'idle':
+            node['color'] = 'secondary'
         else:
-            node['color'] = 'warning' # Yellow
+            node['color'] = 'warning'
 
     return jsonify(
         nodes=nodes,
@@ -456,6 +525,218 @@ def api_stats():
 
     return jsonify(stats=stats, history=history, db_error=db_error)
 
+@app.route('/api/plex/login', methods=['POST'])
+def plex_login():
+    """Initiates the Plex PIN authentication process."""
+    try:
+        account = MyPlexAccount()
+        pin_data = account.get_pin()
+        return jsonify(success=True, pin=pin_data['code'], url=pin_data['url'])
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/plex/check_pin', methods=['POST'])
+def plex_check_pin():
+    """Checks if the user has authenticated the PIN and saves the token."""
+    pin = request.json.get('pin')
+    try:
+        account = MyPlexAccount()
+        auth_token = account.check_pin(pin)
+        if auth_token:
+            # Save the token to the database
+            update_worker_setting('plex_token', auth_token)
+            return jsonify(success=True, message="Plex account linked successfully!")
+        else:
+            # PIN not yet authenticated
+            return jsonify(success=False, message="Waiting for authentication...")
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/plex/logout', methods=['POST'])
+def plex_logout():
+    """Logs out of Plex by clearing the stored token."""
+    success, error = update_worker_setting('plex_token', '')
+    if success:
+        return jsonify(success=True, message="Plex account unlinked.")
+    else:
+        return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/libraries', methods=['GET'])
+def plex_get_libraries():
+    """Fetches a list of video libraries from the configured Plex server."""
+    settings, _ = get_worker_settings()
+    plex_url = settings.get('plex_url', {}).get('setting_value')
+    plex_token = settings.get('plex_token', {}).get('setting_value')
+
+    if not all([plex_url, plex_token]):
+        return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
+
+    try:
+        plex = PlexServer(plex_url, plex_token)
+        libraries = [
+            {"title": section.title, "key": section.key}
+            for section in plex.library.sections()
+            if section.type == 'movie' or section.type == 'show'
+        ]
+        return jsonify(libraries=libraries)
+    except Exception as e:
+        return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
+
+# --- New Background Scanner and Worker API ---
+
+def plex_scanner_thread():
+    """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    global plex_server
+    while True:
+        try:
+            with app.app_context():
+                settings, db_error = get_worker_settings()
+                if db_error:
+                    print(f"[{datetime.now()}] Plex Scanner: Database not available. Retrying in 60s.")
+                    time.sleep(60)
+                    continue
+
+                plex_url = settings.get('plex_url', {}).get('setting_value')
+                plex_token = settings.get('plex_token', {}).get('setting_value')
+                plex_libraries_str = settings.get('plex_libraries', {}).get('setting_value', '')
+                plex_libraries = [lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()]
+
+                if not all([plex_url, plex_token, plex_libraries]):
+                    # print("⚠️ Plex integration is not fully configured. The scanner will wait.")
+                    time.sleep(60) # Wait and check again later
+                    continue
+
+                conn = get_db()
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+
+                try:
+                    plex_server = PlexServer(plex_url, plex_token)
+                except Exception as e:
+                    print(f"[{datetime.now()}] Plex Scanner: Could not connect to Plex server. Error: {e}")
+                    time.sleep(300)
+                    continue
+
+                # Get existing files from jobs and history to avoid duplicates
+                cur.execute("SELECT filepath FROM jobs")
+                existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                cur.execute("SELECT filename FROM encoded_files")
+                encoded_history = {row['filename'] for row in cur.fetchall()}
+                
+                new_files_found = 0
+                print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
+                for lib_name in plex_libraries:
+                    library = plex_server.library.section(title=lib_name)
+                    print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
+                    for video in library.all():
+                        # Check the codec of the main video stream
+                        codec = video.media[0].video_codec
+                        filepath = video.media[0].parts[0].file
+
+                        if codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
+                            print(f"  -> Found non-HEVC file: {os.path.basename(filepath)} (Codec: {codec})")
+                            cur.execute(
+                                "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, %s, %s) ON CONFLICT (filepath) DO NOTHING",
+                                (filepath, 'transcode', 'pending')
+                            )
+                            new_files_found += 1
+                
+                conn.commit()
+                if new_files_found > 0:
+                    print(f"[{datetime.now()}] Plex Scanner: Added {new_files_found} new transcode jobs to the queue.")
+                else:
+                    print(f"[{datetime.now()}] Plex Scanner: Scan complete. No new files to add.")
+
+                cur.close()
+        except Exception as e:
+            print(f"[{datetime.now()}] Scanner Error: {e}")
+        
+        # Wait for 5 minutes before the next scan
+        time.sleep(300)
+
+@app.route('/api/request_job', methods=['POST'])
+def request_job():
+    """Endpoint for workers to request a new job."""
+    worker_hostname = request.json.get('hostname')
+    if not worker_hostname:
+        return jsonify({"error": "Hostname is required"}), 400
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        cur.execute("BEGIN;") # Start a transaction
+        cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
+        job = cur.fetchone()
+
+        if job:
+            cur.execute("UPDATE jobs SET status = 'assigned', assigned_to = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (worker_hostname, job['id']))
+            conn.commit()
+            # Return the full job details to the worker
+            return jsonify({"job_id": job['id'], "filepath": job['filepath'], "job_type": job['job_type']})
+        else:
+            conn.commit() # release lock
+            return jsonify({}) # No pending jobs
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/api/update_job/<int:job_id>', methods=['POST'])
+def update_job(job_id):
+    """Endpoint for workers to update the status of a job."""
+    data = request.json
+    status = data.get('status')  # 'completed' or 'failed'
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Fetch job details to know its type
+    cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+    job = cur.fetchone()
+
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    if status == 'completed':
+        if job['job_type'] == 'transcode':
+            # For transcodes, move to encoded_files history
+            cur.execute(
+                "INSERT INTO encoded_files (filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, 'completed')",
+                (job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
+            )
+            # Trigger a Plex library scan
+            try:
+                settings, _ = get_worker_settings()
+                plex_url = settings.get('plex_url', {}).get('setting_value')
+                plex_token = settings.get('plex_token', {}).get('setting_value')
+                if plex_url and plex_token:
+                    plex = PlexServer(plex_url, plex_token)
+                    # This is a simple approach; a more robust one would map file paths to libraries
+                    print(f"[{datetime.now()}] Triggering Plex library update for all monitored libraries.")
+                    plex.library.update()
+            except Exception as e:
+                print(f"⚠️ Could not trigger Plex scan: {e}")
+
+        # For all completed jobs (transcode or cleanup), delete from the jobs queue
+        cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        message = f"Job {job_id} ({job['job_type']}) completed and removed from queue."
+
+    elif status == 'failed':
+        # For any failed job, log it and mark as failed in the queue
+        cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
+        cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
+        message = f"Job {job_id} ({job['job_type']}) failed and logged."
+
+    conn.commit()
+    cur.close()
+    return jsonify({"message": message})
+
+
 if __name__ == '__main__':
+    with app.app_context():
+        init_db()
+    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+    scanner_thread.start()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)

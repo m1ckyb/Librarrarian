@@ -19,9 +19,9 @@
 
 The system consists of three core services, all managed by Docker Compose:
 
-1.  **`db`**: A PostgreSQL database that acts as the central coordinator. It stores node status, configuration, job history, and error logs.
-2.  **`dashboard`**: The Flask web interface for monitoring the status of all workers, managing the cluster, and configuring transcoding options.
-3.  **`worker`**: One or more transcoding nodes that perform the actual file conversion using `ffmpeg`. Workers start in an `idle` state and wait for a "Start" command from the dashboard.
+1.  **`db`**: A PostgreSQL database that acts as the single source of truth. It stores the job queue, node status, configuration, and history.
+2.  **`dashboard`**: The central brain of the cluster. It scans the media library, creates a job queue, assigns jobs to available workers, and provides the web interface for monitoring and management.
+3.  **`worker`**: A "dumb" but powerful transcoding engine. It connects to the dashboard, requests a job, completes the transcode, reports the result, and repeats. It no longer scans the filesystem itself.
 
 ## Deployment with Docker Compose
 
@@ -42,6 +42,7 @@ This is the recommended method for running CodecShift.
     Create a file named `.env` in the project root. This file will store your database credentials.
     ```env
     # .env
+    # --- Database Settings ---
     POSTGRES_DB=codecshift
     POSTGRES_USER=transcode
     POSTGRES_PASSWORD=your_super_secret_password

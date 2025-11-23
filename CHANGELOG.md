@@ -2,6 +2,20 @@
 
 ### Added
 
+## [0.10.0] - 2025-11-23 - User-Friendly Plex Integration
+
+### Added
+- **In-App Plex Authentication**: Implemented a secure, PIN-based OAuth flow directly within the dashboard. Users can now link their Plex account by visiting `plex.tv/link` and entering a code, eliminating the need to handle authentication tokens manually.
+- **Dynamic Plex Library Selection**: Once authenticated, the "Options" tab now dynamically fetches and displays a list of the user's available Plex libraries, allowing them to be selected for monitoring via checkboxes.
+- **Plex Login/Logout**: Added "Link Plex Account" and "Unlink Plex Account" buttons to the UI for managing the authentication state.
+
+### Changed
+- **Configuration Storage**: All Plex-related settings (URL, Token, and Monitored Libraries) are now stored securely in the database and managed via the UI, not in environment files.
+- **Options UI**: The "Options" tab was redesigned to support the new Plex authentication flow and dynamic library list.
+
+### Removed
+- **Plex Environment Variables**: Removed the requirement for `PLEX_URL`, `PLEX_TOKEN`, and `PLEX_LIBRARIES` in the `.env` file, simplifying the initial setup process.
+
 ## [0.9.0] - 2025-11-21 - CodecShift Rebrand & Stability
 
 ### Added

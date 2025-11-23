@@ -85,76 +85,12 @@
         <div class="container d-flex justify-content-between align-items-center h-100">
             <div class="d-flex align-items-center">
                 <span class="me-3">Web Dashboard v0.9.0</span>
-                <button id="theme-toggle" title="Change Theme" class="btn btn-outline-secondary">
-                    <span class="mdi mdi-brightness-6"></span>
-                </button>
             </div>
             <a href="https://github.com/m1ckyb/CluserEncode" target="_blank">Project on GitHub</a>
         </div>
     </footer>
 
     <script>
-        (() => {
-            'use strict'
-    
-            const getStoredTheme = () => localStorage.getItem('theme')
-            const setStoredTheme = theme => localStorage.setItem('theme', theme)
-    
-            const getPreferredTheme = () => {
-                const storedTheme = getStoredTheme()
-                if (storedTheme) {
-                    return storedTheme
-                }
-                return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-            }
-    
-            const setTheme = theme => {
-                const themeToSet = theme === 'auto' ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light') : theme;
-                document.documentElement.setAttribute('data-bs-theme', themeToSet);
-            }
-    
-            const showActiveTheme = (theme, focus = false) => {
-                const themeSwitcher = document.querySelector('#theme-toggle')
-                const storedTheme = getStoredTheme() || 'auto';
-                if (!themeSwitcher) {
-                    return
-                }
-                const themeSwitcherIcon = themeSwitcher.querySelector('span.mdi')
-                const activeThemeIcon = {
-                    'light': 'mdi-brightness-5',
-                    'dark': 'mdi-brightness-3',
-                    'auto': 'mdi-brightness-auto'
-                }[storedTheme]
-    
-                themeSwitcherIcon.className = `mdi ${activeThemeIcon}`;
-                themeSwitcher.setAttribute('title', `Theme: ${storedTheme}`);
-            }
-    
-            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-                const storedTheme = getStoredTheme()
-                if (storedTheme !== 'light' && storedTheme !== 'dark') {
-                    setTheme(getPreferredTheme())
-                }
-            })
-    
-            window.addEventListener('DOMContentLoaded', () => {
-                showActiveTheme(getPreferredTheme())
-    
-                const themeToggle = document.querySelector('#theme-toggle');
-                if (themeToggle) {
-                    themeToggle.addEventListener('click', () => {
-                        const themes = ['light', 'dark', 'auto']; // 'auto' for system
-                        const currentTheme = getStoredTheme() || 'auto';
-                        const nextThemeIndex = (themes.indexOf(currentTheme) + 1) % themes.length;
-                        const newTheme = themes[nextThemeIndex];
-                        
-                        setStoredTheme(newTheme)
-                        setTheme(newTheme)
-                        showActiveTheme(newTheme, true)
-                    })
-                }
-            })
-        })()
     </script>
     {% block scripts %}{% endblock %}
     </body>

@@ -41,6 +41,9 @@
                 <button class="nav-link active" id="nodes-tab" data-bs-toggle="tab" data-bs-target="#nodes-tab-pane" type="button" role="tab">Active Nodes</button>
             </li>
             <li class="nav-item" role="presentation">
+                <button class="nav-link" id="jobs-tab" data-bs-toggle="tab" data-bs-target="#jobs-tab-pane" type="button" role="tab" aria-controls="jobs-tab-pane" aria-selected="false">Job Queue</button>
+            </li>
+            <li class="nav-item" role="presentation">
                 <button class="nav-link" id="history-stats-tab" data-bs-toggle="tab" data-bs-target="#history-stats-tab-pane" type="button" role="tab">History & Stats</button>
             </li>
             <li class="nav-item" role="presentation">
@@ -95,6 +98,20 @@
                             <p class="text-muted">No active nodes found.</p>
                         </div>
                     {% endif %}
+                </div>
+            </div>
+            <!-- Job Queue Tab -->
+            <div class="tab-pane fade" id="jobs-tab-pane" role="tabpanel" aria-labelledby="jobs-tab" tabindex="0">
+                <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                    <h1 class="h2">Job Queue</h1>
+                </div>
+                <div class="table-responsive">
+                    <table class="table table-striped table-sm">
+                        <thead>
+                            <tr><th>ID</th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th></tr>
+                        </thead>
+                        <tbody id="job-queue-table-body"></tbody>
+                    </table>
                 </div>
             </div>
             <!-- History & Stats Tab -->
@@ -152,33 +169,41 @@
                     {% endwith %}
 
                     <form method="POST" action="/options" class="mt-4">
+                        <!-- Plex Settings -->
+                        <div class="p-3 border rounded mb-4">
+                            <h5>Plex Integration</h5>
+                            {% set plex_token = settings.get('plex_token', {}).get('value') %}
+                            <div class="mb-3">
+                                <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
+                                <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('value', '') }}" placeholder="http://192.168.1.100:32400">
+                            </div>
+                            <div class="mb-3">
+                                <label class="form-label"><strong>Authentication</strong></label>
+                                <div>
+                                    {% if plex_token %}
+                                        <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
+                                        <span class="ms-2 text-success">✓ Account Linked</span>
+                                    {% else %}
+                                        <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
+                                <label class="form-label"><strong>Monitored Libraries</strong></label>
+                                <div id="plex-libraries-list">
+                                    <!-- Checkboxes will be dynamically inserted here -->
+                                </div>
+                            </div>
+                        </div>
                         <!-- Rescan Delay Setting -->
                         <div class="row">
                             <!-- Left Column -->
                             <div class="col-md-6">
-                                <h5>Scanning &amp; File Handling</h5>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label for="rescan_delay_minutes" class="form-label"><strong>Rescan Delay</strong></label>
-                                    <p class="form-text text-body-secondary">Delay in minutes before a worker scans for new files after completing a batch. 0 is immediate.</p>
-                                    <div class="d-flex align-items-center">
-                                        <input type="range" class="form-range" min="0" max="60" step="1" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('value', 0) | int }}">
-                                        <span id="delay-value" class="badge bg-primary ms-3" style="width: 60px;">{{ settings.get('rescan_delay_minutes', {}).get('value', 0) | int }} min</span>
-                                    </div>
-                                </div>
+                                <h5>File Handling</h5>
                                 <div class="mb-3 p-3 border rounded">
                                     <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
                                     <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
                                     <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('value', 0.5) }}" step="0.1">
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <div class="form-check form-switch mb-2">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="recursive_scan" name="recursive_scan" value="true" {{ 'checked' if settings.get('recursive_scan', {}).get('value') == 'true' }}>
-                                        <label class="form-check-label" for="recursive_scan"><strong>Recursive Scan</strong></label>
-                                    </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="skip_encoded_folder" name="skip_encoded_folder" value="true" {{ 'checked' if settings.get('skip_encoded_folder', {}).get('value') == 'true' }}>
-                                        <label class="form-check-label" for="skip_encoded_folder"><strong>Skip 'encoded' Folders</strong></label>
-                                    </div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <div class="form-check form-switch mb-2">
@@ -262,9 +287,7 @@
                                 <div class="mb-3 p-3 border rounded">
                                     <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
                                     <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
-                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('value', 1900) }}">
-                                    <label for="extensions" class="form-label mt-3"><strong>Allowed Extensions</strong></label>
-                                    <input type="text" class="form-control" id="extensions" name="extensions" value="{{ settings.get('extensions', {}).get('value', '.mkv,.mp4') }}">
+                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('value', 1900) }}">                                    
                                 </div>
                             </div>
                         </div>
@@ -275,16 +298,14 @@
             <!-- Cleanup Tab -->
             <div class="tab-pane fade" id="cleanup-tab-pane" role="tabpanel">
                 <div class="mt-3">
-                    <h4>Stale File Cleanup</h4>
-                    <p class="text-body-secondary">Find and delete temporary (`.tmp_`) and lock (`.lock`) files left behind by crashed or improperly stopped workers. Files are considered stale if they haven't been modified in the last 30 minutes.</p>
-                    <button class="btn btn-primary" id="scan-stale-btn">Scan for Stale Files</button>
-                    <hr>
-                    <div id="stale-files-results" class="d-none">
-                        <h5>Found Stale Files</h5>
-                        <div id="stale-files-list" class="mb-3" style="max-height: 400px; overflow-y: auto;">
-                            <!-- Stale files will be listed here -->
-                        </div>
-                        <button class="btn btn-danger" id="delete-stale-btn" disabled>Delete Selected Files</button>
+                    <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
+                        <h1 class="h2">System Cleanup</h1>
+                    </div>
+                    <p>This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers.</p>
+                    <p>This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
+                    <button class="btn btn-warning" id="create-cleanup-jobs-btn">Queue Stale File Cleanup</button>
+                    <div id="cleanup-status" class="mt-3">
+                        <!-- Status messages will appear here -->
                     </div>
                 </div>
             </div>
@@ -514,6 +535,11 @@
             if (document.querySelector('#history-stats-tab.active')) {
                 await updateHistoryAndStats();
             }
+
+            // Update job queue if its tab is active
+            if (document.querySelector('#jobs-tab.active')) {
+                await updateJobQueue();
+            }
         }
 
         // Run initial update on page load
@@ -536,62 +562,55 @@
             }
         });
 
-        // Cleanup Tab Logic
-        const scanStaleBtn = document.getElementById('scan-stale-btn');
-        const deleteStaleBtn = document.getElementById('delete-stale-btn');
-        const staleFilesResults = document.getElementById('stale-files-results');
-        const staleFilesList = document.getElementById('stale-files-list');
-
-        scanStaleBtn.addEventListener('click', async () => {
-            scanStaleBtn.disabled = true;
-            scanStaleBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Scanning...';
-            staleFilesList.innerHTML = '';
+        // Function to update the job queue
+        async function updateJobQueue() {
             try {
-                const response = await fetch('/api/cleanup/scan');
+                const response = await fetch('/api/jobs');
                 const data = await response.json();
-                staleFilesResults.classList.remove('d-none');
-                if (data.stale_files && data.stale_files.length > 0) {
-                    staleFilesList.innerHTML = data.stale_files.map(file => `
-                        <div class="form-check">
-                            <input class="form-check-input stale-file-checkbox" type="checkbox" value="${file.path}" id="stale-${file.path.replace(/[^a-zA-Z0-9]/g, '')}" checked>
-                            <label class="form-check-label" for="stale-${file.path.replace(/[^a-zA-Z0-9]/g, '')}">
-                                ${file.path} <span class="text-muted">(${file.age})</span>
-                            </label>
-                        </div>
-                    `).join('');
-                    deleteStaleBtn.disabled = false;
-                } else {
-                    staleFilesList.innerHTML = '<p class="text-muted">No stale files found.</p>';
-                    deleteStaleBtn.disabled = true;
-                }
-            } catch (error) {
-                staleFilesList.innerHTML = '<p class="text-danger">Error scanning for files.</p>';
-            } finally {
-                scanStaleBtn.disabled = false;
-                scanStaleBtn.innerHTML = 'Scan for Stale Files';
-            }
-        });
+                const tableBody = document.getElementById('job-queue-table-body');
+                tableBody.innerHTML = ''; // Clear existing rows
 
-        deleteStaleBtn.addEventListener('click', async () => {
-            const selectedFiles = Array.from(document.querySelectorAll('.stale-file-checkbox:checked')).map(cb => cb.value);
-            if (selectedFiles.length === 0) {
-                alert('Please select files to delete.');
-                return;
-            }
-            if (!confirm(`Are you sure you want to delete ${selectedFiles.length} selected files? This cannot be undone.`)) {
-                return;
-            }
-            try {
-                await fetch('/api/cleanup/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ files: selectedFiles })
+                if (data.db_error) {
+                    tableBody.innerHTML = `<tr><td colspan="6" class="text-danger">Database Error: ${data.db_error}</td></tr>`;
+                    return;
+                }
+
+                if (data.jobs.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="6" class="text-center text-muted">No jobs in the queue.</td></tr>';
+                    return;
+                }
+
+                data.jobs.forEach(job => {
+                    const row = `
+                        <tr>
+                            <td>${job.id}</td>
+                            <td style="word-break: break-all;">${job.filepath}</td>
+                            <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
+                            <td>${job.status}</td>
+                            <td>${job.assigned_to || 'N/A'}</td>
+                            <td>${new Date(job.created_at).toLocaleString()}</td>
+                        </tr>
+                    `;
+                    tableBody.innerHTML += row;
                 });
-                // Rescan after deletion
-                scanStaleBtn.click();
             } catch (error) {
-                alert('An error occurred while deleting files.');
+                console.error('Error fetching job queue:', error);
+                document.getElementById('job-queue-table-body').innerHTML = `<tr><td colspan="6" class="text-danger">Failed to fetch job queue.</td></tr>`;
             }
+        }
+
+        // Function to create cleanup jobs
+        document.getElementById('create-cleanup-jobs-btn').addEventListener('click', async () => {
+            const statusDiv = document.getElementById('cleanup-status');
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
+            const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
+            if (!response.ok) {
+                statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
+                return;
+            }
+            const result = await response.json();
+            const alertClass = result.success ? 'alert-success' : 'alert-danger';
+            statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
         });
 
         // --- History & Stats Page Logic ---
@@ -716,6 +735,12 @@
             updateHistoryAndStats();
         });
 
+        // Update job queue when its tab is shown
+        const jobsTab = document.querySelector('#jobs-tab');
+        jobsTab.addEventListener('shown.bs.tab', () => {
+            updateJobQueue();
+        });
+
         // Start the main update loop
         setInterval(mainUpdateLoop, 5000);
     </script>
@@ -820,6 +845,81 @@
         delaySlider.addEventListener('input', (event) => {
             delayValue.textContent = `${event.target.value} min`;
         });
+    </script>
+    <script>
+        // --- Plex Authentication Logic ---
+        const plexLoginBtn = document.getElementById('plex-login-btn');
+        const plexLogoutBtn = document.getElementById('plex-logout-btn');
+
+        if (plexLoginBtn) {
+            plexLoginBtn.addEventListener('click', async () => {
+                const response = await fetch('/api/plex/login', { method: 'POST' });
+                const data = await response.json();
+                if (data.success) {
+                    // Show a modal with the PIN and link
+                    const modalHTML = `
+                        <div class="modal fade" id="plexPinModal" tabindex="-1">
+                            <div class="modal-dialog modal-dialog-centered">
+                                <div class="modal-content">
+                                    <div class="modal-header"><h5 class="modal-title">Link Your Plex Account</h5></div>
+                                    <div class="modal-body text-center">
+                                        <p>Go to the URL below and enter the PIN:</p>
+                                        <h1 class="display-4">${data.pin}</h1>
+                                        <a href="${data.url}" target="_blank" class="btn btn-lg btn-warning">plex.tv/link</a>
+                                        <div id="plex-auth-status" class="mt-3"><div class="spinner-border spinner-border-sm"></div> Waiting for authentication...</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>`;
+                    document.body.insertAdjacentHTML('beforeend', modalHTML);
+                    const pinModal = new bootstrap.Modal(document.getElementById('plexPinModal'));
+                    pinModal.show();
+
+                    // Poll to check if the PIN has been authenticated
+                    const interval = setInterval(async () => {
+                        const checkResponse = await fetch('/api/plex/check_pin', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ pin: data.pin })
+                        });
+                        const checkData = await checkResponse.json();
+                        if (checkData.success) {
+                            clearInterval(interval);
+                            document.getElementById('plex-auth-status').innerHTML = `<div class="alert alert-success">${checkData.message}</div>`;
+                            setTimeout(() => window.location.reload(), 2000); // Reload to update UI
+                        }
+                    }, 3000);
+                } else {
+                    alert('Error getting Plex PIN: ' + data.error);
+                }
+            });
+        }
+
+        if (plexLogoutBtn) {
+            plexLogoutBtn.addEventListener('click', async () => {
+                if (confirm('Are you sure you want to unlink your Plex account?')) {
+                    await fetch('/api/plex/logout', { method: 'POST' });
+                    window.location.reload();
+                }
+            });
+        }
+
+        // --- Dynamic Plex Library Loading ---
+        async function loadPlexLibraries() {
+            const container = document.getElementById('plex-libraries-list');
+            const response = await fetch('/api/plex/libraries');
+            const data = await response.json();
+            const currentLibs = "{{ settings.get('plex_libraries', {}).get('value', '') }}".split(',');
+
+            if (data.libraries && data.libraries.length > 0) {
+                container.innerHTML = data.libraries.map(lib => `
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}><label class="form-check-label" for="lib-${lib.key}">${lib.title}</label></div>
+                `).join('');
+            } else {
+                container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
+            }
+        }
+        if (document.getElementById('plex-libraries-container').style.display !== 'none') loadPlexLibraries();
     </script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
 {% endblock %}
