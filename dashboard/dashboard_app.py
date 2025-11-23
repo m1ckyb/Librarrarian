@@ -142,7 +142,7 @@ def get_cluster_status():
             cur.execute("""
                 SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age
                 FROM nodes
-                WHERE last_updated > NOW() - INTERVAL '5 minutes'
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
                 ORDER BY hostname
             """)
             nodes = cur.fetchall()
@@ -251,10 +251,11 @@ def set_node_status(hostname, status):
                 # If no rows were updated, it means the node isn't in the table yet.
                 # This can happen if a worker is controlled before its first heartbeat.
                 # We'll insert it with the desired status.
-                cur.execute(
-                    "INSERT INTO active_nodes (hostname, status, file, last_updated) VALUES (%s, %s, 'N/A', NOW()) ON CONFLICT (hostname) DO NOTHING;",
-                    (hostname, status)
-                )
+                # Corrected to insert into the 'nodes' table
+                cur.execute("""
+                    INSERT INTO nodes (hostname, status, command, last_heartbeat) VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (hostname) DO NOTHING;
+                """, (hostname, status, status))
         db.commit()
     except Exception as e:
         db_error = f"Database query failed: {e}"

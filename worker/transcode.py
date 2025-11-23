@@ -54,7 +54,7 @@ class DatabaseHandler:
         """Updates the worker's status in the central database."""
         sql = """
         INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps)
-        VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s, %s)
+        VALUES (%s, NOW(), %s, %s, %s, %s, %s)
         ON CONFLICT (hostname) DO UPDATE SET
             last_heartbeat = EXCLUDED.last_heartbeat,
             status = EXCLUDED.status,
@@ -67,7 +67,7 @@ class DatabaseHandler:
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, datetime.now(), status, VERSION, current_file, progress, fps))
+                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps))
                 conn.commit()
             except Exception as e:
                 print(f"[{datetime.now()}] Heartbeat Error: Could not update status. {e}")
