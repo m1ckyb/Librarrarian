@@ -640,22 +640,22 @@ def plex_scanner_thread():
                     library = plex_server.library.section(title=lib_name)
                     print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
                     for video in library.all():
-                        # Defensive check: Ensure the video has media parts before processing
-                        if not video.media or not video.media[0].parts:
+                        # Defensive check: Ensure the video has media parts and video streams before processing
+                        if not hasattr(video, 'media') or not video.media or not hasattr(video.media[0], 'parts'):
                             continue
-
-                        # The video_codec attribute is on the 'part', not the 'media'
+                        
                         part = video.media[0].parts[0]
-                        codec = part.video_codec
                         filepath = part.file
+                        
+                        # Correctly get the codec from the video stream object
+                        codec = None
+                        if hasattr(part, 'videoStreams') and part.videoStreams:
+                            codec = part.videoStreams[0].codec
 
                         # Check if the file should be added to the queue
                         if codec and codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
                             print(f"  -> Found non-HEVC file: {os.path.basename(filepath)} (Codec: {codec})")
-                            cur.execute(
-                                "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, %s, %s) ON CONFLICT (filepath) DO NOTHING",
-                                (filepath, 'transcode', 'pending')
-                            )
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                             if cur.rowcount > 0:
                                 new_files_found += 1
                 
