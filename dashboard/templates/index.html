@@ -863,8 +863,9 @@
                 tab.show();
             }
         }
-        // Call on page load
-        activateTabFromHash();
+        // Wait for the DOM to be fully loaded before trying to activate a tab.
+        // This ensures the Bootstrap JS is available.
+        document.addEventListener('DOMContentLoaded', activateTabFromHash);
     </script>
     <script>
         // --- Plex Authentication Logic ---
