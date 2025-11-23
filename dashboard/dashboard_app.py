@@ -24,10 +24,10 @@ app = Flask(__name__)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
 
-# Use environment variables for DB config. The fallback is for local dev only.
-# In Docker, the DB_HOST should always be the service name 'db'.
+# Use the same DB config as the worker script
+# It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "db"),
+    "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "codecshift")
@@ -588,12 +588,44 @@ def plex_get_libraries():
         plex = PlexServer(plex_url, plex_token)
         libraries = [
             {"title": section.title, "key": section.key}
-            for section in plex.library.sections() # Include movie, show, music video, and 'other video' types
-            if section.type in ['movie', 'show', 'artist', 'photo']
+            for section in plex.library.sections()
+            if section.type == 'movie' or section.type == 'show'
         ]
         return jsonify(libraries=libraries)
     except Exception as e:
         return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
+
+@app.route('/api/jobs/create_cleanup', methods=['POST'])
+def create_cleanup_jobs():
+    """
+    Scans the media directory for stale files (.lock, .tmp_*) and creates
+    cleanup jobs for them in the database.
+    """
+    media_path = '/media' # This is the path inside the Docker container
+    stale_files_found = 0
+    
+    try:
+        conn = get_db()
+        if not conn:
+            return jsonify(success=False, error="Database connection failed."), 500
+
+        with conn.cursor() as cur:
+            for root, _, files in os.walk(media_path):
+                for file in files:
+                    if file.endswith('.lock') or file.startswith('.tmp_'):
+                        full_path = os.path.join(root, file)
+                        # Insert a cleanup job, ignoring if it already exists
+                        cur.execute(
+                            "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending') ON CONFLICT (filepath) DO NOTHING",
+                            (full_path,)
+                        )
+                        if cur.rowcount > 0:
+                            stale_files_found += 1
+        conn.commit()
+        message = f"Found and queued {stale_files_found} stale files for cleanup." if stale_files_found > 0 else "No stale files found."
+        return jsonify(success=True, message=message)
+    except Exception as e:
+        return jsonify(success=False, error=f"An unexpected error occurred: {e}"), 500
 
 # --- New Background Scanner and Worker API ---
 
@@ -744,18 +776,11 @@ def update_job(job_id):
     cur.close()
     return jsonify({"message": message})
 
+
+# Start the background scanner thread when the app is initialized by Gunicorn.
+scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+scanner_thread.start()
+
 if __name__ == '__main__':
     # Use host='0.0.0.0' to make the app accessible on your network
-    # This block runs for local development (e.g., `python dashboard_app.py`)
-    print("INFO: Flask development server starting. Initializing background threads.")
-    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
-    scanner_thread.start()
     app.run(debug=True, host='0.0.0.0', port=5000)
-else:
-    # This block runs when started by a WSGI server like Gunicorn (in Docker).
-    # Gunicorn can fork multiple processes; this ensures we only start the
-    # scanner thread in the main process, not in every worker.
-    print("INFO: Gunicorn startup detected. Initializing background threads.")
-    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
-    scanner_thread.start()
-    print("INFO: Plex scanner thread started.")
