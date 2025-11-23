@@ -364,7 +364,7 @@ def options():
             flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
     
     # Redirect back to the main dashboard page after handling the POST request.
-    return redirect(url_for('dashboard'))
+    return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
 @app.route('/api/status')
 def api_status():
