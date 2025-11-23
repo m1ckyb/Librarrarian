@@ -158,6 +158,7 @@
                     <table class="table table-hover table-sm">
                         <thead>
                             <tr>
+                                <th>Job ID</th>
                                 <th>File</th>
                                 <th>Node</th>
                                 <th>Codec</th>
@@ -749,6 +750,7 @@
             if (paginatedData.length > 0) {
                 historyBody.innerHTML = paginatedData.map(item => `
                     <tr>
+                        <td>${item.job_id || 'N/A'}</td>
                         <td style="word-break: break-all;">${item.filename}</td>
                         <td>${item.hostname}</td>
                         <td><span class="badge text-bg-secondary">${item.codec}</span></td>

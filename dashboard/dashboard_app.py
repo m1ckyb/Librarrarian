@@ -857,8 +857,8 @@ def update_job(job_id):
         if job['job_type'] == 'transcode':
             # For transcodes, move to encoded_files history
             cur.execute(
-                "INSERT INTO encoded_files (filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, 'completed')",
-                (job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
+                "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, %s, 'completed')",
+                (job_id, job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
             )
             # Trigger a Plex library scan
             try:
