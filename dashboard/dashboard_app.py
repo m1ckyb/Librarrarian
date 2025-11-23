@@ -4,7 +4,7 @@ import time
 import threading
 import uuid
 from datetime import datetime
-from plexapi.myplex import MyPlexAccount
+from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from flask import Flask, render_template, g, request, flash, redirect, url_for
 from flask import jsonify
 
@@ -32,6 +32,9 @@ DB_CONFIG = {
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "codecshift")
 }
+
+# Global dictionary to store active PIN login flows, keyed by the PIN
+active_pin_logins = {}
 
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
@@ -536,10 +539,14 @@ def plex_login():
         os.environ['PLEXAPI_HEADER_VERSION'] = get_project_version()
         os.environ['PLEXAPI_HEADER_IDENTIFIER'] = str(uuid.uuid4())
 
-        # get_pin() should be called as a class method, not on an instance.
-        # This avoids the constructor which tries to log in with user/pass.
-        pin_data = MyPlexAccount.get_pin()
-        return jsonify(success=True, pin=pin_data['code'], url=pin_data['url'])
+        # Use the correct MyPlexPinLogin class for the OAuth flow
+        pin_login = MyPlexPinLogin()
+        pin_login.run(timeout=300) # Start the background thread, timeout after 5 mins
+
+        # Store the object in our global dict, keyed by the pin
+        active_pin_logins[pin_login.pin] = pin_login
+
+        return jsonify(success=True, pin=pin_login.pin, url=pin_login.oauthUrl())
     except Exception as e:
         return jsonify(success=False, error=str(e)), 500
 
@@ -548,12 +555,18 @@ def plex_check_pin():
     """Checks if the user has authenticated the PIN and saves the token."""
     pin = request.json.get('pin')
     try:
-        account = MyPlexAccount()
-        auth_token = account.check_pin(pin)
-        if auth_token:
+        pin_login = active_pin_logins.get(pin)
+        if not pin_login:
+            return jsonify(success=False, error="PIN not found or expired. Please try again."), 404
+
+        if pin_login.checkLogin():
             # Save the token to the database
-            update_worker_setting('plex_token', auth_token)
+            update_worker_setting('plex_token', pin_login.token)
+            # Clean up the completed login object
+            del active_pin_logins[pin]
             return jsonify(success=True, message="Plex account linked successfully!")
+        elif pin_login.expired:
+            return jsonify(success=False, error="PIN has expired. Please try again."), 410
         else:
             # PIN not yet authenticated
             return jsonify(success=False, message="Waiting for authentication...")
