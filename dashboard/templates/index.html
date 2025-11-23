@@ -172,10 +172,10 @@
                         <!-- Plex Settings -->
                         <div class="p-3 border rounded mb-4">
                             <h5>Plex Integration</h5>
-                            {% set plex_token = settings.get('plex_token', {}).get('value') %}
+                            {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
                             <div class="mb-3">
                                 <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
-                                <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('value', '') }}" placeholder="http://192.168.1.100:32400">
+                                <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
                             </div>
                             <div class="mb-3">
                                 <label class="form-label"><strong>Authentication</strong></label>
@@ -203,16 +203,16 @@
                                 <div class="mb-3 p-3 border rounded">
                                     <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
                                     <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
-                                    <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('value', 0.5) }}" step="0.1">
+                                    <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <div class="form-check form-switch mb-2">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="keep_original" name="keep_original" value="true" {{ 'checked' if settings.get('keep_original', {}).get('value') == 'true' }}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="keep_original" name="keep_original" value="true" {{ 'checked' if settings.get('keep_original', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="keep_original"><strong>Keep Original File</strong></label>
                                     </div>
                                     <label for="backup_directory" class="form-label"><strong>Backup Directory</strong></label>
                                     <p class="form-text text-body-secondary">If specified, move original files here instead of deleting them. Requires "Keep Original" to be off.</p>
-                                    <input type="text" class="form-control" id="backup_directory" name="backup_directory" value="{{ settings.get('backup_directory', {}).get('value', '') }}" placeholder="/path/to/backups">
+                                    <input type="text" class="form-control" id="backup_directory" name="backup_directory" value="{{ settings.get('backup_directory', {}).get('setting_value', '') }}" placeholder="/path/to/backups">
                                 </div>
                             </div>
                             <!-- Right Column -->
@@ -221,7 +221,7 @@
                                 <div class="mb-3 p-3 border rounded">
                                     <label class="form-label"><strong>Hardware Acceleration</strong></label>
                                     <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
-                                    {% set accel = settings.get('hardware_acceleration', {}).get('value', 'auto') %}
+                                    {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_auto" value="auto" {{ 'checked' if accel == 'auto' }}><label class="form-check-label" for="accel_auto">Auto</label></div>
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_nvidia" value="nvidia" {{ 'checked' if accel == 'nvidia' }}><label class="form-check-label" for="accel_nvidia">NVIDIA NVENC</label></div>
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_qsv" value="qsv" {{ 'checked' if accel == 'qsv' }}><label class="form-check-label" for="accel_qsv">Intel QSV</label></div>
@@ -231,26 +231,26 @@
                                 <div class="mb-3 p-3 border rounded">
                                     <label class="form-label"><strong>Allowed Codecs</strong></label>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('value') == 'true' }}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="allow_hevc">Allow HEVC (H.265)</label>
                                     </div>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_av1" name="allow_av1" value="true" {{ 'checked' if settings.get('allow_av1', {}).get('value') == 'true' }}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_av1" name="allow_av1" value="true" {{ 'checked' if settings.get('allow_av1', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="allow_av1">Allow AV1</label>
                                     </div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <label class="form-label"><strong>Maintenance</strong></label>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="auto_update" name="auto_update" value="true" {{ 'checked' if settings.get('auto_update', {}).get('value') == 'true' }}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="auto_update" name="auto_update" value="true" {{ 'checked' if settings.get('auto_update', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="auto_update">Enable Worker Auto-Update</label>
                                     </div>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="clean_failures" name="clean_failures" value="true" {{ 'checked' if settings.get('clean_failures', {}).get('value') == 'true' }}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="clean_failures" name="clean_failures" value="true" {{ 'checked' if settings.get('clean_failures', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="clean_failures">Clean Failed Jobs on Start</label>
                                     </div>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('value') == 'true' }}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="debug">Enable Debug Logging</label>
                                     </div>
                                 </div>
@@ -265,21 +265,21 @@
                                     <p class="form-text text-body-secondary">Lower is higher quality. NVENC: 0-51. VAAPI/CPU: 0-63.</p>
                                     <div class="input-group input-group-sm mb-2">
                                         <span class="input-group-text" style="width: 120px;">NVIDIA (HD)</span>
-                                        <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('value', 32) }}">
+                                        <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('setting_value', 32) }}">
                                         <span class="input-group-text" style="width: 120px;">NVIDIA (SD)</span>
-                                        <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('value', 28) }}">
+                                        <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('setting_value', 28) }}">
                                     </div>
                                     <div class="input-group input-group-sm mb-2">
                                         <span class="input-group-text" style="width: 120px;">Intel/AMD (HD)</span>
-                                        <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('value', 28) }}">
+                                        <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('setting_value', 28) }}">
                                         <span class="input-group-text" style="width: 120px;">Intel/AMD (SD)</span>
-                                        <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('value', 24) }}">
+                                        <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('setting_value', 24) }}">
                                     </div>
                                     <div class="input-group input-group-sm">
                                         <span class="input-group-text" style="width: 120px;">CPU (HD)</span>
-                                        <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('value', 28) }}">
+                                        <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('setting_value', 28) }}">
                                         <span class="input-group-text" style="width: 120px;">CPU (SD)</span>
-                                        <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('value', 24) }}">
+                                        <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('setting_value', 24) }}">
                                     </div>
                                 </div>
                             </div>
@@ -287,7 +287,7 @@
                                 <div class="mb-3 p-3 border rounded">
                                     <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
                                     <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
-                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('value', 1900) }}">                                    
+                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('setting_value', 1900) }}">                                    
                                 </div>
                             </div>
                         </div>
@@ -817,7 +817,8 @@
             quitBtn.onclick = () => quitNode(hostname);
             nodeOptionsModal.show();
         }
-
+    </script>
+    <script>
         // Function to send the 'quit' command to a node
         async function quitNode(hostname) {
             if (!confirm(`Are you sure you want to QUIT the worker on '${hostname}'? This will stop the process immediately. The container will likely restart based on Docker policy.`)) {
@@ -837,18 +838,72 @@
                 console.error('Error quitting node:', error);
             }
         }
-
+    </script>
+    <script>
         const delaySlider = document.getElementById('rescan_delay_minutes');
         const delayValue = document.getElementById('delay-value');
         delaySlider.addEventListener('input', (event) => {
             delayValue.textContent = `${event.target.value} min`;
         });
+    </script>
+    <script>
+        // Function to activate a tab based on URL hash
+        function activateTabFromHash() {
+            const hash = window.location.hash;
+            if (hash) {
+                const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
+                if (triggerEl) {
+                    const tab = new bootstrap.Tab(triggerEl);
+                    tab.show();
+                }
+            } else {
+                // Default to the nodes tab if no hash is present
+                const defaultTab = document.getElementById('nodes-tab');
+                const tab = new bootstrap.Tab(defaultTab);
+                tab.show();
+            }
+        }
+        // Wait for the DOM to be fully loaded before trying to activate a tab.
+        // This ensures the Bootstrap JS is available.
+        document.addEventListener('DOMContentLoaded', activateTabFromHash);
+    </script>
+    <script>
+        // --- Plex Authentication Logic ---
+        const plexLoginBtn = document.getElementById('plex-login-btn');
+        const plexLogoutBtn = document.getElementById('plex-logout-btn');
 
         // Show the Plex login modal
         if (plexLoginBtn) {
             plexLoginBtn.addEventListener('click', () => {
                 const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
                 loginModal.show();
+            });
+        }
+
+        // Handle the Plex login form submission
+        const plexSignInBtn = document.getElementById('plex-signin-btn');
+        if (plexSignInBtn) {
+            plexSignInBtn.addEventListener('click', async () => {
+                const usernameInput = document.getElementById('plex-username');
+                const passwordInput = document.getElementById('plex-password');
+                const statusDiv = document.getElementById('plex-login-status');
+                statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
+
+                const response = await fetch('/api/plex/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        username: usernameInput.value, 
+                        password: passwordInput.value 
+                    })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                    setTimeout(() => window.location.href = '/#options-tab-pane', 1500); // Redirect with anchor
+                } else {
+                    statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                }
             });
         }
 
@@ -860,79 +915,23 @@
                 }
             });
         }
-    </script>
-    <script>
-        // Wrap all script logic in a DOMContentLoaded event listener
-        document.addEventListener('DOMContentLoaded', () => {
 
-            // Function to activate a tab based on URL hash
-            function activateTabFromHash() {
-                const hash = window.location.hash;
-                if (hash) {
-                    const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
-                    if (triggerEl) {
-                        const tab = new bootstrap.Tab(triggerEl);
-                        tab.show();
-                    }
-                } else {
-                    // Default to the nodes tab if no hash is present
-                    const defaultTab = document.getElementById('nodes-tab');
-                    if (defaultTab) {
-                        const tab = new bootstrap.Tab(defaultTab);
-                        tab.show();
-                    }
-                }
+        // --- Dynamic Plex Library Loading ---
+        async function loadPlexLibraries() {
+            const container = document.getElementById('plex-libraries-list');
+            const response = await fetch('/api/plex/libraries');
+            const data = await response.json();
+            const currentLibs = "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',');
+
+            if (data.libraries && data.libraries.length > 0) {
+                container.innerHTML = data.libraries.map(lib => `
+                    <div class="form-check"><input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}><label class="form-check-label" for="lib-${lib.key}">${lib.title}</label></div>
+                `).join('');
+            } else {
+                container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
             }
-            activateTabFromHash();
-
-            // --- Plex Authentication Logic ---
-            const plexLoginBtn = document.getElementById('plex-login-btn');
-            const plexLogoutBtn = document.getElementById('plex-logout-btn');
-            const plexSignInBtn = document.getElementById('plex-signin-btn');
-
-            if (plexLoginBtn) {
-                plexLoginBtn.addEventListener('click', () => {
-                    const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
-                    loginModal.show();
-                });
-            }
-
-            if (plexSignInBtn) {
-                plexSignInBtn.addEventListener('click', async () => {
-                    const usernameInput = document.getElementById('plex-username');
-                    const passwordInput = document.getElementById('plex-password');
-                    const statusDiv = document.getElementById('plex-login-status');
-                    statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
-
-                    const response = await fetch('/api/plex/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            username: usernameInput.value, 
-                            password: passwordInput.value 
-                        })
-                    });
-                    const data = await response.json();
-                    if (data.success) {
-                        statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                        setTimeout(() => window.location.href = '/#options-tab-pane', 1500);
-                    } else {
-                        statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
-                    }
-                });
-            }
-
-            if (plexLogoutBtn) {
-                plexLogoutBtn.addEventListener('click', async () => {
-                    if (confirm('Are you sure you want to unlink your Plex account?')) {
-                        await fetch('/api/plex/logout', { method: 'POST' });
-                        window.location.reload();
-                    }
-                });
-            }
-
-            if (document.getElementById('plex-libraries-container').style.display !== 'none') loadPlexLibraries();
-        });
+        }
+        if (document.getElementById('plex-libraries-container').style.display !== 'none') loadPlexLibraries();
     </script>
     <!-- Plex Login Modal -->
     <div class="modal fade" id="plexLoginModal" tabindex="-1">
