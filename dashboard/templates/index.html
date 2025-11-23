@@ -173,15 +173,15 @@
                         <div class="p-3 border rounded mb-4">
                             <h5>Plex Integration</h5>
                             {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
-                            <div class="mb-3">
-                                <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
-                                <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
-                            </div>
                             <div class="row">
                                 <!-- Left Column: Authentication -->
                                 <div class="col-md-6 mb-3">
-                                    <label class="form-label"><strong>Authentication</strong></label>
-                                    <div>
+                                    <div class="mb-3">
+                                        <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
+                                        <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
+                                    </div>
+                                    <div class="mb-3">
+                                        <label class="form-label"><strong>Authentication</strong></label>
                                         {% if plex_token %}
                                             <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
                                             <span class="ms-2 text-success">✓ Account Linked</span>

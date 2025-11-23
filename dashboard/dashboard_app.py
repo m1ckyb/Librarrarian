@@ -595,38 +595,6 @@ def plex_get_libraries():
     except Exception as e:
         return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
 
-@app.route('/api/jobs/create_cleanup', methods=['POST'])
-def create_cleanup_jobs():
-    """
-    Scans the media directory for stale files (.lock, .tmp_*) and creates
-    cleanup jobs for them in the database.
-    """
-    media_path = '/media' # This is the path inside the Docker container
-    stale_files_found = 0
-    
-    try:
-        conn = get_db()
-        if not conn:
-            return jsonify(success=False, error="Database connection failed."), 500
-
-        with conn.cursor() as cur:
-            for root, _, files in os.walk(media_path):
-                for file in files:
-                    if file.endswith('.lock') or file.startswith('.tmp_'):
-                        full_path = os.path.join(root, file)
-                        # Insert a cleanup job, ignoring if it already exists
-                        cur.execute(
-                            "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending') ON CONFLICT (filepath) DO NOTHING",
-                            (full_path,)
-                        )
-                        if cur.rowcount > 0:
-                            stale_files_found += 1
-        conn.commit()
-        message = f"Found and queued {stale_files_found} stale files for cleanup." if stale_files_found > 0 else "No stale files found."
-        return jsonify(success=True, message=message)
-    except Exception as e:
-        return jsonify(success=False, error=f"An unexpected error occurred: {e}"), 500
-
 # --- New Background Scanner and Worker API ---
 
 def plex_scanner_thread():
@@ -672,17 +640,24 @@ def plex_scanner_thread():
                     library = plex_server.library.section(title=lib_name)
                     print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
                     for video in library.all():
-                        # Check the codec of the main video stream
-                        codec = video.media[0].video_codec
-                        filepath = video.media[0].parts[0].file
+                        # Defensive check: Ensure the video has media parts before processing
+                        if not video.media or not video.media[0].parts:
+                            continue
 
-                        if codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
+                        # The video_codec attribute is on the 'part', not the 'media'
+                        part = video.media[0].parts[0]
+                        codec = part.video_codec
+                        filepath = part.file
+
+                        # Check if the file should be added to the queue
+                        if codec and codec != 'hevc' and filepath not in existing_jobs and filepath not in encoded_history:
                             print(f"  -> Found non-HEVC file: {os.path.basename(filepath)} (Codec: {codec})")
                             cur.execute(
                                 "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, %s, %s) ON CONFLICT (filepath) DO NOTHING",
                                 (filepath, 'transcode', 'pending')
                             )
-                            new_files_found += 1
+                            if cur.rowcount > 0:
+                                new_files_found += 1
                 
                 conn.commit()
                 if new_files_found > 0:
