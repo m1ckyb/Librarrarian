@@ -361,6 +361,14 @@ def options():
     # Redirect back to the main page, anchoring to the options tab
     return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
+@app.route('/api/settings', methods=['GET'])
+def api_settings():
+    """Returns all worker settings as JSON."""
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(settings={}, error=db_error), 500
+    return jsonify(settings=settings)
+
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
     """Clears all jobs from the job_queue table."""

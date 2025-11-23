@@ -24,7 +24,7 @@ except ImportError:
 # ===========================
 # Global Settings
 # ===========================
-DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://dashboard:5000')
+DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 VERSION = "1.1.0" # Updated version
 HOSTNAME = socket.gethostname()

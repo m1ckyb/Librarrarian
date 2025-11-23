@@ -9,6 +9,7 @@ This release focuses on massive stability improvements, extensive bug fixing, an
 - **Clear Job Queue**: A "Clear Queue" button was added to instantly and permanently delete all jobs from the pending queue.
 - **Configurable Auto-Scan**: A "Rescan Delay" setting has been added to the Options page. This allows users to define how many minutes the system should wait between automatic scans. Setting it to `0` disables automatic scanning entirely.
 - **Job Queue Pagination**: Implemented a full, smart pagination system for the Job Queue page. This prevents the UI from locking up when loading thousands of jobs and makes navigation easy.
+- **Centralized Settings API**: Added a new `/api/settings` endpoint to the dashboard, allowing workers to fetch their configuration centrally.
 
 ### Changed
 - **Asynchronous Scanning**: The manual scan process is now fully asynchronous. The API endpoint immediately returns a response to the UI while the actual scan runs in the background, fixing all Gunicorn worker timeout errors.
@@ -26,6 +27,7 @@ This release focuses on massive stability improvements, extensive bug fixing, an
 - **Background Thread Stability**: Fixed a `RuntimeError: Working outside of request context` crash that occurred when the automatic scanner tried to access web request data.
 - **UI Auto-Refresh Bug**: The Job Queue page no longer reverts to page 1 on auto-refresh and now correctly stays on the user's currently selected page.
 - **Job Queue Rendering**: Fixed a UI rendering bug where a "ghost" job from a previous page would sometimes appear at the bottom of the current page.
+- **Standalone Worker Execution**: The worker script now defaults to connecting to `localhost`, fixing a DNS error and allowing it to be run outside of Docker for development and testing.
 - **Worker Startup Crash**: Fixed an `AttributeError` that caused the worker script to crash immediately on startup due to an incorrect method name.
 - **Form Resubmission Error**: Implemented the Post-Redirect-Get (PRG) pattern for the Options page, eliminating the browser warning on page refresh after saving settings.
 
