@@ -793,7 +793,7 @@ def request_job():
         job = cur.fetchone()
 
         if job:
-            cur.execute("UPDATE jobs SET status = 'assigned', assigned_to = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (worker_hostname, job['id']))
+            cur.execute("UPDATE jobs SET status = 'encoding', assigned_to = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (worker_hostname, job['id']))
             conn.commit()
             # Return the full job details to the worker
             return jsonify({"job_id": job['id'], "filepath": job['filepath'], "job_type": job['job_type']})

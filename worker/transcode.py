@@ -26,7 +26,7 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
-VERSION = "1.1.0" # Updated version
+VERSION = "0.10.2" # Updated version
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 
@@ -354,7 +354,11 @@ def main_loop(db):
             time.sleep(30) # Check for new commands every 30 seconds
             continue
 
-        # --- Main Job Request Logic ---
+        # If the command is 'running' (or anything else), try to get a job.
+        # The dashboard will deny the request if the queue is paused, which is the
+        # desired behavior. The worker will then just loop and ask again.
+        db.update_heartbeat('running')
+
         job = request_job_from_dashboard()
         if job:
             settings = get_dashboard_settings() # Refresh settings before each job

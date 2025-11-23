@@ -1,5 +1,9 @@
 # [Unreleased]
 
+---
+
+## [0.10.2] - 2025-11-24 - Cluster Control
+
 This release focuses on massive stability improvements, extensive bug fixing, and adding critical quality-of-life features for queue and cluster management.
 
 ### Added
@@ -30,7 +34,6 @@ This release focuses on massive stability improvements, extensive bug fixing, an
 - **Standalone Worker Execution**: The worker script now defaults to connecting to `localhost`, fixing a DNS error and allowing it to be run outside of Docker for development and testing.
 - **Worker Startup Crash**: Fixed an `AttributeError` that caused the worker script to crash immediately on startup due to an incorrect method name.
 - **Form Resubmission Error**: Implemented the Post-Redirect-Get (PRG) pattern for the Options page, eliminating the browser warning on page refresh after saving settings.
-
 
 ## [0.10.1] - 2025-11-23 - The Scanner Awakens
 

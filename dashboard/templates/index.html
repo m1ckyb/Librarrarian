@@ -424,7 +424,7 @@
                         <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
                         <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
                     ` : `
-                        <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.file || 'Idle')}</span>
+                        <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.current_file || 'Idle')}</span>
                     `}
                 </div>
             </div>`;
@@ -619,10 +619,19 @@
                 // and prevents the "ghost row" rendering bug.
                 const rowsHtml = data.jobs.map(job => `
                     <tr>
-                        <td>${job.id}</td>
+                        <td>${ job.id }</td>
                         <td style="word-break: break-all;">${job.filepath}</td>
                         <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
-                        <td>${job.status}</td>
+                        <td>
+                            ${job.status === 'encoding' ? 
+                                `<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
+                            job.status === 'pending' ?
+                                `<span class="badge text-bg-secondary">Pending</span>` :
+                            job.status === 'failed' ?
+                                `<span class="badge text-bg-danger">Failed</span>` :
+                                `<span class="badge text-bg-warning">${job.status}</span>`
+                            }
+                        </td>
                         <td>${job.assigned_to || 'N/A'}</td>
                         <td>${new Date(job.created_at).toLocaleString()}</td>
                     </tr>
