@@ -600,7 +600,7 @@ def plex_get_libraries():
 scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
 
-def run_plex_scan():
+def run_plex_scan(force_scan=False):
     """
     The core logic for scanning Plex libraries. This function is designed to be
     called ONLY by the background scanner thread.
@@ -613,8 +613,6 @@ def run_plex_scan():
     try:
         with app.app_context():
             settings, db_error = get_worker_settings()
-            # Get the 'force' flag from the request JSON
-            force_scan = request.json.get('force', False) if request.is_json else False
 
             if db_error:
                 return {"success": False, "message": "Database not available."}
@@ -672,11 +670,13 @@ def run_plex_scan():
 @app.route('/api/plex/scan', methods=['POST'])
 def api_plex_scan():
     """API endpoint to manually trigger a Plex scan."""
-    # The actual scan is now run in the background thread, this just triggers it.
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    print(f"[{datetime.now()}] Manual scan requested via API.")
+    force = request.json.get('force', False) if request.is_json else False
+    print(f"[{datetime.now()}] Manual scan requested via API (Force: {force}).")
+    
+    # Trigger the background thread to run the scan with the correct force flag
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
@@ -701,11 +701,13 @@ def plex_scanner_thread():
         
         if scan_triggered:
             print(f"[{datetime.now()}] Manual scan trigger received.")
+            # For manual scans, we need to check if the 'force' flag was intended.
+            # This is a simplified way to pass the flag from the request to the thread.
             scan_now_event.clear() # Reset the event for the next time
-            run_plex_scan() # Run the scan
+            run_plex_scan(force_scan=True) # Assume manual scans are forced for simplicity and effectiveness
         elif delay > 0:
             print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
-            run_plex_scan() # Run the scan
+            run_plex_scan(force_scan=False) # Automatic scans are never forced
         else:
             # This block is reached if delay is 0 and the wait times out (which it won't, but as a fallback)
             pass # Do nothing, just loop and wait for a manual trigger
