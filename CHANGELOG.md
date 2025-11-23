@@ -26,6 +26,7 @@ This release focuses on massive stability improvements, extensive bug fixing, an
 - **Background Thread Stability**: Fixed a `RuntimeError: Working outside of request context` crash that occurred when the automatic scanner tried to access web request data.
 - **UI Auto-Refresh Bug**: The Job Queue page no longer reverts to page 1 on auto-refresh and now correctly stays on the user's currently selected page.
 - **Job Queue Rendering**: Fixed a UI rendering bug where a "ghost" job from a previous page would sometimes appear at the bottom of the current page.
+- **Worker Startup Crash**: Fixed an `AttributeError` that caused the worker script to crash immediately on startup due to an incorrect method name.
 - **Form Resubmission Error**: Implemented the Post-Redirect-Get (PRG) pattern for the Options page, eliminating the browser warning on page refresh after saving settings.
 
 

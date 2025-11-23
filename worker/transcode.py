@@ -372,7 +372,7 @@ def main_loop(db):
 def main():
     # Connect to DB using centralized config
     db = DatabaseHandler(DB_CONFIG) # This is now just for heartbeats and commands
-    if not db.get_conn():
+    if not db._get_conn():
         sys.exit(1)
 
     # --- Worker Thread Setup ---
