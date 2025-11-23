@@ -36,7 +36,7 @@
 {% endblock %}
 
 {% block content %}
-        <ul class="nav nav-tabs mt-2" id="myTab" role="tablist">
+        <ul class="nav nav-tabs mt-2" id="mainTabs" role="tablist">
             <li class="nav-item" role="presentation">
                 <button class="nav-link active" id="nodes-tab" data-bs-toggle="tab" data-bs-target="#nodes-tab-pane" type="button" role="tab">Active Nodes</button>
             </li>
@@ -54,7 +54,7 @@
             </li>
         </ul>
 
-        <div class="tab-content" id="myTabContent">
+        <div class="tab-content" id="mainTabContent">
             <!-- Nodes Tab -->
             <div class="tab-pane fade show active" id="nodes-tab-pane" role="tabpanel">
                 <div id="db-error-alert" class="alert alert-danger mt-3 {{ 'd-none' if not db_error }}">
@@ -845,6 +845,26 @@
         delaySlider.addEventListener('input', (event) => {
             delayValue.textContent = `${event.target.value} min`;
         });
+    </script>
+    <script>
+        // Function to activate a tab based on URL hash
+        function activateTabFromHash() {
+            const hash = window.location.hash;
+            if (hash) {
+                const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
+                if (triggerEl) {
+                    const tab = new bootstrap.Tab(triggerEl);
+                    tab.show();
+                }
+            } else {
+                // Default to the nodes tab if no hash is present
+                const defaultTab = document.getElementById('nodes-tab');
+                const tab = new bootstrap.Tab(defaultTab);
+                tab.show();
+            }
+        }
+        // Call on page load
+        activateTabFromHash();
     </script>
     <script>
         // --- Plex Authentication Logic ---
