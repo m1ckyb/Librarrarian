@@ -917,6 +917,14 @@
             // --- Dynamic Plex Library Loading ---
             async function loadPlexLibraries() {
                 const container = document.getElementById('plex-libraries-list');
+                const plexUrlInput = document.getElementById('plex_url');
+
+                // Don't try to fetch libraries if the URL is not set.
+                if (!plexUrlInput.value) {
+                    container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and save settings to see libraries.</p>`;
+                    return;
+                }
+
                 const response = await fetch('/api/plex/libraries');
                 const data = await response.json();
                 const currentLibs = "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',');
