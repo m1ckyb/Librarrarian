@@ -596,7 +596,6 @@ def plex_get_libraries():
 
 def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
-    global plex_server
     while True:
         try:
             with app.app_context():
