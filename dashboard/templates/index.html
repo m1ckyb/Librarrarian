@@ -817,8 +817,7 @@
             quitBtn.onclick = () => quitNode(hostname);
             nodeOptionsModal.show();
         }
-    </script>
-    <script>
+
         // Function to send the 'quit' command to a node
         async function quitNode(hostname) {
             if (!confirm(`Are you sure you want to QUIT the worker on '${hostname}'? This will stop the process immediately. The container will likely restart based on Docker policy.`)) {
@@ -838,72 +837,18 @@
                 console.error('Error quitting node:', error);
             }
         }
-    </script>
-    <script>
+
         const delaySlider = document.getElementById('rescan_delay_minutes');
         const delayValue = document.getElementById('delay-value');
         delaySlider.addEventListener('input', (event) => {
             delayValue.textContent = `${event.target.value} min`;
         });
-    </script>
-    <script>
-        // Function to activate a tab based on URL hash
-        function activateTabFromHash() {
-            const hash = window.location.hash;
-            if (hash) {
-                const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
-                if (triggerEl) {
-                    const tab = new bootstrap.Tab(triggerEl);
-                    tab.show();
-                }
-            } else {
-                // Default to the nodes tab if no hash is present
-                const defaultTab = document.getElementById('nodes-tab');
-                const tab = new bootstrap.Tab(defaultTab);
-                tab.show();
-            }
-        }
-        // Wait for the DOM to be fully loaded before trying to activate a tab.
-        // This ensures the Bootstrap JS is available.
-        document.addEventListener('DOMContentLoaded', activateTabFromHash);
-    </script>
-    <script>
-        // --- Plex Authentication Logic ---
-        const plexLoginBtn = document.getElementById('plex-login-btn');
-        const plexLogoutBtn = document.getElementById('plex-logout-btn');
 
         // Show the Plex login modal
         if (plexLoginBtn) {
             plexLoginBtn.addEventListener('click', () => {
                 const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
                 loginModal.show();
-            });
-        }
-
-        // Handle the Plex login form submission
-        const plexSignInBtn = document.getElementById('plex-signin-btn');
-        if (plexSignInBtn) {
-            plexSignInBtn.addEventListener('click', async () => {
-                const usernameInput = document.getElementById('plex-username');
-                const passwordInput = document.getElementById('plex-password');
-                const statusDiv = document.getElementById('plex-login-status');
-                statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
-
-                const response = await fetch('/api/plex/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ 
-                        username: usernameInput.value, 
-                        password: passwordInput.value 
-                    })
-                });
-                const data = await response.json();
-                if (data.success) {
-                    statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                    setTimeout(() => window.location.href = '/#options-tab-pane', 1500); // Redirect with anchor
-                } else {
-                    statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
-                }
             });
         }
 
@@ -915,23 +860,79 @@
                 }
             });
         }
+    </script>
+    <script>
+        // Wrap all script logic in a DOMContentLoaded event listener
+        document.addEventListener('DOMContentLoaded', () => {
 
-        // --- Dynamic Plex Library Loading ---
-        async function loadPlexLibraries() {
-            const container = document.getElementById('plex-libraries-list');
-            const response = await fetch('/api/plex/libraries');
-            const data = await response.json();
-            const currentLibs = "{{ settings.get('plex_libraries', {}).get('value', '') }}".split(',');
-
-            if (data.libraries && data.libraries.length > 0) {
-                container.innerHTML = data.libraries.map(lib => `
-                    <div class="form-check"><input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}><label class="form-check-label" for="lib-${lib.key}">${lib.title}</label></div>
-                `).join('');
-            } else {
-                container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
+            // Function to activate a tab based on URL hash
+            function activateTabFromHash() {
+                const hash = window.location.hash;
+                if (hash) {
+                    const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
+                    if (triggerEl) {
+                        const tab = new bootstrap.Tab(triggerEl);
+                        tab.show();
+                    }
+                } else {
+                    // Default to the nodes tab if no hash is present
+                    const defaultTab = document.getElementById('nodes-tab');
+                    if (defaultTab) {
+                        const tab = new bootstrap.Tab(defaultTab);
+                        tab.show();
+                    }
+                }
             }
-        }
-        if (document.getElementById('plex-libraries-container').style.display !== 'none') loadPlexLibraries();
+            activateTabFromHash();
+
+            // --- Plex Authentication Logic ---
+            const plexLoginBtn = document.getElementById('plex-login-btn');
+            const plexLogoutBtn = document.getElementById('plex-logout-btn');
+            const plexSignInBtn = document.getElementById('plex-signin-btn');
+
+            if (plexLoginBtn) {
+                plexLoginBtn.addEventListener('click', () => {
+                    const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
+                    loginModal.show();
+                });
+            }
+
+            if (plexSignInBtn) {
+                plexSignInBtn.addEventListener('click', async () => {
+                    const usernameInput = document.getElementById('plex-username');
+                    const passwordInput = document.getElementById('plex-password');
+                    const statusDiv = document.getElementById('plex-login-status');
+                    statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
+
+                    const response = await fetch('/api/plex/login', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ 
+                            username: usernameInput.value, 
+                            password: passwordInput.value 
+                        })
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                        statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                        setTimeout(() => window.location.href = '/#options-tab-pane', 1500);
+                    } else {
+                        statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+                    }
+                });
+            }
+
+            if (plexLogoutBtn) {
+                plexLogoutBtn.addEventListener('click', async () => {
+                    if (confirm('Are you sure you want to unlink your Plex account?')) {
+                        await fetch('/api/plex/logout', { method: 'POST' });
+                        window.location.reload();
+                    }
+                });
+            }
+
+            if (document.getElementById('plex-libraries-container').style.display !== 'none') loadPlexLibraries();
+        });
     </script>
     <!-- Plex Login Modal -->
     <div class="modal fade" id="plexLoginModal" tabindex="-1">
