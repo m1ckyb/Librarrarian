@@ -219,10 +219,14 @@ def update_worker_setting(key, value):
         return False, db_error
     try:
         with db.cursor() as cur:
-            cur.execute(
-                "UPDATE worker_settings SET setting_value = %s WHERE setting_name = %s",
-                (value, key) # Note: updated_at is not in the new schema, can be added if needed
-            )
+            # Use an "upsert" to either insert a new setting or update an existing one.
+            # This prevents errors on a fresh database where the settings rows don't exist yet.
+            cur.execute("""
+                INSERT INTO worker_settings (setting_name, setting_value)
+                VALUES (%s, %s)
+                ON CONFLICT (setting_name) DO UPDATE
+                SET setting_value = EXCLUDED.setting_value;
+            """, (key, value))
         db.commit()
     except Exception as e:
         db_error = f"Database query failed: {e}"
