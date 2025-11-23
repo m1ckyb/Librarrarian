@@ -309,6 +309,10 @@ def dashboard():
         # Add the 'percent' key that the template expects, defaulting to 0 if 'progress' is null
         if 'progress' in node:
             node['percent'] = int(node['progress'] or 0)
+        
+        # Re-implement Speed and Codec for the UI
+        node['speed'] = round(node.get('fps', 0) / 24, 1) if node.get('fps') else 0.0
+        node['codec'] = 'hevc'
 
     return render_template(
         'index.html', 
@@ -449,6 +453,10 @@ def api_status():
         
         # Also add the 'percent' key for the client-side rendering
         node['percent'] = int(node.get('progress') or 0)
+
+        # Re-implement Speed and Codec for the UI
+        node['speed'] = round(node.get('fps', 0) / 24, 1) if node.get('fps') else 0.0
+        node['codec'] = 'hevc'
 
     return jsonify(
         nodes=nodes,

@@ -473,6 +473,20 @@
                     errorAlert.classList.add('d-none');
                 }
 
+                // --- Update Pause Queue Button State ---
+                const pauseQueueBtn = document.getElementById('pause-queue-btn');
+                if (data.queue_paused) {
+                    pauseQueueBtn.classList.remove('btn-warning');
+                    pauseQueueBtn.classList.add('btn-success');
+                    pauseQueueBtn.innerHTML = `<span class="mdi mdi-play"></span> Resume Queue`;
+                    pauseQueueBtn.title = "Resume the distribution of new jobs to workers";
+                } else {
+                    pauseQueueBtn.classList.remove('btn-success');
+                    pauseQueueBtn.classList.add('btn-warning');
+                    pauseQueueBtn.innerHTML = `<span class="mdi mdi-pause"></span> Pause Queue`;
+                    pauseQueueBtn.title = "Pause the distribution of new jobs to workers";
+                }
+
                 // Update nodes list
                 const nodesContainer = document.getElementById('nodes-container');
                 if (data.nodes && data.nodes.length > 0) {
