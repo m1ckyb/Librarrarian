@@ -1002,7 +1002,9 @@ def run_cleanup_scan():
                             if file.endswith(stale_extensions):
                                 full_path = os.path.join(root, file)
                                 if full_path not in existing_jobs:
-                                    cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
+                                    cur.execute(
+                                        "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'awaiting_approval')",
+                                        (full_path,))
                                     jobs_created += 1
             db.commit()
             print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
