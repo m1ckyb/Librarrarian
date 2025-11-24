@@ -30,9 +30,14 @@ DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 def get_worker_version():
     """Reads the version from the VERSION.txt file."""
     try:
+        # This works in Docker where VERSION.txt is in the workdir.
         return open('VERSION.txt', 'r').read().strip()
     except FileNotFoundError:
-        return "standalone"
+        # Fallback for local development where the script is in a subdirectory.
+        try:
+            return open(os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt'), 'r').read().strip()
+        except FileNotFoundError:
+            return "standalone"
 VERSION = get_worker_version()
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
