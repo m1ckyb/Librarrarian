@@ -31,8 +31,9 @@
                     &times;
                 </button>
             </div>
-            {% if auth_enabled and session.user %}
-                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary"><span class="mdi mdi-logout"></span> Logout</a>
+            {% if auth_enabled and user_name %}
+                <span class="navbar-text me-3">Welcome, <strong>{{ user_name }}</strong></span>
+                <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">Logout</a>
             {% endif %}
         </div>
     </div>
