@@ -13,6 +13,7 @@ try:
     import psycopg2
     from psycopg2.extras import RealDictCursor
     from authlib.integrations.flask_client import OAuth
+    from werkzeug.middleware.proxy_fix import ProxyFix
 except ImportError:
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
@@ -24,6 +25,10 @@ app = Flask(__name__)
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
+
+# If running behind a reverse proxy, this is crucial for url_for() to generate correct
+# external URLs (e.g., for OIDC redirects).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Use the same DB config as the worker script
 # It is recommended to use environment variables for sensitive data
