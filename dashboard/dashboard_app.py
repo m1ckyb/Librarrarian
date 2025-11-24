@@ -3,7 +3,6 @@ import sys
 import time
 import threading
 import uuid
-import base64
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from flask import Flask, render_template, g, request, flash, redirect, url_for
@@ -19,12 +18,6 @@ except ImportError:
     sys.exit(1)
 # ===========================
 # Configuration
-try:
-    from authlib.integrations.flask_client import OAuth
-except ImportError:
-    print("❌ Error: Missing 'authlib' package for OIDC authentication.")
-    print("   Please run: pip install authlib")
-    sys.exit(1)
 # ===========================
 app = Flask(__name__)
 # A secret key is required for session management (e.g., for flash messages)
@@ -39,6 +32,52 @@ DB_CONFIG = {
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "codecshift")
 }
+
+def setup_auth(app):
+    """Initializes and configures the authentication system."""
+    app.config['AUTH_ENABLED'] = os.environ.get('AUTH_ENABLED', 'false').lower() == 'true'
+    app.config['OIDC_ENABLED'] = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
+    app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
+
+    if not app.config['AUTH_ENABLED']:
+        return # Do nothing if auth is disabled
+
+    # If auth is on, but no methods are enabled, disable auth to prevent a lockout.
+    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED']:
+        print("⚠️ WARNING: AUTH_ENABLED is true, but no authentication methods are enabled. Disabling authentication.")
+        app.config['AUTH_ENABLED'] = False
+        return
+
+    oauth = OAuth(app)
+    if app.config['OIDC_ENABLED']:
+        oauth.register(
+            name='oidc_provider',
+            client_id=os.environ.get('OIDC_CLIENT_ID'),
+            client_secret=os.environ.get('OIDC_CLIENT_SECRET'),
+            server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
+            client_kwargs={'scope': 'openid email profile'}
+        )
+    app.oauth = oauth
+
+    @app.before_request
+    def require_login():
+        """Protects all routes by requiring login if authentication is enabled."""
+        if not app.config.get('AUTH_ENABLED'):
+            return
+
+        # Allow access to auth routes and static files
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize']:
+            return
+
+        return redirect(url_for('login'))
+
+    @app.context_processor
+    def inject_auth_status():
+        """Makes auth status available to all templates."""
+        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False))
+
+# Initialize authentication
+setup_auth(app)
 
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
@@ -337,12 +376,12 @@ def dashboard():
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handles user login for both OIDC and the local fallback mechanism."""
-    if not AUTH_ENABLED:
+    if not app.config.get('AUTH_ENABLED'):
         return "Authentication is not enabled.", 404
 
     # Handle local login form submission
     if request.method == 'POST':
-        if not LOCAL_LOGIN_ENABLED: return "Local login is disabled.", 403
+        if not app.config.get('LOCAL_LOGIN_ENABLED'): return "Local login is disabled.", 403
         username = request.form.get('username')
         password = request.form.get('password')
         local_user = os.environ.get('LOCAL_USER')
@@ -365,19 +404,17 @@ def login():
             return redirect(url_for('login'))
 
     # If OIDC is the only method, redirect immediately.
-    if OIDC_ENABLED and not LOCAL_LOGIN_ENABLED:
+    if app.config.get('OIDC_ENABLED') and not app.config.get('LOCAL_LOGIN_ENABLED'):
         redirect_uri = url_for('authorize', _external=True)
-        return oauth.oidc_provider.authorize_redirect(redirect_uri)
+        return app.oauth.oidc_provider.authorize_redirect(redirect_uri)
 
     # Otherwise, render the login page which can handle both.
-    return render_template('login.html', oidc_enabled=OIDC_ENABLED, local_login_enabled=LOCAL_LOGIN_ENABLED)
+    return render_template('login.html', oidc_enabled=app.config.get('OIDC_ENABLED'), local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'))
 
 @app.route('/authorize')
 def authorize():
     """Callback route for the OIDC provider."""
-    if not AUTH_ENABLED or not OIDC_ENABLED:
-        return "OIDC authentication is not enabled.", 404
-    token = oauth.oidc_provider.authorize_access_token()
+    token = app.oauth.oidc_provider.authorize_access_token()
     session['user'] = token.get('userinfo')
     return redirect(url_for('dashboard'))
 
@@ -385,10 +422,9 @@ def authorize():
 def logout():
     """Logs the user out."""
     session.pop('user', None)
-    if AUTH_ENABLED and OIDC_ENABLED and 'oidc_provider' in oauth.clients:
-        # For a full SSO logout, redirect to the provider's logout endpoint
-        return redirect(oauth.oidc_provider.server_metadata.get('end_session_endpoint'))
-    return redirect(url_for('dashboard'))
+    if app.config.get('OIDC_ENABLED') and hasattr(app, 'oauth'):
+        return redirect(app.oauth.oidc_provider.server_metadata.get('end_session_endpoint'))
+    return redirect(url_for('login'))
 
 @app.route('/options', methods=['POST'])
 def options():
