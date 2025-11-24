@@ -3,6 +3,7 @@ import sys
 import time
 import threading
 import uuid
+import base64
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
