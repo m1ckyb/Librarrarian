@@ -140,6 +140,8 @@ def get_project_version():
         except FileNotFoundError:
             return "unknown"
 
+# Print a startup banner to the logs
+print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 
 # ===========================
 # Database Layer
