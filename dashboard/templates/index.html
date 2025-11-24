@@ -213,49 +213,77 @@
 
                     <form method="POST" action="/options" class="mt-4">
                         <!-- Plex Settings -->
-                        <div class="p-3 border rounded mb-4">
-                            <h5>Plex Integration</h5>
-                            {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
-                            <div class="row">
-                                <!-- Left Column: Authentication -->
-                                <div class="col-md-6 mb-3">
-                                    <div class="mb-3">
-                                        <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
-                                        <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
-                                    </div>
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>Authentication</strong></label>
-                                        <div>
-                                            {% if plex_token %}
-                                                <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
-                                                <div class="mt-2 text-success">✓ Account Linked</div>
-                                            {% else %}
-                                                <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
-                                            {% endif %}
+                        <div class="p-3 border rounded mb-4" id="integrations-section">
+                            <h5>Integrations</h5>
+                            <p class="form-text text-body-secondary">Select your primary media scanner. Only one can be active at a time.</p>
+                            
+                            {% set scanner_type = settings.get('media_scanner_type', {}).get('setting_value', 'plex') %}
+                            <div class="mb-3">
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="media_scanner_type" id="scanner_plex" value="plex" {{ 'checked' if scanner_type == 'plex' }}>
+                                    <label class="form-check-label" for="scanner_plex">Plex</label>
+                                </div>
+                                <div class="form-check form-check-inline">
+                                    <input class="form-check-input" type="radio" name="media_scanner_type" id="scanner_internal" value="internal" {{ 'checked' if scanner_type == 'internal' }}>
+                                    <label class="form-check-label" for="scanner_internal">Internal Media Scanner</label>
+                                </div>
+                            </div>
+
+                            <ul class="nav nav-tabs" id="integrationsTab" role="tablist">
+                                <li class="nav-item" role="presentation"><button class="nav-link active" id="plex-integration-tab" data-bs-toggle="tab" data-bs-target="#plex-integration-pane" type="button">Plex</button></li>
+                                <li class="nav-item" role="presentation"><button class="nav-link" id="internal-integration-tab" data-bs-toggle="tab" data-bs-target="#internal-integration-pane" type="button">Internal</button></li>
+                                <li class="nav-item" role="presentation"><button class="nav-link" id="sonarr-integration-tab" data-bs-toggle="tab" data-bs-target="#sonarr-integration-pane" type="button">Sonarr</button></li>
+                                <li class="nav-item" role="presentation"><button class="nav-link" id="radarr-integration-tab" data-bs-toggle="tab" data-bs-target="#radarr-integration-pane" type="button">Radarr</button></li>
+                            </ul>
+
+                            <div class="tab-content border border-top-0 p-3" id="integrationsTabContent">
+                                <!-- Plex Tab -->
+                                <div class="tab-pane fade show active" id="plex-integration-pane" role="tabpanel">
+                                    {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
+                                    <div class="row">
+                                        <div class="col-md-6 mb-3">
+                                            <div class="mb-3">
+                                                <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
+                                                <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
+                                            </div>
+                                            <div class="mb-3">
+                                                <label class="form-label"><strong>Authentication</strong></label>
+                                                <div>
+                                                    {% if plex_token %}
+                                                        <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
+                                                        <div class="mt-2 text-success">✓ Account Linked</div>
+                                                    {% else %}
+                                                        <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
+                                                    {% endif %}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-6 mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
+                                            <label class="form-label"><strong>Monitored Libraries</strong></label>
+                                            <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;"></div>
                                         </div>
                                     </div>
                                 </div>
-                                <!-- Right Column: Monitored Libraries -->
-                                <div class="col-md-6 mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
-                                    <label class="form-label"><strong>Monitored Libraries</strong></label>
-                                    <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;">
-                                        <!-- Checkboxes will be dynamically inserted here -->
-                                    </div>
-                                </div>
+                                <!-- Internal Scanner Tab -->
+                                <div class="tab-pane fade" id="internal-integration-pane" role="tabpanel"><p class="text-muted p-3">Internal Media Scanner settings will be available here.</p></div>
+                                <!-- Sonarr Tab -->
+                                <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Sonarr integration will be available in a future version.</p></div>
+                                <!-- Radarr Tab -->
+                                <div class="tab-pane fade" id="radarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Radarr integration will be available in a future version.</p></div>
                             </div>
-                            <!-- Path Mappings -->
-                            <div class="p-3 border rounded mb-4">
-                                <h5>Path Mappings</h5>
-                                <p class="form-text text-body-secondary">Translate paths from what Plex sees to what the container sees. Useful if your media is on a NAS (e.g., `/nfs/media` -> `/media`).</p>
-                                <div class="row">
-                                    <div class="col-md-6 mb-3">
-                                        <label for="plex_path_from" class="form-label"><strong>Path in Plex</strong></label>
-                                        <input type="text" class="form-control" id="plex_path_from" name="plex_path_from" value="{{ settings.get('plex_path_from', {}).get('setting_value', '') }}" placeholder="/nfs/media/">
-                                    </div>
-                                    <div class="col-md-6 mb-3">
-                                        <label for="plex_path_to" class="form-label"><strong>Path in Container</strong></label>
-                                        <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
-                                    </div>
+                        </div>
+                        <!-- Path Mappings -->
+                        <div class="p-3 border rounded mb-4">
+                            <h5>Path Mappings</h5>
+                            <p class="form-text text-body-secondary">Translate paths from what the media scanner sees to what the container sees. Useful if your media is on a NAS (e.g., `/nfs/media` -> `/media`).</p>
+                            <div class="row">
+                                <div class="col-md-6 mb-3">
+                                    <label for="plex_path_from" class="form-label"><strong>Path on Source</strong></label>
+                                    <input type="text" class="form-control" id="plex_path_from" name="plex_path_from" value="{{ settings.get('plex_path_from', {}).get('setting_value', '') }}" placeholder="/nfs/media/">
+                                </div>
+                                <div class="col-md-6 mb-3">
+                                    <label for="plex_path_to" class="form-label"><strong>Path in Container</strong></label>
+                                    <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
                                 </div>
                             </div>
                         </div>
@@ -1129,6 +1157,25 @@
             if (document.getElementById('plex-libraries-container').style.display !== 'none') {
                 loadPlexLibraries();
             }
+
+            // --- NEW: Integrations Tab Logic ---
+            const scannerPlexRadio = document.getElementById('scanner_plex');
+            const scannerInternalRadio = document.getElementById('scanner_internal');
+            const pathFromInput = document.getElementById('plex_path_from');
+
+            function togglePathMapping() {
+                if (scannerPlexRadio.checked) {
+                    pathFromInput.disabled = false;
+                    document.querySelector('label[for="plex_path_from"]').innerHTML = '<strong>Path in Plex</strong>';
+                } else if (scannerInternalRadio.checked) {
+                    pathFromInput.disabled = true;
+                    document.querySelector('label[for="plex_path_from"]').innerHTML = '<strong>Path on Source (Disabled)</strong>';
+                }
+            }
+
+            scannerPlexRadio.addEventListener('change', togglePathMapping);
+            scannerInternalRadio.addEventListener('change', togglePathMapping);
+            togglePathMapping(); // Run on page load
 
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');

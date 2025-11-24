@@ -509,6 +509,7 @@ def options():
     """
     # A dictionary to hold all settings from the form
     settings_to_update = {
+        'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
         'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
