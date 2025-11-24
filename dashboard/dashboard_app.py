@@ -7,7 +7,7 @@ import base64
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 from flask import Flask, render_template, g, request, flash, redirect, url_for
-from flask import jsonify, session
+from flask import jsonify
 
 try:
     from plexapi.server import PlexServer
@@ -39,29 +39,6 @@ DB_CONFIG = {
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "codecshift")
 }
-
-# --- OIDC Authentication Setup ---
-OIDC_ENABLED = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
-if OIDC_ENABLED:
-    oauth = OAuth(app)
-    oauth.register(
-        name='oidc_provider',
-        client_id=os.environ.get('OIDC_CLIENT_ID'),
-        client_secret=os.environ.get('OIDC_CLIENT_SECRET'),
-        server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
-        client_kwargs={'scope': 'openid email profile'}
-    )
-
-@app.before_request
-def require_login():
-    """Protects all routes by requiring OIDC login if enabled."""
-    if not OIDC_ENABLED:
-        return # Do nothing if OIDC is disabled
-
-    if 'user' in session or request.path in ['/login', '/authorize', '/logout']:
-        return # Allow access to auth routes or if already logged in
-
-    return redirect(url_for('login'))
 
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""

@@ -9,9 +9,9 @@ services:
       - "5000:5000"
     environment:
       - DB_HOST=db
-      - POSTGRES_USER=${POSTGRES_USER}
-      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
-      - POSTGRES_DB=${POSTGRES_DB}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
       # --- Master Authentication Switch ---
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -24,7 +24,8 @@ services:
       - LOCAL_LOGIN_ENABLED=${LOCAL_LOGIN_ENABLED:-false}
       - LOCAL_USER=${LOCAL_USER}
       - LOCAL_PASSWORD=${LOCAL_PASSWORD}
-      - PYTHONUNBUFFERED=1 # Force print() statements to appear in logs immediately
+      # --- Force print() statements to appear in logs immediately ---
+      - PYTHONUNBUFFERED=1
     depends_on:
       - db
     volumes:
