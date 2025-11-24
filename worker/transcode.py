@@ -51,24 +51,25 @@ class DatabaseHandler:
     def _get_conn(self):
         return psycopg2.connect(**self.conn_params)
 
-    def update_heartbeat(self, status, current_file=None, progress=None, fps=None):
+    def update_heartbeat(self, status, current_file=None, progress=None, fps=None, version_mismatch=False):
         """Updates the worker's status in the central database."""
         sql = """
-        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps)
-        VALUES (%s, NOW(), %s, %s, %s, %s, %s)
+        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps, version_mismatch)
+        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s)
         ON CONFLICT (hostname) DO UPDATE SET
             last_heartbeat = EXCLUDED.last_heartbeat,
             status = EXCLUDED.status,
             version = EXCLUDED.version,
             current_file = EXCLUDED.current_file,
             progress = EXCLUDED.progress,
-            fps = EXCLUDED.fps;
+            fps = EXCLUDED.fps,
+            version_mismatch = EXCLUDED.version_mismatch;
         """
         conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps))
+                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps, version_mismatch))
                 conn.commit()
             except Exception as e:
                 print(f"[{datetime.now()}] Heartbeat Error: Could not update status. {e}")
@@ -172,15 +173,17 @@ def get_dashboard_settings():
         headers = {'X-API-Key': API_KEY} if API_KEY else {}
         response = requests.get(f"{DASHBOARD_URL}/api/settings", headers=headers, timeout=10)
         response.raise_for_status()
-        settings_data = response.json().get('settings', {})
+        data = response.json()
+        settings_data = data.get('settings', {})
+        dashboard_version = data.get('dashboard_version')
         # Flatten the settings for easier access
-        return {key: value['setting_value'] for key, value in settings_data.items()}
+        return {key: value['setting_value'] for key, value in settings_data.items()}, dashboard_version
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not fetch settings from {DASHBOARD_URL}. {e}")
         print("    Ensure the dashboard is running and accessible from this machine.")
         if 'localhost' in DASHBOARD_URL:
             print("    If running the worker on a different machine, set the DASHBOARD_URL environment variable. Example: DASHBOARD_URL=http://<dashboard_ip>:5000 ./transcode.py")
-        return {}
+        return {}, None
 
 def request_job_from_dashboard():
     """Requests a new job from the dashboard's API."""
@@ -353,12 +356,22 @@ def cleanup_file(filepath, db, settings):
 def main_loop(db):
     """The main worker loop."""
     print(f"[{datetime.now()}] Worker '{HOSTNAME}' starting up. Version: {VERSION}")
-    db.update_heartbeat('booting')
+    db.update_heartbeat('booting', version_mismatch=False)
     time.sleep(2) # Stagger startup
 
-    settings = get_dashboard_settings()
+    settings, dashboard_version = get_dashboard_settings()
     if not settings:
         print("❌ Could not fetch settings from dashboard on startup. Will retry.")
+    
+    version_mismatch = False
+    if dashboard_version and dashboard_version != VERSION:
+        version_mismatch = True
+        print("="*60)
+        print(f"⚠️  VERSION MISMATCH DETECTED!")
+        print(f"   Worker Version:    {VERSION}")
+        print(f"   Dashboard Version: {dashboard_version}")
+        print("   Please update the worker or dashboard to ensure compatibility.")
+        print("="*60)
 
     # Determine initial state
     autostart = os.environ.get('AUTOSTART', 'false').lower() == 'true'
@@ -379,17 +392,17 @@ def main_loop(db):
 
         if current_command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")
-            db.update_heartbeat('offline')
+            db.update_heartbeat('offline', version_mismatch=version_mismatch)
             break
         
         if current_command in ['idle', 'paused', 'finishing']:
             print(f"[{datetime.now()}] In '{current_command}' state. Standing by...")
-            db.update_heartbeat(current_command)
+            db.update_heartbeat(current_command, version_mismatch=version_mismatch)
             time.sleep(30) # Check for new commands every 30 seconds
             continue
 
         # If we've reached here, the command is 'running'.
-        db.update_heartbeat('running')
+        db.update_heartbeat('running', version_mismatch=version_mismatch)
 
         job = request_job_from_dashboard()
         if job:

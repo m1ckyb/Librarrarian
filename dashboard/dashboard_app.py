@@ -171,6 +171,7 @@ def init_db():
                 status VARCHAR(50),
                 last_heartbeat TIMESTAMP,
                 version VARCHAR(50),
+                version_mismatch BOOLEAN DEFAULT false,
                 command VARCHAR(50) DEFAULT 'idle',
                 progress REAL,
                 fps REAL,
@@ -235,7 +236,7 @@ def get_cluster_status():
             # Get active nodes (updated in the last 5 minutes)
             # Using the new 'nodes' table schema
             cur.execute("""
-                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age
+                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age, version_mismatch
                 FROM nodes
                 WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
                 ORDER BY hostname
@@ -536,7 +537,7 @@ def api_settings():
     settings, db_error = get_worker_settings()
     if db_error:
         return jsonify(settings={}, error=db_error), 500
-    return jsonify(settings=settings)
+    return jsonify(settings=settings, dashboard_version=get_project_version())
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
