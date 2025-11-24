@@ -26,7 +26,14 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
-VERSION = "0.10.6" # Updated version
+
+def get_worker_version():
+    """Reads the version from the VERSION.txt file."""
+    try:
+        return open('VERSION.txt', 'r').read().strip()
+    except FileNotFoundError:
+        return "standalone"
+VERSION = get_worker_version()
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 API_KEY = os.environ.get('API_KEY')

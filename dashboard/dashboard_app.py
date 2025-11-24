@@ -129,10 +129,15 @@ setup_auth(app)
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
     try:
-        version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt')
-        return open(version_file, 'r').read().strip()
+        # The Dockerfile copies VERSION.txt to the workdir /app
+        return open('VERSION.txt', 'r').read().strip()
     except FileNotFoundError:
-        return "unknown"
+        # Fallback for local development where CWD might be different
+        try:
+            version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt')
+            return open(version_file, 'r').read().strip()
+        except FileNotFoundError:
+            return "unknown"
 
 
 # ===========================
