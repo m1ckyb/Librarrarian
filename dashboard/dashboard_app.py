@@ -503,6 +503,8 @@ def options():
         'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
         'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
         'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
+        'plex_path_from': request.form.get('plex_path_from', ''),
+        'plex_path_to': request.form.get('plex_path_to', ''),
     }
 
     # Handle multi-select for Plex libraries
@@ -934,24 +936,54 @@ def run_cleanup_scan():
 
     try:
         with app.app_context():
-            media_dir = '/media'
+            settings, _ = get_worker_settings()
+            plex_url = settings.get('plex_url', {}).get('setting_value')
+            plex_token = settings.get('plex_token', {}).get('setting_value')
+            plex_libraries_str = settings.get('plex_libraries', {}).get('setting_value', '')
+            plex_libraries = {lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()}
+            path_from = settings.get('plex_path_from', {}).get('setting_value')
+            path_to = settings.get('plex_path_to', {}).get('setting_value')
+
+            if not all([plex_url, plex_token, plex_libraries]):
+                print(f"[{datetime.now()}] Cleanup scan skipped: Plex integration is not fully configured.")
+                return
+
+            # Get the root paths from the monitored Plex libraries
+            scan_paths = set()
+            try:
+                plex = PlexServer(plex_url, plex_token)
+                for section in plex.library.sections():
+                    if section.title in plex_libraries:
+                        for location in section.locations:
+                            local_path = location
+                            if path_from and path_to:
+                                local_path = location.replace(path_from, path_to, 1)
+                            scan_paths.add(local_path)
+            except Exception as e:
+                print(f"[{datetime.now()}] Cleanup scan failed: Could not connect to Plex to get library paths. Error: {e}")
+                return
+
+            if not scan_paths:
+                print(f"[{datetime.now()}] Cleanup scan finished: No valid library paths found to scan.")
+                return
+
+            print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of paths: {', '.join(scan_paths)}")
             stale_extensions = ('.lock', '.tmp_hevc')
             jobs_created = 0
-
             db = get_db()
             with db.cursor(cursor_factory=RealDictCursor) as cur:
-                # Get a set of all filepaths currently in the jobs table to avoid duplicates
                 cur.execute("SELECT filepath FROM jobs")
                 existing_jobs = {row['filepath'] for row in cur.fetchall()}
 
-                print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of {media_dir}...")
-                for root, _, files in os.walk(media_dir):
-                    for file in files:
-                        if file.endswith(stale_extensions):
-                            full_path = os.path.join(root, file)
-                            if full_path not in existing_jobs:
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
-                                jobs_created += 1
+                for path in scan_paths:
+                    if not os.path.isdir(path): continue
+                    for root, _, files in os.walk(path):
+                        for file in files:
+                            if file.endswith(stale_extensions):
+                                full_path = os.path.join(root, file)
+                                if full_path not in existing_jobs:
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
+                                    jobs_created += 1
             db.commit()
             print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
     except Exception as e:
