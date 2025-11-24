@@ -551,6 +551,21 @@ def api_clear_jobs():
         print(f"Error clearing job queue: {e}")
         return jsonify(success=False, error=str(e)), 500
 
+@app.route('/api/jobs/delete/<int:job_id>', methods=['POST'])
+def api_delete_job(job_id):
+    """Deletes a single job from the jobs table."""
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        db.commit()
+        if cur.rowcount == 0:
+            return jsonify(success=False, error="Job not found."), 404
+        return jsonify(success=True, message=f"Job {job_id} deleted successfully.")
+    except Exception as e:
+        print(f"Error deleting job {job_id}: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
 @app.route('/api/jobs', methods=['GET'])
 def api_jobs():
     """Returns a paginated list of the current job queue as JSON."""

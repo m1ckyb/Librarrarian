@@ -145,7 +145,7 @@
                 <div class="table-responsive">
                     <table class="table table-striped table-sm">
                         <thead>
-                            <tr><th><input type="checkbox" id="select-all-cleanup" title="Select all visible cleanup jobs"></th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th></tr>
+                            <tr><th><input type="checkbox" id="select-all-cleanup" title="Select all visible cleanup jobs"></th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th><th>Actions</th></tr>
                         </thead>
                         <tbody id="job-queue-table-body"></tbody>
                     </table>
@@ -697,6 +697,12 @@
                         </td>
                         <td>${job.assigned_to || 'N/A'}</td>
                         <td>${new Date(job.created_at).toLocaleString()}</td>
+                        <td>
+                            ${['pending', 'awaiting_approval', 'failed'].includes(job.status) ?
+                                `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
+                                ''
+                            }
+                        </td>
                     </tr>
                 `).join('');
                 tableBody.innerHTML = rowsHtml;
@@ -1195,6 +1201,22 @@
                     alert('An error occurred while trying to clear the job queue.');
                 }
             });
+
+            // --- Delete Individual Job Logic ---
+            window.deleteJob = async function(jobId) {
+                if (!confirm(`Are you sure you want to permanently delete job ${jobId}?`)) {
+                    return;
+                }
+                try {
+                    const response = await fetch(`/api/jobs/delete/${jobId}`, { method: 'POST' });
+                    if (response.ok) {
+                        updateJobQueue(jobQueueCurrentPage); // Refresh the queue
+                    }
+                } catch (error) {
+                    console.error('Error deleting job:', error);
+                    alert('An error occurred while trying to delete the job.');
+                }
+            }
 
             // --- Pause Queue Button Logic ---
             const pauseQueueBtn = document.getElementById('pause-queue-btn');
