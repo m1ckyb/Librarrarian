@@ -52,6 +52,11 @@ This is the recommended method for running CodecShift.
     # Generate a random string for this, e.g., by running: openssl rand -hex 32
     FLASK_SECRET_KEY=your_flask_secret_key
     
+    # --- API Key for Worker Authentication ---
+    # This is required if AUTH_ENABLED is true. Generate a secure random string.
+    # e.g., openssl rand -hex 32
+    API_KEY=your_worker_api_key
+
     # --- Authentication Settings (Optional) ---
     # Master switch to enable authentication features.
     AUTH_ENABLED=false

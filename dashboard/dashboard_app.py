@@ -88,8 +88,12 @@ def setup_auth(app):
             return
 
         # Block all unauthenticated API access.
+        # This is for machine-to-machine communication (workers).
         if request.path.startswith('/api/'):
-            return jsonify(error="Authentication required"), 401
+            api_key = request.headers.get('X-API-Key')
+            if api_key and api_key == os.environ.get('API_KEY'):
+                return # API key is valid, allow access
+            return jsonify(error="Authentication required. Invalid or missing API Key."), 401
             return
 
         return redirect(url_for('login'))

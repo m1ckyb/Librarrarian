@@ -29,6 +29,7 @@ DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 VERSION = "0.10.6" # Updated version
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
+API_KEY = os.environ.get('API_KEY')
 
 # --- USER CONFIGURATION SECTION ---
 # Read DB config from environment variables, with fallbacks for local testing
@@ -168,7 +169,8 @@ def detect_hardware_settings(accel_mode):
 def get_dashboard_settings():
     """Fetches all worker settings from the dashboard's API."""
     try:
-        response = requests.get(f"{DASHBOARD_URL}/api/settings", timeout=10)
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        response = requests.get(f"{DASHBOARD_URL}/api/settings", headers=headers, timeout=10)
         response.raise_for_status()
         settings_data = response.json().get('settings', {})
         # Flatten the settings for easier access
@@ -184,7 +186,8 @@ def request_job_from_dashboard():
     """Requests a new job from the dashboard's API."""
     try:
         print(f"[{datetime.now()}] Requesting a new job...")
-        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, timeout=10)
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, headers=headers, timeout=10)
         response.raise_for_status()
         job_data = response.json()
         if job_data and job_data.get('job_id'):
@@ -204,7 +207,8 @@ def update_job_status(job_id, status, details=None):
         payload.update(details)
     
     try:
-        response = requests.post(f"{DASHBOARD_URL}/api/update_job/{job_id}", json=payload, timeout=10)
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        response = requests.post(f"{DASHBOARD_URL}/api/update_job/{job_id}", json=payload, headers=headers, timeout=10)
         response.raise_for_status()
         print(f"[{datetime.now()}] Successfully updated job {job_id} to status '{status}'.")
     except requests.exceptions.RequestException as e:

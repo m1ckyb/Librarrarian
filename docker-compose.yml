@@ -12,6 +12,8 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
+      # --- Authentication ---
+      - API_KEY=${API_KEY} # For worker authentication
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
       # --- Master Authentication Switch ---
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -44,6 +46,7 @@ services:
       - DB_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      - API_KEY=${API_KEY} # For authenticating with the dashboard
       - DASHBOARD_URL=http://dashboard:5000
     volumes:
       - ./media:/media
