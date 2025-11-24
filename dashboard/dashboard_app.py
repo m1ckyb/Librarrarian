@@ -1034,8 +1034,8 @@ def run_plex_scan(force_scan=False):
     finally:
         scanner_lock.release()
 
-@app.route('/api/plex/scan', methods=['POST'])
-def api_plex_scan():
+@app.route('/api/scan/trigger', methods=['POST'])
+def api_trigger_scan():
     """API endpoint to manually trigger a Plex scan."""
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})

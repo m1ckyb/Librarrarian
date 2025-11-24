@@ -64,3 +64,20 @@ This document is a summary of the key architectural patterns, decisions, and com
 3.  **Correct `COPY` Paths:** Inside a `Dockerfile`, all `COPY` commands must use paths relative to the project root (e.g., `COPY dashboard/requirements.txt .`).
 4.  **Dynamic Version Reading:** Both the dashboard and worker applications read their version at runtime from the `VERSION.txt` file copied into their respective images. The dashboard footer and worker startup logs must display this dynamic version.
 5.  **Server-Side Mismatch Detection:** The dashboard is the source of truth for version mismatches. The `/api/status` endpoint compares its own version with the version reported by each worker and flags any discrepancies.
+
+---
+
+### Release Process
+
+When requested to **"Update to version <number>"**, the following steps must be performed:
+
+1.  **Update `CHANGELOG.md`**:
+    *   Create a new version heading (e.g., `## [0.10.9] - YYYY-MM-DD - Release Name`).
+    *   Move all content from `UNRELEASED.md` into this new section.
+    *   Ensure the formatting is correct and consistent with previous entries.
+
+2.  **Clear `UNRELEASED.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
+
+3.  **Update `VERSION.txt`**: Change the content of `VERSION.txt` to the new version number (e.g., `0.10.9`).
+
+4.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.

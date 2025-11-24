@@ -123,7 +123,7 @@
                     <div>
                         <div class="btn-toolbar" role="toolbar" aria-label="Job queue actions">
                             <div class="btn-group me-2" role="group" aria-label="Scan controls">
-                                <button class="btn btn-primary" id="manual-scan-btn" title="Trigger a manual scan of your Plex libraries"><span class="mdi mdi-sync"></span> Manual Scan</button>
+                                <button class="btn btn-primary" id="manual-scan-btn" title="Trigger a manual scan of the active media integration"><span class="mdi mdi-sync"></span> Scan Media</button>
                                 <div class="input-group-text" title="Force the scanner to re-add files that are already in the queue or history">
                                     <input class="form-check-input mt-0" type="checkbox" id="force-rescan-checkbox">
                                     <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
@@ -1230,6 +1230,17 @@
                         new bootstrap.Tab(internalTabButton).show();
                     }
                 }
+
+                // Also update the manual scan button state
+                const manualScanBtn = document.getElementById('manual-scan-btn');
+                const hasPlexToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
+                if (scannerPlexRadio.checked && !hasPlexToken) {
+                    manualScanBtn.disabled = true;
+                    manualScanBtn.title = "Plex account must be linked to run a scan.";
+                } else {
+                    manualScanBtn.disabled = false;
+                    manualScanBtn.title = "Trigger a manual scan of the active media integration";
+                }
             }
 
             scannerPlexRadio.addEventListener('change', handleScannerChange);
@@ -1248,7 +1259,7 @@
                 const isForced = forceRescanCheckbox.checked;
 
                 try {
-                    const response = await fetch('/api/plex/scan', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
+                    const response = await fetch('/api/scan/trigger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
                     const data = await response.json();
                     const alertClass = data.success ? 'alert-success' : 'alert-warning';
                     scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
