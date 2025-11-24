@@ -370,13 +370,13 @@ def main_loop(db):
     while not STOP_EVENT.is_set():
         # On the first loop with autostart, force the command to 'running'
         # to override the default 'idle' state from the database.
-        command_from_db = db.get_node_command(HOSTNAME)
+        # For subsequent loops, if the command is 'idle', an autostarted worker
+        # should treat it as 'running' unless explicitly stopped.
+        current_command = db.get_node_command(HOSTNAME)
 
-        # An autostarted worker should stay running unless explicitly told otherwise.
-        # Don't let the default 'idle' command from the DB override the initial 'running' state.
-        if not (autostart and first_loop and command_from_db == 'idle'):
-            current_command = command_from_db
-            
+        if autostart and current_command == 'idle':
+            current_command = 'running'
+
         if current_command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")
             db.update_heartbeat('offline')
