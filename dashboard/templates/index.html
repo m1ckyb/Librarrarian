@@ -265,7 +265,11 @@
                                     </div>
                                 </div>
                                 <!-- Internal Scanner Tab -->
-                                <div class="tab-pane fade" id="internal-integration-pane" role="tabpanel"><p class="text-muted p-3">Internal Media Scanner settings will be available here.</p></div>
+                                <div class="tab-pane fade" id="internal-integration-pane" role="tabpanel">
+                                    <label class="form-label"><strong>Monitored Folders</strong></label>
+                                    <p class="form-text text-body-secondary">Select which folders inside your main <code>/media</code> directory you want to scan.</p>
+                                    <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                </div>
                                 <!-- Sonarr Tab -->
                                 <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Sonarr integration will be available in a future version.</p></div>
                                 <!-- Radarr Tab -->
@@ -1157,6 +1161,28 @@
             if (document.getElementById('plex-libraries-container').style.display !== 'none') {
                 loadPlexLibraries();
             }
+
+            // --- Dynamic Internal Folder Loading ---
+            async function loadInternalFolders() {
+                const container = document.getElementById('internal-folders-list');
+                container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading folders...';
+
+                const response = await fetch('/api/internal/folders');
+                const data = await response.json();
+                const currentPaths = "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',');
+
+                if (data.folders && data.folders.length > 0) {
+                    container.innerHTML = data.folders.map(folder => `
+                        <div class="form-check"><input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${folder}" id="folder-${folder}" ${currentPaths.includes(folder) ? 'checked' : ''}><label class="form-check-label" for="folder-${folder}">${folder}</label></div>
+                    `).join('');
+                } else {
+                    container.innerHTML = `<p class="text-muted">${data.error || 'No subdirectories found in /media.'}</p>`;
+                }
+            }
+            const internalTab = document.getElementById('internal-integration-tab');
+            internalTab.addEventListener('shown.bs.tab', () => {
+                loadInternalFolders();
+            });
 
             // --- NEW: Integrations Tab Logic ---
             const scannerPlexRadio = document.getElementById('scanner_plex');
