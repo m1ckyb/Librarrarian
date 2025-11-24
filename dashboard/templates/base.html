@@ -85,7 +85,7 @@
     <footer class="footer py-3">
         <div class="container d-flex justify-content-between align-items-center h-100">
             <div class="d-flex align-items-center">
-                <span class="me-3">Web Dashboard v{{ version }}</span>
+                <span class="me-3">Web Dashboard v{{ version }}</span><span id="update-notification" class="ms-2 text-warning"></span>
             </div>
             <div class="d-flex align-items-center">
                 <a href="#" class="text-decoration-none me-3" data-bs-toggle="modal" data-bs-target="#changelogModal">
@@ -118,5 +118,29 @@
     </div>
 
     {% block scripts %}{% endblock %}
+    <script>
+        // --- Update Checker ---
+        document.addEventListener('DOMContentLoaded', () => {
+            async function checkForUpdates() {
+                const internalVersion = "{{ version }}";
+                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/main/VERSION.txt";
+                const notificationSpan = document.getElementById('update-notification');
+
+                try {
+                    const response = await fetch(mainVersionUrl);
+                    if (!response.ok) return; // Fail silently
+                    const latestStableVersion = await response.text().trim();
+
+                    // Use localeCompare with numeric option for proper version comparison
+                    if (latestStableVersion.localeCompare(internalVersion, undefined, { numeric: true }) > 0) {
+                        notificationSpan.innerHTML = `<strong>(Update Available: v${latestStableVersion})</strong>`;
+                    }
+                } catch (error) {
+                    console.error("Update check failed:", error); // Log error but don't bother the user
+                }
+            }
+            checkForUpdates();
+        });
+    </script>
     </body>
     </html>

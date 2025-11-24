@@ -1,4 +1,10 @@
-# [Unreleased]
+## [0.10.8] - 2025-11-24 - Changelog Viewer
+
+This release adds a user-friendly changelog viewer directly into the dashboard.
+
+### Added
+- **In-App Changelog Viewer**: A new "Changelog" link in the footer opens a modal that displays the project's changelog, rendered from Markdown.
+- **Smart Changelog Default**: The viewer intelligently detects if the running version is newer than the latest stable release and defaults to showing the `develop` branch changelog if so, ensuring users always see the most relevant information.
 
 ---
 ## [0.10.7b] - 2025-11-24 - Final Polish
