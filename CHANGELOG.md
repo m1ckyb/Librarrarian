@@ -18,6 +18,7 @@ This is a major release focused on improving the stability, manageability, and d
 - **Database Initialization**: The database is now initialized using a standard `init.sql` script via Docker's entrypoint mechanism. This is more efficient and resolves all race conditions on a fresh deployment.
 - **Default Settings**: The `init.sql` script now populates the `worker_settings` table with a full set of default values, ensuring the dashboard starts correctly on a fresh database.
 - **CI/CD Pipeline**: The GitHub Actions workflows have been updated to use the correct build context, resolving build failures and ensuring version consistency between local and automated builds.
+- **Version Mismatch Logic**: The dashboard is now the source of truth for version mismatch detection. It periodically checks worker versions and updates their status, ensuring mismatches are caught even if the dashboard is updated while workers are running.
 
 ### Fixed
 - **Critical Startup Race Condition**: Fixed a series of `relation "nodes" does not exist` and `permission denied` errors that occurred when starting the cluster with a fresh database.

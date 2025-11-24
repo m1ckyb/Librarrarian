@@ -255,6 +255,19 @@ def get_cluster_status():
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
+    # --- Server-Side Version Mismatch Check ---
+    # The dashboard should be the source of truth for version mismatches.
+    # This ensures that if the dashboard is updated, it will flag old workers.
+    dashboard_version = get_project_version()
+    if db is not None and dashboard_version != "unknown":
+        with db.cursor() as cur:
+            for node in nodes:
+                is_mismatched = node['version'] != dashboard_version
+                if node['version_mismatch'] != is_mismatched:
+                    cur.execute("UPDATE nodes SET version_mismatch = %s WHERE hostname = %s", (is_mismatched, node['hostname']))
+                    node['version_mismatch'] = is_mismatched # Update the live data
+        db.commit()
+
     return nodes, failures, db_error
 
 def get_failed_files_list():
