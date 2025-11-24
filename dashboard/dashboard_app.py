@@ -6,6 +6,7 @@ import uuid
 import base64
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
+import subprocess
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
@@ -887,6 +888,21 @@ def plex_get_libraries():
     except Exception as e:
         return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
 
+@app.route('/api/internal/folders', methods=['GET'])
+def api_internal_folders():
+    """Lists the subdirectories inside the /media folder."""
+    media_path = '/media'
+    folders = []
+    try:
+        if os.path.isdir(media_path):
+            for item in os.listdir(media_path):
+                if os.path.isdir(os.path.join(media_path, item)):
+                    folders.append(item)
+        return jsonify(folders=sorted(folders))
+    except Exception as e:
+        print(f"Error listing internal folders: {e}")
+        return jsonify(folders=[], error=str(e)), 500
+
 # --- New Background Scanner and Worker API ---
 
 scanner_lock = threading.Lock()
@@ -894,6 +910,61 @@ scan_now_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
 
+def run_internal_scan(force_scan=False):
+    """
+    The core logic for scanning local directories.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return {"success": False, "message": "Database not available."}
+
+        scan_paths_str = settings.get('internal_scan_paths', {}).get('setting_value', '')
+        scan_paths = [path.strip() for path in scan_paths_str.split(',') if path.strip()]
+
+        if not scan_paths:
+            return {"success": False, "message": "Internal scanner is enabled, but no paths are configured to be scanned."}
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        existing_jobs = set() if force_scan else {row['filepath'] for row in (cur.execute("SELECT filepath FROM jobs"), cur.fetchall())[1]}
+        encoded_history = set() if force_scan else {row['filename'] for row in (cur.execute("SELECT filename FROM encoded_files"), cur.fetchall())[1]}
+        
+        new_files_found = 0
+        valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
+        print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+
+        for folder in scan_paths:
+            full_scan_path = os.path.join('/media', folder)
+            print(f"[{datetime.now()}] Internal Scanner: Scanning '{full_scan_path}'...")
+            for root, _, files in os.walk(full_scan_path):
+                for file in files:
+                    if not file.lower().endswith(valid_extensions):
+                        continue
+                    
+                    filepath = os.path.join(root, file)
+                    if filepath in existing_jobs or filepath in encoded_history:
+                        continue
+
+                    try:
+                        # Use ffprobe to get the video codec
+                        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
+                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip()
+                        
+                        print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                        if codec and codec not in ['hevc', 'h265']:
+                            print(f"    -> Found non-HEVC file. Adding to queue.")
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                            if cur.rowcount > 0:
+                                new_files_found += 1
+                    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                        print(f"    -> Could not probe file '{filepath}'. Error: {e}")
+
+        conn.commit()
+        message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+        cur.close()
+        return {"success": True, "message": message}
 
 def run_plex_scan(force_scan=False):
     """
@@ -1192,11 +1263,18 @@ def plex_scanner_thread():
         
         if scan_triggered:
             print(f"[{datetime.now()}] Manual scan trigger received.")
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                scanner_type = settings.get('media_scanner_type', {}).get('setting_value', 'plex')
+                if scanner_type == 'internal':
+                    run_internal_scan(force_scan=True)
+                else:
+                    run_plex_scan(force_scan=True)
             scan_now_event.clear() # Reset the event for the next time
-            run_plex_scan(force_scan=True) # Assume manual scans are forced for simplicity
         elif delay > 0:
             print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
-            run_plex_scan(force_scan=False) # Automatic scans are never forced
+            # This will need to be updated to also check scanner type
+            run_plex_scan(force_scan=False)
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
