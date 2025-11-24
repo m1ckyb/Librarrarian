@@ -240,6 +240,21 @@
                                     </div>
                                 </div>
                             </div>
+                            <!-- Path Mappings -->
+                            <div class="p-3 border rounded mb-4">
+                                <h5>Path Mappings</h5>
+                                <p class="form-text text-body-secondary">Translate paths from what Plex sees to what the container sees. Useful if your media is on a NAS (e.g., `/nfs/media` -> `/media`).</p>
+                                <div class="row">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="plex_path_from" class="form-label"><strong>Path in Plex</strong></label>
+                                        <input type="text" class="form-control" id="plex_path_from" name="plex_path_from" value="{{ settings.get('plex_path_from', {}).get('setting_value', '') }}" placeholder="/nfs/media/">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="plex_path_to" class="form-label"><strong>Path in Container</strong></label>
+                                        <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                         <!-- Rescan Delay Setting -->
                         <div class="row">
