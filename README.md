@@ -61,6 +61,7 @@ This is the recommended method for running CodecShift.
     OIDC_ISSUER_URL=https://your-provider.com/auth/realms/your-realm
     OIDC_CLIENT_ID=your-client-id
     OIDC_CLIENT_SECRET=your-client-secret
+    OIDC_PROVIDER_NAME=Authentik # Optional: The display name for your OIDC provider
     
     # Local Login Settings (if AUTH_ENABLED is true)
     LOCAL_LOGIN_ENABLED=false

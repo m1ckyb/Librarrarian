@@ -44,6 +44,7 @@ def setup_auth(app):
     app.config['AUTH_ENABLED'] = os.environ.get('AUTH_ENABLED', 'false').lower() == 'true'
     app.config['OIDC_ENABLED'] = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
     app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
+    app.config['OIDC_PROVIDER_NAME'] = os.environ.get('OIDC_PROVIDER_NAME')
 
     if not app.config['AUTH_ENABLED']:
         return # Do nothing if auth is disabled
@@ -111,7 +112,12 @@ def setup_auth(app):
             # OIDC providers might use 'name', 'email', or 'preferred_username'.
             user_info = session['user']
             user_name = user_info.get('name') or user_info.get('email') or user_info.get('preferred_username')
-        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False), user_name=user_name, greeting=greeting)
+        return dict(
+            auth_enabled=app.config.get('AUTH_ENABLED', False), 
+            user_name=user_name, 
+            greeting=greeting,
+            oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME')
+        )
 
 # Initialize authentication
 setup_auth(app)
