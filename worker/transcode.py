@@ -329,7 +329,7 @@ def process_file(filepath, db, settings):
             os.remove(temp_output_path)
         return False, {"reason": f"FFmpeg failed with code {process.returncode}", "log": "".join(log_buffer)}
 
-def cleanup_file(filepath, db):
+def cleanup_file(filepath, db, settings):
     """
     Deletes a single stale file identified by the dashboard.
     Returns a tuple: (success, details_dict).
