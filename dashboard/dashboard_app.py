@@ -96,12 +96,22 @@ def setup_auth(app):
     @app.context_processor
     def inject_auth_status():
         """Makes auth status available to all templates."""
+        greeting = "Welcome"
         user_name = None
         if 'user' in session:
+            # Determine a dynamic greeting based on the time of day.
+            current_hour = datetime.now().hour
+            if 5 <= current_hour < 12:
+                greeting = "Good morning"
+            elif 12 <= current_hour < 18:
+                greeting = "Good afternoon"
+            else:
+                greeting = "Good evening"
+
             # OIDC providers might use 'name', 'email', or 'preferred_username'.
             user_info = session['user']
             user_name = user_info.get('name') or user_info.get('email') or user_info.get('preferred_username')
-        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False), user_name=user_name)
+        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False), user_name=user_name, greeting=greeting)
 
 # Initialize authentication
 setup_auth(app)

@@ -32,8 +32,8 @@
                 </button>
             </div>
             {% if auth_enabled and user_name %}
-                <span class="navbar-text me-3">Welcome, <strong>{{ user_name }}</strong></span>
-                <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">Logout</a>
+                <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary me-3">Logout</a>
+                <span class="navbar-text">{{ greeting }}, <strong>{{ user_name }}</strong></span>
             {% endif %}
         </div>
     </div>

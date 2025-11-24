@@ -86,14 +86,6 @@
             <div class="d-flex align-items-center">
                 <span class="me-3">Web Dashboard v0.10.4</span>
             </div>
-            <div>
-                {% if auth_enabled and user_name %}
-                    <span class="me-3">Welcome, <strong>{{ user_name }}</strong></span>
-                    <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">Logout</a>
-                {% elif auth_enabled %}
-                    <a href="{{ url_for('login') }}" class="btn btn-sm btn-primary">Login</a>
-                {% endif %}
-            </div>
         </div>
     </footer>
 
