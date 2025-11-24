@@ -539,11 +539,12 @@ def api_settings():
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
-    """Clears all jobs from the job_queue table."""
+    """Clears all 'pending' jobs from the job_queue table."""
     try:
         db = get_db()
         with db.cursor() as cur:
-            cur.execute("TRUNCATE TABLE jobs RESTART IDENTITY;")
+            # Use DELETE instead of TRUNCATE to preserve the ID sequence and avoid deleting active jobs.
+            cur.execute("DELETE FROM jobs WHERE status = 'pending';")
         db.commit()
         return jsonify(success=True, message="Job queue cleared successfully.")
     except Exception as e:
@@ -994,6 +995,27 @@ def run_cleanup_scan():
         print(f"[{datetime.now()}] Error during cleanup scan: {e}")
     finally:
         cleanup_scanner_lock.release()
+
+@app.route('/api/jobs/release', methods=['POST'])
+def release_cleanup_jobs():
+    """Changes the status of cleanup jobs from 'awaiting_approval' to 'pending'."""
+    data = request.get_json()
+    job_ids = data.get('job_ids')
+    release_all = data.get('release_all', False)
+
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            if release_all:
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type = 'cleanup' AND status = 'awaiting_approval'")
+            elif job_ids:
+                # The '%s' placeholder will be correctly formatted by psycopg2 for the IN clause
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type = 'cleanup' AND status = 'awaiting_approval'", (tuple(job_ids),))
+        db.commit()
+        return jsonify(success=True, message="Selected cleanup jobs have been released to the queue.")
+    except Exception as e:
+        print(f"Error releasing cleanup jobs: {e}")
+        return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():

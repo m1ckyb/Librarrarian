@@ -130,10 +130,14 @@
                                     <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
                                 </div>
                             </div>
-                            <div class="btn-group me-2" role="group" aria-label="Queue controls">
+                            <div class="btn-group me-2" role="group" aria-label="Main queue controls">
                                 <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
                             </div>
-                            <button class="btn btn-danger" id="clear-jobs-btn"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
+                            <div class="btn-group" role="group" aria-label="Cleanup and clear controls">
+                                <button class="btn btn-info" id="release-selected-btn" title="Release selected cleanup jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
+                                <button class="btn btn-info" id="release-all-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-lock-open-variant-outline"></span> Release All</button>
+                                <button class="btn btn-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -141,7 +145,7 @@
                 <div class="table-responsive">
                     <table class="table table-striped table-sm">
                         <thead>
-                            <tr><th>ID</th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th></tr>
+                            <tr><th><input type="checkbox" id="select-all-cleanup" title="Select all visible cleanup jobs"></th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th></tr>
                         </thead>
                         <tbody id="job-queue-table-body"></tbody>
                     </table>
@@ -671,12 +675,19 @@
                 // and prevents the "ghost row" rendering bug.
                 const rowsHtml = data.jobs.map(job => `
                     <tr>
-                        <td>${ job.id }</td>
+                        <td>
+                            ${job.job_type === 'cleanup' && job.status === 'awaiting_approval' ? 
+                                `<input type="checkbox" class="form-check-input cleanup-checkbox" data-job-id="${job.id}">` : 
+                                job.id 
+                            }
+                        </td>
                         <td style="word-break: break-all;">${job.filepath}</td>
                         <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
                         <td>
                             ${job.status === 'encoding' ? 
                                 `<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
+                            job.status === 'awaiting_approval' ?
+                                `<span class="badge text-bg-warning">Awaiting Approval</span>` :
                             job.status === 'pending' ?
                                 `<span class="badge text-bg-secondary">Pending</span>` :
                             job.status === 'failed' ?
@@ -691,6 +702,17 @@
                 tableBody.innerHTML = rowsHtml;
 
                 renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
+
+                // Add event listener for the new "select all" checkbox
+                const selectAllCheckbox = document.getElementById('select-all-cleanup');
+                selectAllCheckbox.addEventListener('change', (e) => {
+                    document.querySelectorAll('.cleanup-checkbox').forEach(checkbox => {
+                        checkbox.checked = e.target.checked;
+                    });
+                });
+                // Uncheck "select all" if any individual box is unchecked
+                document.querySelectorAll('.cleanup-checkbox').forEach(checkbox => checkbox.addEventListener('change', () => { if (!checkbox.checked) selectAllCheckbox.checked = false; }));
+
             } catch (error) {
                 console.error('Error fetching job queue:', error);
                 document.getElementById('job-queue-table-body').innerHTML = `<tr><td colspan="6" class="text-danger">Failed to fetch job queue.</td></tr>`;
@@ -1121,6 +1143,42 @@
                     manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Manual Scan`;
                 }
             });
+
+            // --- Release Cleanup Jobs Logic ---
+            const releaseSelectedBtn = document.getElementById('release-selected-btn');
+            const releaseAllBtn = document.getElementById('release-all-btn');
+
+            releaseSelectedBtn.addEventListener('click', async () => {
+                const selectedIds = Array.from(document.querySelectorAll('.cleanup-checkbox:checked')).map(cb => cb.dataset.jobId);
+                if (selectedIds.length === 0) {
+                    alert('No cleanup jobs selected.');
+                    return;
+                }
+                if (confirm(`Are you sure you want to release ${selectedIds.length} cleanup job(s) to the queue?`)) {
+                    await releaseJobs({ job_ids: selectedIds });
+                }
+            });
+
+            releaseAllBtn.addEventListener('click', async () => {
+                if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
+                    await releaseJobs({ release_all: true });
+                }
+            });
+
+            async function releaseJobs(payload) {
+                try {
+                    const response = await fetch('/api/jobs/release', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (response.ok) {
+                        updateJobQueue(jobQueueCurrentPage); // Refresh the queue
+                    }
+                } catch (error) {
+                    alert('An error occurred while trying to release cleanup jobs.');
+                }
+            }
 
             // --- Clear All Jobs Logic ---
             const clearJobsBtn = document.getElementById('clear-jobs-btn');
