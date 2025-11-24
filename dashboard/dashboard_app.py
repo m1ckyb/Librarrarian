@@ -66,8 +66,13 @@ def setup_auth(app):
         if not app.config.get('AUTH_ENABLED'):
             return
 
-        # Allow access to auth routes and static files
+        # If the user is logged in, allow access.
         if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc']:
+            return
+
+        # Block all unauthenticated API access.
+        if request.path.startswith('/api/'):
+            return jsonify(error="Authentication required"), 401
             return
 
         return redirect(url_for('login'))
@@ -380,31 +385,32 @@ def login():
     if not app.config.get('AUTH_ENABLED'):
         return "Authentication is not enabled.", 404
 
-    # Handle local login form submission
     if request.method == 'POST':
-        if not app.config.get('LOCAL_LOGIN_ENABLED'): return "Local login is disabled.", 403
+        if not app.config.get('LOCAL_LOGIN_ENABLED'):
+            return "Local login is disabled.", 403
+
         username = request.form.get('username')
         password = request.form.get('password')
         local_user = os.environ.get('LOCAL_USER')
         encoded_pass = os.environ.get('LOCAL_PASSWORD')
         local_pass = None
 
-        if encoded_pass:
-            try:
+        try:
+            if encoded_pass:
                 local_pass = base64.b64decode(encoded_pass).decode('utf-8')
-            except (base64.binascii.Error, UnicodeDecodeError):
-                print("⚠️ WARNING: LOCAL_PASSWORD is not a valid base64 string.")
-                flash('Server configuration error for local login.', 'danger')
-                return redirect(url_for('login'))
+        except (base64.binascii.Error, UnicodeDecodeError):
+            print("⚠️ WARNING: LOCAL_PASSWORD is not a valid base64 string.")
+            flash('Server configuration error for local login.', 'danger')
+            return redirect(url_for('login'))
 
         if local_user and local_pass and username == local_user and password == local_pass:
             session['user'] = {'email': local_user, 'name': 'Local Admin'}
             return redirect(url_for('dashboard'))
         else:
             flash('Invalid credentials.', 'danger')
-            return redirect(url_for('login'))
+            return redirect(url_for('login')) # Redirect back on failure
 
-    # For GET requests, always show the login page, which will offer the enabled method(s).
+    # For GET requests, just render the login page.
     return render_template('login.html', oidc_enabled=app.config.get('OIDC_ENABLED'), local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'))
 
 @app.route('/login/oidc')
