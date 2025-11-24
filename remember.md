@@ -4,6 +4,12 @@ This document is a summary of the key architectural patterns, decisions, and com
 
 ---
 
+## Development Workflow
+
+1.  **Continuous Documentation**: After every feature addition, change, or bug fix, `unreleased.md` **must** be updated immediately with a concise summary of the change under the appropriate heading (`### Added`, `### Changed`, `### Fixed`). This ensures the changelog is always ready for the next release.
+
+---
+
 ## 1. Asynchronous Tasks & Background Threads
 
 **Problem:** Long-running operations (like scanning media libraries) triggered via a web request cause Gunicorn `WORKER TIMEOUT` errors.
