@@ -854,6 +854,9 @@ def plex_get_libraries():
 
 scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
+cleanup_scanner_lock = threading.Lock()
+cleanup_scan_now_event = threading.Event()
+
 
 def run_plex_scan(force_scan=False):
     """
@@ -936,37 +939,41 @@ def api_plex_scan():
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
-def plex_scanner_thread():
-    """Scans Plex libraries and adds non-HEVC files to the jobs table."""
-    while True:
-        print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
-        # Use the rescan delay from settings, default to 0 (disabled)
-        delay = 0 
-        try:
-            with app.app_context():
-                settings, _ = get_worker_settings()
-                delay_str = settings.get('rescan_delay_minutes', {}).get('setting_value', '0')
-                delay = int(float(delay_str) * 60)
-        except Exception as e:
-            print(f"[{datetime.now()}] Could not get rescan delay from settings, defaulting to disabled. Error: {e}")
-        
-        # If delay is 0, wait indefinitely until a manual scan is triggered.
-        # Otherwise, wait for the specified delay.
-        wait_timeout = None if delay <= 0 else delay
-        scan_triggered = scan_now_event.wait(timeout=wait_timeout)
-        
-        if scan_triggered:
-            print(f"[{datetime.now()}] Manual scan trigger received.")
-            # For manual scans, we need to check if the 'force' flag was intended.
-            # This is a simplified way to pass the flag from the request to the thread.
-            scan_now_event.clear() # Reset the event for the next time
-            run_plex_scan(force_scan=True) # Assume manual scans are forced for simplicity and effectiveness
-        elif delay > 0:
-            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
-            run_plex_scan(force_scan=False) # Automatic scans are never forced
-        else:
-            # This block is reached if delay is 0 and the wait times out (which it won't, but as a fallback)
-            pass # Do nothing, just loop and wait for a manual trigger
+def run_cleanup_scan():
+    """
+    The core logic for scanning the media directory for stale files.
+    This function is designed to be called ONLY by a background thread.
+    """
+    if not cleanup_scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Cleanup scan trigger ignored: A scan is already in progress.")
+        return
+
+    try:
+        with app.app_context():
+            media_dir = '/media'
+            stale_extensions = ('.lock', '.tmp_hevc')
+            jobs_created = 0
+
+            db = get_db()
+            with db.cursor(cursor_factory=RealDictCursor) as cur:
+                # Get a set of all filepaths currently in the jobs table to avoid duplicates
+                cur.execute("SELECT filepath FROM jobs")
+                existing_jobs = {row['filepath'] for row in cur.fetchall()}
+
+                print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of {media_dir}...")
+                for root, _, files in os.walk(media_dir):
+                    for file in files:
+                        if file.endswith(stale_extensions):
+                            full_path = os.path.join(root, file)
+                            if full_path not in existing_jobs:
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
+                                jobs_created += 1
+            db.commit()
+            print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
+    except Exception as e:
+        print(f"[{datetime.now()}] Error during cleanup scan: {e}")
+    finally:
+        cleanup_scanner_lock.release()
 
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():
@@ -1066,9 +1073,49 @@ def update_job(job_id):
     return jsonify({"message": message})
 
 
-# Start the background scanner thread when the app is initialized by Gunicorn.
+# --- Background Threads ---
+
+def plex_scanner_thread():
+    """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    while True:
+        print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
+        # Use the rescan delay from settings, default to 0 (disabled)
+        delay = 0 
+        try:
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                delay_str = settings.get('rescan_delay_minutes', {}).get('setting_value', '0')
+                delay = int(float(delay_str) * 60)
+        except Exception as e:
+            print(f"[{datetime.now()}] Could not get rescan delay from settings, defaulting to disabled. Error: {e}")
+        
+        # If delay is 0, wait indefinitely until a manual scan is triggered.
+        # Otherwise, wait for the specified delay.
+        wait_timeout = None if delay <= 0 else delay
+        scan_triggered = scan_now_event.wait(timeout=wait_timeout)
+        
+        if scan_triggered:
+            print(f"[{datetime.now()}] Manual scan trigger received.")
+            scan_now_event.clear() # Reset the event for the next time
+            run_plex_scan(force_scan=True) # Assume manual scans are forced for simplicity
+        elif delay > 0:
+            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
+            run_plex_scan(force_scan=False) # Automatic scans are never forced
+
+def cleanup_scanner_thread():
+    """Waits for a trigger to scan for stale files."""
+    while True:
+        # Wait indefinitely until the event is set
+        cleanup_scan_now_event.wait()
+        print(f"[{datetime.now()}] Manual cleanup scan trigger received.")
+        cleanup_scan_now_event.clear() # Reset the event
+        run_cleanup_scan()
+
+# Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
+cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
+cleanup_thread.start()
 
 if __name__ == '__main__':
     # Use host='0.0.0.0' to make the app accessible on your network
