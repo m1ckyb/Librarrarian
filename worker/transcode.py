@@ -360,9 +360,16 @@ def main_loop(db):
     if not settings:
         print("❌ Could not fetch settings from dashboard on startup. Will retry.")
 
+    autostart = os.environ.get('AUTOSTART', 'false').lower() == 'true'
+
     while not STOP_EVENT.is_set():
         db.update_heartbeat('idle')
         command = db.get_node_command(HOSTNAME)
+
+        # If AUTOSTART is enabled and the node is idle, automatically switch to running.
+        if autostart and command == 'idle':
+            print(f"[{datetime.now()}] AUTOSTART is enabled. Overriding idle state to 'running'.")
+            command = 'running'
 
         if command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")

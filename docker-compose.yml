@@ -52,6 +52,8 @@ services:
       - DASHBOARD_URL=http://dashboard:5000
       # --- General Settings ---
       - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
+      # --- Worker Behavior ---
+      - AUTOSTART=${AUTOSTART:-false} # If true, worker starts processing jobs immediately
     volumes:
       - ./media:/media
     # The command is now defined in the worker/Dockerfile
