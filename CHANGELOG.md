@@ -1,6 +1,15 @@
 # [Unreleased]
 
 ---
+## [0.10.7b] - 2025-11-24 - Final Polish
+
+This is a minor release with small UI and logging improvements.
+
+### Changed
+- **UI Polish**: Removed the "CodecShift" text from the main dashboard header, leaving only the logo for a cleaner look.
+- **Logging**: The dashboard now prints a startup banner to the logs, clearly identifying its version when the container starts.
+
+---
 ## [0.10.7] - 2025-11-24 - Cluster Stability & Management
 
 This is a major release focused on improving the stability, manageability, and deployment process of the entire cluster. It introduces critical features for version management, worker automation, and safe file cleanup, while also fixing numerous bugs related to database initialization, permissions, and state management.

@@ -88,12 +88,34 @@
                 <span class="me-3">Web Dashboard v{{ version }}</span>
             </div>
             <div class="d-flex align-items-center">
-                <a href="https://github.com/m1ckyb/CodecShift" target="_blank" class="text-decoration-none">
+                <a href="#" class="text-decoration-none me-3" data-bs-toggle="modal" data-bs-target="#changelogModal">
+                    <span class="mdi mdi-format-list-bulleted"></span> Changelog
+                </a>
+                <a href="https://github.com/m1ckyb/CodecShift" target="_blank" class="text-decoration-none ms-3">
                     <span class="mdi mdi-github"></span> GitHub
                 </a>
             </div>
         </div>
     </footer>
+
+    <!-- Changelog Modal -->
+    <div class="modal fade" id="changelogModal" tabindex="-1" aria-labelledby="changelogModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-lg modal-dialog-scrollable">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="changelogModalLabel">Changelog</h5>
+                    <div class="form-check form-switch ms-auto">
+                        <input class="form-check-input" type="checkbox" role="switch" id="changelog-version-toggle">
+                        <label class="form-check-label" for="changelog-version-toggle">Show Development Version</label>
+                    </div>
+                    <button type="button" class="btn-close ms-2" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" id="changelog-content" style="font-family: sans-serif;">
+                    <!-- Changelog content will be loaded here by JavaScript -->
+                </div>
+            </div>
+        </div>
+    </div>
 
     {% block scripts %}{% endblock %}
     </body>
