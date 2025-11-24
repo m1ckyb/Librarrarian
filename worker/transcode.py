@@ -360,31 +360,31 @@ def main_loop(db):
     if not settings:
         print("❌ Could not fetch settings from dashboard on startup. Will retry.")
 
+    # Determine initial state
     autostart = os.environ.get('AUTOSTART', 'false').lower() == 'true'
+    current_command = 'running' if autostart else 'idle'
+    if autostart:
+        print(f"[{datetime.now()}] AUTOSTART is enabled. Worker will start processing jobs immediately.")
 
     while not STOP_EVENT.is_set():
-        db.update_heartbeat('idle')
-        command = db.get_node_command(HOSTNAME)
+        # Get the latest command from the dashboard, but default to our current state
+        # This prevents the worker from going idle unless explicitly told to.
+        command_from_db = db.get_node_command(HOSTNAME)
+        if command_from_db != current_command:
+            current_command = command_from_db
 
-        # If AUTOSTART is enabled and the node is idle, automatically switch to running.
-        if autostart and command == 'idle':
-            print(f"[{datetime.now()}] AUTOSTART is enabled. Overriding idle state to 'running'.")
-            command = 'running'
-
-        if command == 'quit':
+        if current_command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")
             db.update_heartbeat('offline')
             break
-
-        if command in ['idle', 'paused', 'finishing']:
-            print(f"[{datetime.now()}] In '{command}' state. Standing by...")
-            db.update_heartbeat(command)
+        
+        if current_command in ['idle', 'paused', 'finishing']:
+            print(f"[{datetime.now()}] In '{current_command}' state. Standing by...")
+            db.update_heartbeat(current_command)
             time.sleep(30) # Check for new commands every 30 seconds
             continue
 
-        # If the command is 'running' (or anything else), try to get a job.
-        # The dashboard will deny the request if the queue is paused, which is the
-        # desired behavior. The worker will then just loop and ask again.
+        # If we've reached here, the command is 'running'.
         db.update_heartbeat('running')
 
         job = request_job_from_dashboard()
