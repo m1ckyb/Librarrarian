@@ -67,7 +67,7 @@ def setup_auth(app):
             return
 
         # Allow access to auth routes and static files
-        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize']:
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc']:
             return
 
         return redirect(url_for('login'))
