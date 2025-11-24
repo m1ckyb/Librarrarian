@@ -5,8 +5,7 @@ import threading
 import uuid
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
-from flask import Flask, render_template, g, request, flash, redirect, url_for
-from flask import jsonify
+from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
     from plexapi.server import PlexServer
