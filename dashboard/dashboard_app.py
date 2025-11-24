@@ -1,28 +1,34 @@
 import os
 import sys
 import time
+import threading
+import uuid
+import base64
 from datetime import datetime
-from flask import Flask, render_template, g, request, flash, redirect, url_for
-from flask import jsonify
-# Check for Postgres Driver
+from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
+from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
+
 try:
+    from plexapi.server import PlexServer
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from authlib.integrations.flask_client import OAuth
+    from werkzeug.middleware.proxy_fix import ProxyFix
 except ImportError:
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
     sys.exit(1)
-
-
 # ===========================
 # Configuration
 # ===========================
-
 app = Flask(__name__)
-
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
+
+# If running behind a reverse proxy, this is crucial for url_for() to generate correct
+# external URLs (e.g., for OIDC redirects).
+app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
 # Use the same DB config as the worker script
 # It is recommended to use environment variables for sensitive data
@@ -30,8 +36,91 @@ DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
-    "dbname": os.environ.get("DB_NAME", "transcode_cluster")
+    "dbname": os.environ.get("DB_NAME", "codecshift")
 }
+
+def setup_auth(app):
+    """Initializes and configures the authentication system."""
+    app.config['AUTH_ENABLED'] = os.environ.get('AUTH_ENABLED', 'false').lower() == 'true'
+    app.config['OIDC_ENABLED'] = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
+    app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
+    app.config['OIDC_PROVIDER_NAME'] = os.environ.get('OIDC_PROVIDER_NAME')
+
+    if not app.config['AUTH_ENABLED']:
+        return # Do nothing if auth is disabled
+
+    # If auth is on, but no methods are enabled, disable auth to prevent a lockout.
+    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED']:
+        print("⚠️ WARNING: AUTH_ENABLED is true, but no authentication methods are enabled. Disabling authentication.")
+        app.config['AUTH_ENABLED'] = False
+        return
+
+    if app.config['OIDC_ENABLED']:
+        oauth = OAuth(app)
+        # Allow SSL verification to be disabled for development (e.g., with self-signed certs)
+        ssl_verify = os.environ.get('OIDC_SSL_VERIFY', 'true').lower() == 'true'
+        
+        oauth.register(
+            name='oidc_provider',
+            client_id=os.environ.get('OIDC_CLIENT_ID'),
+            client_secret=os.environ.get('OIDC_CLIENT_SECRET'),
+            # Use a session that respects the SSL_VERIFY setting for fetching metadata
+            fetch_token=lambda: oauth.fetch_access_token(verify=ssl_verify),
+            server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
+            client_kwargs={'scope': 'openid email profile'},
+            # Explicitly define the supported signing algorithms for the ID token.
+            # Authlib defaults to just 'RS256', but many providers use others.
+            server_metadata_options={
+                "id_token_signing_alg_values_supported": ["RS256", "RS384", "RS512",
+                                                          "ES256", "ES384", "ES512"]
+            }
+        )
+        app.oauth = oauth
+
+    @app.before_request
+    def require_login():
+        """Protects all routes by requiring login if authentication is enabled."""
+        if not app.config.get('AUTH_ENABLED'):
+            return
+
+        # If the user is logged in, allow access.
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc']:
+            return
+
+        # Block all unauthenticated API access.
+        if request.path.startswith('/api/'):
+            return jsonify(error="Authentication required"), 401
+            return
+
+        return redirect(url_for('login'))
+
+    @app.context_processor
+    def inject_auth_status():
+        """Makes auth status available to all templates."""
+        greeting = "Welcome"
+        user_name = None
+        if 'user' in session:
+            # Determine a dynamic greeting based on the time of day.
+            current_hour = datetime.now().hour
+            if 5 <= current_hour < 12:
+                greeting = "Good morning"
+            elif 12 <= current_hour < 18:
+                greeting = "Good afternoon"
+            else:
+                greeting = "Good evening"
+
+            # OIDC providers might use 'name', 'email', or 'preferred_username'.
+            user_info = session['user']
+            user_name = user_info.get('name') or user_info.get('email') or user_info.get('preferred_username')
+        return dict(
+            auth_enabled=app.config.get('AUTH_ENABLED', False), 
+            user_name=user_name, 
+            greeting=greeting,
+            oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME')
+        )
+
+# Initialize authentication
+setup_auth(app)
 
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
@@ -41,10 +130,10 @@ def get_project_version():
     except FileNotFoundError:
         return "unknown"
 
+
 # ===========================
 # Database Layer
 # ===========================
-
 def get_db():
     """Opens a new database connection if there is none yet for the current application context."""
     if 'db' not in g:
@@ -54,11 +143,76 @@ def get_db():
             g.db = None # Fail gracefully if DB is down
     return g.db
 
+
 @app.teardown_appcontext
 def close_db(error):
     """Closes the database again at the end of the request."""
     if hasattr(g, 'db') and g.db is not None:
         g.db.close()
+
+
+def init_db():
+    """Initializes the database and creates all necessary tables if they don't exist."""
+    conn = get_db()
+    if not conn:
+        print("DB Init Error: Could not connect to database.")
+        return
+
+    with conn.cursor() as cur:
+        # Renamed from active_nodes to nodes for clarity
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS nodes (
+                id SERIAL PRIMARY KEY,
+                hostname VARCHAR(255) UNIQUE NOT NULL,
+                status VARCHAR(50),
+                last_heartbeat TIMESTAMP,
+                version VARCHAR(50),
+                command VARCHAR(50) DEFAULT 'idle',
+                progress REAL,
+                fps REAL,
+                current_file TEXT
+            );
+        """)
+        # New table for the job queue
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS jobs (
+                id SERIAL PRIMARY KEY,
+                filepath TEXT NOT NULL UNIQUE,
+                job_type VARCHAR(20) NOT NULL DEFAULT 'transcode',
+                status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                assigned_to VARCHAR(255),
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS worker_settings (
+                id SERIAL PRIMARY KEY,
+                setting_name VARCHAR(255) UNIQUE NOT NULL,
+                setting_value TEXT
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS encoded_files (
+                id SERIAL PRIMARY KEY,
+                filename TEXT,
+                original_size BIGINT,
+                new_size BIGINT,
+                encoded_by TEXT,
+                encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                status VARCHAR(20)
+            );
+        """)
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS failed_files (
+                id SERIAL PRIMARY KEY,
+                filename TEXT,
+                reason TEXT,
+                log TEXT,
+                failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        """)
+    conn.commit()
 
 def get_cluster_status():
     """Fetches node and failure data from the database."""
@@ -74,10 +228,11 @@ def get_cluster_status():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Get active nodes (updated in the last 5 minutes)
+            # Using the new 'nodes' table schema
             cur.execute("""
-                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_updated)) as age 
-                FROM active_nodes 
-                WHERE last_updated > NOW() - INTERVAL '5 minutes'
+                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age
+                FROM nodes
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
                 ORDER BY hostname
             """)
             nodes = cur.fetchall()
@@ -135,10 +290,11 @@ def get_worker_settings():
         db_error = "Cannot connect to the PostgreSQL database."
         return settings, db_error
     try:
+        # Using new settings table schema
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT key, value, description FROM worker_settings")
+            cur.execute("SELECT setting_name, setting_value, 'description' as description FROM worker_settings")
             for row in cur.fetchall():
-                settings[row['key']] = row
+                settings[row['setting_name']] = row
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return settings, db_error
@@ -152,10 +308,14 @@ def update_worker_setting(key, value):
         return False, db_error
     try:
         with db.cursor() as cur:
-            cur.execute(
-                "UPDATE worker_settings SET value = %s, updated_at = NOW() WHERE key = %s",
-                (value, key)
-            )
+            # Use an "upsert" to either insert a new setting or update an existing one.
+            # This prevents errors on a fresh database where the settings rows don't exist yet.
+            cur.execute("""
+                INSERT INTO worker_settings (setting_name, setting_value)
+                VALUES (%s, %s)
+                ON CONFLICT (setting_name) DO UPDATE
+                SET setting_value = EXCLUDED.setting_value;
+            """, (key, value))
         db.commit()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -176,19 +336,20 @@ def set_node_status(hostname, status):
     try:
         with db.cursor() as cur:
             cur.execute(
-                "UPDATE active_nodes SET status = %s, last_updated = NOW() WHERE hostname = %s;",
+                "UPDATE nodes SET command = %s, last_heartbeat = NOW() WHERE hostname = %s;",
                 (status, hostname)
             )
             # The above command will not fail if the node doesn't exist, but it also won't update anything.
             # We check rowcount to see if a change was made.
             if cur.rowcount == 0:
                 # If no rows were updated, it means the node isn't in the table yet.
-                # This can happen if a worker is stopped before its first heartbeat.
+                # This can happen if a worker is controlled before its first heartbeat.
                 # We'll insert it with the desired status.
-                cur.execute(
-                    "INSERT INTO active_nodes (hostname, status, file, last_updated) VALUES (%s, %s, 'N/A', NOW()) ON CONFLICT (hostname) DO NOTHING;",
-                    (hostname, status)
-                )
+                # Corrected to insert into the 'nodes' table
+                cur.execute("""
+                    INSERT INTO nodes (hostname, status, command, last_heartbeat) VALUES (%s, %s, %s, NOW())
+                    ON CONFLICT (hostname) DO NOTHING;
+                """, (hostname, status, status))
         db.commit()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -208,7 +369,10 @@ def get_history():
         return history, db_error
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT * FROM encoded_files ORDER BY encoded_at DESC LIMIT 100")
+            cur.execute("""
+                SELECT *, encoded_by as hostname 
+                FROM encoded_files ORDER BY encoded_at DESC LIMIT 100
+            """)
             history = cur.fetchall()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -216,7 +380,6 @@ def get_history():
 # ===========================
 # Flask Routes
 # ===========================
-
 @app.route('/')
 def dashboard():
     """Renders the main dashboard page."""
@@ -226,13 +389,22 @@ def dashboard():
 
     # Add a 'color' key for easy templating
     for node in nodes:
-        codec = node.get('codec', '')
-        if 'nvenc' in codec:
-            node['color'] = 'success' # Green
-        elif 'vaapi' in codec or 'qsv' in codec:
-            node['color'] = 'primary' # Blue
+        # This logic is now handled on the frontend, but we can keep it as a fallback
+        # A better approach would be to determine color based on status ('encoding', 'idle', etc.)
+        if node.get('status') == 'encoding':
+            node['color'] = 'success'
+        elif node.get('status') == 'idle':
+            node['color'] = 'secondary'
         else:
-            node['color'] = 'warning' # Yellow
+            node['color'] = 'warning'
+        
+        # Add the 'percent' key that the template expects, defaulting to 0 if 'progress' is null
+        if 'progress' in node:
+            node['percent'] = int(node['progress'] or 0)
+        
+        # Re-implement Speed and Codec for the UI
+        node['speed'] = round(node.get('fps', 0) / 24, 1) if node.get('fps') else 0.0
+        node['codec'] = 'hevc'
 
     return render_template(
         'index.html', 
@@ -244,72 +416,206 @@ def dashboard():
         version=get_project_version()
     )
 
-@app.route('/options', methods=['GET', 'POST'])
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Handles user login for both OIDC and the local fallback mechanism."""
+    if not app.config.get('AUTH_ENABLED'):
+        return "Authentication is not enabled.", 404
+
+    if request.method == 'POST':
+        if not app.config.get('LOCAL_LOGIN_ENABLED'):
+            return "Local login is disabled.", 403
+
+        username = request.form.get('username')
+        password = request.form.get('password')
+        local_user = os.environ.get('LOCAL_USER')
+        encoded_pass = os.environ.get('LOCAL_PASSWORD')
+        local_pass = None
+
+        try:
+            if encoded_pass:
+                local_pass = base64.b64decode(encoded_pass).decode('utf-8')
+        except (base64.binascii.Error, UnicodeDecodeError):
+            print("⚠️ WARNING: LOCAL_PASSWORD is not a valid base64 string.")
+            flash('Server configuration error for local login.', 'danger')
+            return redirect(url_for('login'))
+
+        if local_user and local_pass and username == local_user and password == local_pass:
+            session['user'] = {'email': local_user, 'name': 'Local Admin'}
+            return redirect(url_for('dashboard'))
+        else:
+            flash('Invalid credentials.', 'danger')
+            return redirect(url_for('login')) # Redirect back on failure
+
+    # For GET requests, just render the login page.
+    return render_template('login.html', oidc_enabled=app.config.get('OIDC_ENABLED'), local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'))
+
+@app.route('/login/oidc')
+def login_oidc():
+    """Redirects the user to the OIDC provider to start the login flow."""
+    if app.config.get('OIDC_ENABLED'):
+        redirect_uri = url_for('authorize', _external=True)
+        if hasattr(app, 'oauth') and 'oidc_provider' in app.oauth._clients:
+            return app.oauth.oidc_provider.authorize_redirect(redirect_uri)
+    return "OIDC is not enabled or configured.", 404
+
+@app.route('/authorize')
+def authorize():
+    """Callback route for the OIDC provider."""
+    if not hasattr(app, 'oauth') or 'oidc_provider' not in app.oauth._clients:
+        return "OIDC provider not configured.", 500
+    token = app.oauth.oidc_provider.authorize_access_token()
+    session['user'] = token.get('userinfo')
+    return redirect(url_for('dashboard'))
+
+@app.route('/logout')
+def logout():
+    """Logs the user out."""
+    session.pop('user', None)
+    if app.config.get('OIDC_ENABLED') and hasattr(app, 'oauth'):
+        return redirect(app.oauth.oidc_provider.server_metadata.get('end_session_endpoint'))
+    return redirect(url_for('login'))
+
+@app.route('/options', methods=['POST'])
 def options():
     """
     Handles the form submission for worker settings from the main dashboard.
-    The GET method is no longer used as the form is on the main page.
+    This route now follows the Post-Redirect-Get pattern to prevent form resubmission warnings.
     """
-    if request.method == 'POST':
-        # A dictionary to hold all settings from the form
-        settings_to_update = {
-            'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '5'),
-            'min_length': request.form.get('min_length', '1.5'),
-            'backup_directory': request.form.get('backup_directory', ''),
-            'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
-            # Checkboxes return 'true' if checked, otherwise they are not in the form data
-            'recursive_scan': 'true' if 'recursive_scan' in request.form else 'false',
-            'skip_encoded_folder': 'true' if 'skip_encoded_folder' in request.form else 'false',
-            'keep_original': 'true' if 'keep_original' in request.form else 'false',
-            'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
-            'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
-            'auto_update': 'true' if 'auto_update' in request.form else 'false',
-            'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
-            'debug': 'true' if 'debug' in request.form else 'false',
-            # Advanced settings
-            'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
-            'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
-            'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
-            'vaapi_cq_sd': request.form.get('vaapi_cq_sd', '24'),
-            'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
-            'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
-            'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
-            'extensions': request.form.get('extensions', '.mkv,.mp4'),
-        }
+    # A dictionary to hold all settings from the form
+    settings_to_update = {
+        'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
+        'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
+        'min_length': request.form.get('min_length', '0.5'),
+        'backup_directory': request.form.get('backup_directory', ''),
+        'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
+        'keep_original': 'true' if 'keep_original' in request.form else 'false',
+        'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
+        'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
+        'auto_update': 'true' if 'auto_update' in request.form else 'false',
+        'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
+        'debug': 'true' if 'debug' in request.form else 'false',
+        'plex_url': request.form.get('plex_url', ''),
+        'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
+        'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
+        'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
+        'vaapi_cq_sd': request.form.get('vaapi_cq_sd', '24'),
+        'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
+        'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
+        'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
+    }
 
-        errors = []
-        for key, value in settings_to_update.items():
-            success, error = update_worker_setting(key, value)
-            if not success:
-                errors.append(error)
+    # Handle multi-select for Plex libraries
+    plex_libraries = request.form.getlist('plex_libraries')
+    settings_to_update['plex_libraries'] = ','.join(plex_libraries)
 
-        if not errors:
-            flash('Worker settings have been updated successfully!', 'success')
-        else:
-            flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
-    
-    # Redirect back to the main dashboard page after handling the POST request.
-    return redirect(url_for('dashboard'))
+    errors = []
+    for key, value in settings_to_update.items():
+        success, error = update_worker_setting(key, value)
+        if not success:
+            errors.append(error)
+
+    if not errors:
+        flash('Worker settings have been updated successfully!', 'success')
+    else:
+        flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
+
+    # Redirect back to the main page, anchoring to the options tab
+    return redirect(url_for('dashboard', _anchor='options-tab-pane'))
+
+@app.route('/api/settings', methods=['GET'])
+def api_settings():
+    """Returns all worker settings as JSON."""
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(settings={}, error=db_error), 500
+    return jsonify(settings=settings)
+
+@app.route('/api/jobs/clear', methods=['POST'])
+def api_clear_jobs():
+    """Clears all jobs from the job_queue table."""
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute("TRUNCATE TABLE jobs RESTART IDENTITY;")
+        db.commit()
+        return jsonify(success=True, message="Job queue cleared successfully.")
+    except Exception as e:
+        print(f"Error clearing job queue: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/jobs', methods=['GET'])
+def api_jobs():
+    """Returns a paginated list of the current job queue as JSON."""
+    db = get_db()
+    jobs = []
+    db_error = None
+    total_jobs = 0
+    page = request.args.get('page', 1, type=int)
+    per_page = 50 # Number of jobs per page
+    offset = (page - 1) * per_page
+
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return jsonify(jobs=jobs, db_error=db_error, total_jobs=0, page=page, per_page=per_page)
+
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Query for the paginated list of jobs
+            # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
+            cur.execute("""
+                SELECT * FROM jobs
+                ORDER BY
+                    CASE status
+                        WHEN 'encoding' THEN 1
+                        WHEN 'pending' THEN 2
+                        WHEN 'failed' THEN 3
+                        ELSE 4
+                    END,
+                    created_at DESC
+                LIMIT %s OFFSET %s
+            """, (per_page, offset))
+            jobs = cur.fetchall()
+            for job in jobs:
+                job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+            
+            # Query for the total number of jobs to calculate total pages
+            cur.execute("SELECT COUNT(*) FROM jobs")
+            total_jobs = cur.fetchone()['count']
+
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+
+    return jsonify(jobs=jobs, db_error=db_error, total_jobs=total_jobs, page=page, per_page=per_page)
 
 @app.route('/api/status')
 def api_status():
     """Returns cluster status data as JSON."""
     nodes, fail_count, db_error = get_cluster_status()
+    settings, _ = get_worker_settings()
     
     # Add the color key for the frontend to use
     for node in nodes:
-        codec = node.get('codec', '')
-        if 'nvenc' in codec:
-            node['color'] = 'success' # Green
-        elif 'vaapi' in codec or 'qsv' in codec:
-            node['color'] = 'primary' # Blue
+        # Simplified color logic based on status
+        if node.get('status') == 'encoding':
+            node['color'] = 'success'
+        elif node.get('status') == 'idle':
+            node['color'] = 'secondary'
         else:
-            node['color'] = 'warning' # Yellow
+            node['color'] = 'warning'
+        
+        # Also add the 'percent' key for the client-side rendering
+        node['percent'] = int(node.get('progress') or 0)
+
+        # Re-implement Speed and Codec for the UI
+        node['speed'] = round(node.get('fps', 0) / 24, 1) if node.get('fps') else 0.0
+        node['codec'] = 'hevc'
 
     return jsonify(
         nodes=nodes,
         fail_count=fail_count,
         db_error=db_error,
+        queue_paused=settings.get('pause_job_distribution', {}).get('setting_value') == 'true',
         last_updated=datetime.now().strftime('%H:%M:%S')
     )
 
@@ -364,13 +670,14 @@ def api_resume_node(hostname):
 @app.route('/api/history', methods=['GET'])
 def api_history():
     """Returns the encoding history as JSON."""
-    history, db_error = get_history()
+    history, db_error = get_history() # get_history is defined elsewhere
     for item in history:
         # Format datetime and sizes for display
         item['encoded_at'] = item['encoded_at'].strftime('%Y-%m-%d %H:%M:%S')
         item['original_size_gb'] = round(item['original_size'] / (1024**3), 2)
         item['new_size_gb'] = round(item['new_size'] / (1024**3), 2)
         item['reduction_percent'] = round((1 - item['new_size'] / item['original_size']) * 100, 1) if item['original_size'] > 0 else 0
+        item['codec'] = 'hevc' # Add the missing codec key
     return jsonify(history=history, db_error=db_error)
 
 @app.route('/api/history/clear', methods=['POST'])
@@ -420,6 +727,7 @@ def api_stats():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Get aggregate stats for completed files
+            # Alias encoded_by to hostname to match the frontend template
             cur.execute("""
                 SELECT
                     COUNT(*) AS total_files,
@@ -431,7 +739,10 @@ def api_stats():
             agg_stats = cur.fetchone()
 
             # Get recent history (same as history tab)
-            cur.execute("SELECT * FROM encoded_files WHERE status = 'completed' ORDER BY encoded_at DESC LIMIT 100")
+            cur.execute("""
+                SELECT *, encoded_by as hostname 
+                FROM encoded_files WHERE status = 'completed' ORDER BY encoded_at DESC LIMIT 100
+            """)
             history = cur.fetchall()
 
         # Process stats for display
@@ -450,11 +761,345 @@ def api_stats():
             item['original_size_gb'] = round(item['original_size'] / (1024**3), 2)
             item['new_size_gb'] = round(item['new_size'] / (1024**3), 2)
             item['reduction_percent'] = round((1 - item['new_size'] / item['original_size']) * 100, 1) if item['original_size'] > 0 else 0
+            item['codec'] = 'hevc' # Add the missing codec key
 
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
     return jsonify(stats=stats, history=history, db_error=db_error)
+
+@app.route('/api/jobs/create_cleanup', methods=['POST'])
+def create_cleanup_jobs():
+    """Triggers the background thread to scan for stale files."""
+    if cleanup_scanner_lock.locked():
+        return jsonify({"success": False, "message": "A cleanup scan is already in progress."})
+    
+    print(f"[{datetime.now()}] Manual cleanup scan requested via API.")
+    
+    # Trigger the background thread to run the scan
+    cleanup_scan_now_event.set()
+    return jsonify(success=True, message="Cleanup scan has been triggered. Check logs for progress.")
+
+@app.route('/api/plex/login', methods=['POST'])
+def plex_login():
+    """Logs into Plex using username/password and saves the auth token."""
+    username = request.json.get('username')
+    password = request.json.get('password')
+
+    if not username or not password:
+        return jsonify(success=False, error="Username and password are required."), 400
+
+    try:
+        # Instantiate the account object with username and password to sign in.
+        account = MyPlexAccount(username, password)
+        token = account.authenticationToken
+        if token:
+            update_worker_setting('plex_token', token)
+            return jsonify(success=True, message="Plex account linked successfully!")
+        else:
+            return jsonify(success=False, error="Login failed. Please check your credentials."), 401
+    except Exception as e:
+        return jsonify(success=False, error=f"Plex login failed: {e}"), 401
+
+@app.route('/api/plex/logout', methods=['POST'])
+def plex_logout():
+    """Logs out of Plex by clearing the stored token."""
+    success, error = update_worker_setting('plex_token', '')
+    if success:
+        return jsonify(success=True, message="Plex account unlinked.")
+    else:
+        return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/libraries', methods=['GET'])
+def plex_get_libraries():
+    """Fetches a list of video libraries from the configured Plex server."""
+    settings, _ = get_worker_settings()
+    plex_url = settings.get('plex_url', {}).get('setting_value')
+    plex_token = settings.get('plex_token', {}).get('setting_value')
+
+    # Debugging: Print the values to the console
+    print(f"Attempting to connect to Plex. URL: '{plex_url}', Token: '{plex_token[:5]}...'")
+
+    if not all([plex_url, plex_token]):
+        return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
+
+    try:
+        plex = PlexServer(plex_url, plex_token)
+        libraries = [
+            {"title": section.title, "key": section.key}
+            for section in plex.library.sections()
+            if section.type in ['movie', 'show', 'artist', 'photo']
+        ]
+        return jsonify(libraries=libraries)
+    except Exception as e:
+        return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
+
+# --- New Background Scanner and Worker API ---
+
+scanner_lock = threading.Lock()
+scan_now_event = threading.Event()
+cleanup_scanner_lock = threading.Lock()
+cleanup_scan_now_event = threading.Event()
+
+
+def run_plex_scan(force_scan=False):
+    """
+    The core logic for scanning Plex libraries. This function is designed to be
+    called ONLY by the background scanner thread.
+    It uses a lock to prevent concurrent scans.
+    """
+    if not scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Scan trigger ignored: A scan is already in progress.")
+        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+
+    try:
+        with app.app_context():
+            settings, db_error = get_worker_settings()
+
+            if db_error:
+                return {"success": False, "message": "Database not available."}
+
+            plex_url = settings.get('plex_url', {}).get('setting_value')
+            plex_token = settings.get('plex_token', {}).get('setting_value')
+            plex_libraries_str = settings.get('plex_libraries', {}).get('setting_value', '')
+            plex_libraries = [lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()]
+
+            if not all([plex_url, plex_token, plex_libraries]):
+                return {"success": False, "message": "Plex integration is not fully configured."}
+
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            try:
+                plex_server = PlexServer(plex_url, plex_token)
+            except Exception as e:
+                return {"success": False, "message": f"Could not connect to Plex server: {e}"}
+
+            # Only check existing jobs/history if it's NOT a forced scan
+            existing_jobs = set() if force_scan else {row['filepath'] for row in (cur.execute("SELECT filepath FROM jobs"), cur.fetchall())[1]}
+            encoded_history = set() if force_scan else {row['filename'] for row in (cur.execute("SELECT filename FROM encoded_files"), cur.fetchall())[1]}
+            
+            new_files_found = 0
+            print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
+            for lib_name in plex_libraries:
+                library = plex_server.library.section(title=lib_name)
+                print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
+                for video in library.all():
+                    # Must reload to get all media part and stream details
+                    video.reload()
+                    
+                    # Use the primary media object's codec for simplicity and reliability
+                    if not hasattr(video, 'media') or not video.media:
+                        continue
+
+                    codec = video.media[0].videoCodec
+                    filepath = video.media[0].parts[0].file
+
+                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                    if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
+                        print(f"    -> Found non-HEVC file. Adding to queue.")
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                        if cur.rowcount > 0:
+                            new_files_found += 1
+            
+            # Commit all the inserts at the end of the scan
+            conn.commit()
+            message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+            cur.close()
+            return {"success": True, "message": message}
+    finally:
+        scanner_lock.release()
+
+@app.route('/api/plex/scan', methods=['POST'])
+def api_plex_scan():
+    """API endpoint to manually trigger a Plex scan."""
+    if scanner_lock.locked():
+        return jsonify({"success": False, "message": "A scan is already in progress."})
+    
+    force = request.json.get('force', False) if request.is_json else False
+    print(f"[{datetime.now()}] Manual scan requested via API (Force: {force}).")
+    
+    # Trigger the background thread to run the scan with the correct force flag
+    scan_now_event.set() 
+    return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
+
+def run_cleanup_scan():
+    """
+    The core logic for scanning the media directory for stale files.
+    This function is designed to be called ONLY by a background thread.
+    """
+    if not cleanup_scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Cleanup scan trigger ignored: A scan is already in progress.")
+        return
+
+    try:
+        with app.app_context():
+            media_dir = '/media'
+            stale_extensions = ('.lock', '.tmp_hevc')
+            jobs_created = 0
+
+            db = get_db()
+            with db.cursor(cursor_factory=RealDictCursor) as cur:
+                # Get a set of all filepaths currently in the jobs table to avoid duplicates
+                cur.execute("SELECT filepath FROM jobs")
+                existing_jobs = {row['filepath'] for row in cur.fetchall()}
+
+                print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of {media_dir}...")
+                for root, _, files in os.walk(media_dir):
+                    for file in files:
+                        if file.endswith(stale_extensions):
+                            full_path = os.path.join(root, file)
+                            if full_path not in existing_jobs:
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
+                                jobs_created += 1
+            db.commit()
+            print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
+    except Exception as e:
+        print(f"[{datetime.now()}] Error during cleanup scan: {e}")
+    finally:
+        cleanup_scanner_lock.release()
+
+@app.route('/api/queue/toggle_pause', methods=['POST'])
+def toggle_pause_queue():
+    """Toggles the paused state of the job queue."""
+    settings, _ = get_worker_settings()
+    current_state = settings.get('pause_job_distribution', {}).get('setting_value', 'false')
+    new_state = 'false' if current_state == 'true' else 'true'
+    success, error = update_worker_setting('pause_job_distribution', new_state)
+    if success:
+        return jsonify(success=True, new_state=new_state)
+    else:
+        return jsonify(success=False, error=error), 500
+
+@app.route('/api/request_job', methods=['POST'])
+def request_job():
+    """Endpoint for workers to request a new job."""
+    worker_hostname = request.json.get('hostname')
+    if not worker_hostname:
+        return jsonify({"error": "Hostname is required"}), 400
+    
+    # Check if the queue is paused
+    settings, _ = get_worker_settings()
+    if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
+        print(f"[{datetime.now()}] Job request from {worker_hostname} denied: Queue is paused.")
+        return jsonify({}) # Return empty response as if no jobs are available
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    try:
+        cur.execute("BEGIN;") # Start a transaction
+        cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
+        job = cur.fetchone()
+
+        if job:
+            cur.execute("UPDATE jobs SET status = 'encoding', assigned_to = %s, updated_at = CURRENT_TIMESTAMP WHERE id = %s", (worker_hostname, job['id']))
+            conn.commit()
+            # Return the full job details to the worker
+            return jsonify({"job_id": job['id'], "filepath": job['filepath'], "job_type": job['job_type']})
+        else:
+            conn.commit() # release lock
+            return jsonify({}) # No pending jobs
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        cur.close()
+
+@app.route('/api/update_job/<int:job_id>', methods=['POST'])
+def update_job(job_id):
+    """Endpoint for workers to update the status of a job."""
+    data = request.json
+    status = data.get('status')  # 'completed' or 'failed'
+
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=RealDictCursor)
+
+    # Fetch job details to know its type
+    cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+    job = cur.fetchone()
+
+    if not job:
+        return jsonify({"error": "Job not found"}), 404
+
+    if status == 'completed':
+        if job['job_type'] == 'transcode':
+            # For transcodes, move to encoded_files history
+            cur.execute(
+                "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, %s, 'completed')",
+                (job_id, job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
+            )
+            # Trigger a Plex library scan
+            try:
+                settings, _ = get_worker_settings()
+                plex_url = settings.get('plex_url', {}).get('setting_value')
+                plex_token = settings.get('plex_token', {}).get('setting_value')
+                if plex_url and plex_token:
+                    plex = PlexServer(plex_url, plex_token)
+                    # This is a simple approach; a more robust one would map file paths to libraries
+                    print(f"[{datetime.now()}] Triggering Plex library update for all monitored libraries.")
+                    plex.library.update()
+            except Exception as e:
+                print(f"⚠️ Could not trigger Plex scan: {e}")
+
+        # For all completed jobs (transcode or cleanup), delete from the jobs queue
+        cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        message = f"Job {job_id} ({job['job_type']}) completed and removed from queue."
+
+    elif status == 'failed':
+        # For any failed job, log it and mark as failed in the queue
+        cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
+        cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
+        message = f"Job {job_id} ({job['job_type']}) failed and logged."
+
+    conn.commit()
+    cur.close()
+    return jsonify({"message": message})
+
+
+# --- Background Threads ---
+
+def plex_scanner_thread():
+    """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    while True:
+        print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
+        # Use the rescan delay from settings, default to 0 (disabled)
+        delay = 0 
+        try:
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                delay_str = settings.get('rescan_delay_minutes', {}).get('setting_value', '0')
+                delay = int(float(delay_str) * 60)
+        except Exception as e:
+            print(f"[{datetime.now()}] Could not get rescan delay from settings, defaulting to disabled. Error: {e}")
+        
+        # If delay is 0, wait indefinitely until a manual scan is triggered.
+        # Otherwise, wait for the specified delay.
+        wait_timeout = None if delay <= 0 else delay
+        scan_triggered = scan_now_event.wait(timeout=wait_timeout)
+        
+        if scan_triggered:
+            print(f"[{datetime.now()}] Manual scan trigger received.")
+            scan_now_event.clear() # Reset the event for the next time
+            run_plex_scan(force_scan=True) # Assume manual scans are forced for simplicity
+        elif delay > 0:
+            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
+            run_plex_scan(force_scan=False) # Automatic scans are never forced
+
+def cleanup_scanner_thread():
+    """Waits for a trigger to scan for stale files."""
+    while True:
+        # Wait indefinitely until the event is set
+        cleanup_scan_now_event.wait()
+        print(f"[{datetime.now()}] Manual cleanup scan trigger received.")
+        cleanup_scan_now_event.clear() # Reset the event
+        run_cleanup_scan()
+
+# Start the background threads when the app is initialized by Gunicorn.
+scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+scanner_thread.start()
+cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
+cleanup_thread.start()
 
 if __name__ == '__main__':
     # Use host='0.0.0.0' to make the app accessible on your network

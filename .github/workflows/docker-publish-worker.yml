@@ -7,7 +7,7 @@ on:
     types: [ created ]
 
 env:
-  IMAGE_NAME: transcode-worker
+  IMAGE_NAME: codecshift-worker
 
 jobs:
   build-and-push-worker:

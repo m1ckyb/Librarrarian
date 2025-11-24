@@ -3,32 +3,51 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/your-github-username/transcode-dashboard:latest # Replace with your GitHub username
+    build: ./dashboard # Build from the dashboard directory
     restart: unless-stopped
     ports:
       - "5000:5000"
     environment:
       - DB_HOST=db
-      - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
+      - DB_USER=${DB_USER}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
+      # --- Master Authentication Switch ---
+      - AUTH_ENABLED=${AUTH_ENABLED:-false}
+      # --- OIDC Authentication Settings (Optional) ---
+      - OIDC_ENABLED=${OIDC_ENABLED:-false}
+      - OIDC_ISSUER_URL=${OIDC_ISSUER_URL}
+      - OIDC_CLIENT_ID=${OIDC_CLIENT_ID}
+      - OIDC_CLIENT_SECRET=${OIDC_CLIENT_SECRET}
+      - OIDC_PROVIDER_NAME=${OIDC_PROVIDER_NAME}
+      # --- Local Fallback Login (Optional) ---
+      - LOCAL_LOGIN_ENABLED=${LOCAL_LOGIN_ENABLED:-false}
+      - LOCAL_USER=${LOCAL_USER}
+      - LOCAL_PASSWORD=${LOCAL_PASSWORD}
+      # --- Force print() statements to appear in logs immediately ---
+      - PYTHONUNBUFFERED=1
     depends_on:
       - db
+    volumes:
+      - ./media:/media
+    # The command is now defined in the dashboard/Dockerfile
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/your-github-username/transcode-worker:latest # Replace with your GitHub username
+    build: ./worker # Build from the worker directory
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       - db
     environment:
       - DB_HOST=db
       - DB_USER=${POSTGRES_USER}
-      - DB_PASSWORD=${POSTGRES_PASSWORD}
-      - DB_NAME=${POSTGRES_DB}
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - POSTGRES_DB=${POSTGRES_DB}
+      - DASHBOARD_URL=http://dashboard:5000
     volumes:
       - ./media:/media
-    command: ["python", "transcode.py", "/media", "--debug"]
+    # The command is now defined in the worker/Dockerfile
 
   # The PostgreSQL database service
   db:

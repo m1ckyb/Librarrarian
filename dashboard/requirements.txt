@@ -1,3 +1,7 @@
 psycopg2-binary
 Flask
 gunicorn
+plexapi
+authlib
+authlib
+authlib

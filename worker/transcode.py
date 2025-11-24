@@ -7,17 +7,15 @@ import argparse
 import subprocess
 import socket
 import threading
-import re
-import urllib.request
 import json
 from pathlib import Path
-from collections import namedtuple
+import re
 from datetime import datetime
+import requests
 
 # Check for Postgres Driver
 try:
     import psycopg2
-    from psycopg2.extras import RealDictCursor
 except ImportError:
     print("❌ Error: Missing PostgreSQL driver.")
     print("   Please run: pip3 install psycopg2-binary")
@@ -26,19 +24,9 @@ except ImportError:
 # ===========================
 # Global Settings
 # ===========================
-
-def get_project_version():
-    """
-    Reads the version from the root VERSION.txt file.
-    Falls back to 'standalone' if the file is not found (e.g., when run outside the project structure).
-    """
-    try:
-        version_file = Path(__file__).parent.parent / "VERSION.txt"
-        return version_file.read_text().strip()
-    except FileNotFoundError:
-        return "standalone"
-
-VERSION = get_project_version()
+DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
+DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
+VERSION = "0.10.6" # Updated version
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 
@@ -47,8 +35,8 @@ STOP_EVENT = threading.Event()
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
-    "password": os.environ.get("DB_PASSWORD", "password"),
-    "dbname": os.environ.get("DB_NAME", "transcode_cluster")
+    "password": os.environ.get("POSTGRES_PASSWORD", "password"),
+    "dbname": os.environ.get("POSTGRES_DB", "transcode_cluster")
 }
 
 # ===========================
@@ -57,266 +45,55 @@ DB_CONFIG = {
 
 class DatabaseHandler:
     def __init__(self, conn_params):
-        print(f"DB initialized on {conn_params['host']}")
         self.conn_params = conn_params
-        self.init_tables()
-        
-    def get_conn(self):
-        try:
-            conn = psycopg2.connect(**self.conn_params)
-            conn.autocommit = True
-            return conn
-        except Exception as e:
-            print(f"DB Connect Fail: {e}")
-            return None
 
-    def init_tables(self):
-        """Creates tables if they don't exist and runs schema migrations for existing tables."""
-        conn = self.get_conn()
-        if conn:
-            with conn.cursor() as cur:
-                # Create tables if they don't exist
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS active_nodes (
-                        hostname VARCHAR(255) PRIMARY KEY,
-                        file TEXT,
-                        codec VARCHAR(50),
-                        percent INTEGER,
-                        speed VARCHAR(50),
-                        last_updated TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS failed_files (
-                        filename TEXT PRIMARY KEY,
-                        reason TEXT,
-                        reported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS encoded_files (
-                        id SERIAL PRIMARY KEY,
-                        filename TEXT,
-                        hostname VARCHAR(255),
-                        codec VARCHAR(50),
-                        original_size BIGINT,
-                        new_size BIGINT,
-                        encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS worker_settings (
-                        key VARCHAR(50) PRIMARY KEY,
-                        value TEXT,
-                        description TEXT,
-                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
+    def _get_conn(self):
+        return psycopg2.connect(**self.conn_params)
 
-                # --- Schema Migrations ---
-                # Add 'version' column to 'active_nodes' if it doesn't exist
-                cur.execute("""
-                    DO $$
-                    BEGIN
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='active_nodes' AND column_name='version') THEN
-                            ALTER TABLE active_nodes ADD COLUMN version VARCHAR(50);
-                        END IF;
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='failed_files' AND column_name='log') THEN
-                            ALTER TABLE failed_files ADD COLUMN log TEXT;
-                        END IF;
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='active_nodes' AND column_name='fps') THEN
-                            ALTER TABLE active_nodes ADD COLUMN fps INTEGER DEFAULT 0;
-                        END IF;
-                        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='encoded_files' AND column_name='status') THEN
-                            ALTER TABLE encoded_files ADD COLUMN status VARCHAR(20) DEFAULT 'completed';
-                        END IF;
-                    END;
-                    $$
-                """)
-                # --- Insert default settings if they don't exist ---
-                cur.execute("""
-                    INSERT INTO worker_settings (key, value, description, updated_at) VALUES
-                    ('rescan_delay_minutes', '5', 'Delay in minutes before a worker scans for new files.', NOW()),
-                    ('skip_encoded_folder', 'true', 'If true, ignore any directory named "encoded".', NOW()),
-                    ('min_length', '1.5', 'Only transcode videos longer than this duration in minutes.', NOW()),
-                    ('recursive_scan', 'true', 'Scan subdirectories for video files.', NOW()),
-                    ('keep_original', 'false', 'Keep the original file after transcoding.', NOW()),
-                    ('backup_directory', '', 'If set, move original files here instead of deleting them.', NOW()),
-                    ('allow_hevc', 'false', 'Allow re-encoding of files that are already in HEVC (H.265).', NOW()),
-                    ('allow_av1', 'false', 'Allow re-encoding of files that are already in AV1.', NOW()),
-                    ('hardware_acceleration', 'auto', 'Force a specific hardware encoder (auto, nvidia, qsv, vaapi, cpu).', NOW()),
-                    ('auto_update', 'true', 'Enable the worker to automatically update itself.', NOW()),
-                    ('clean_failures', 'false', 'Clean the failed jobs list when the worker starts.', NOW()),
-                    ('debug', 'false', 'Enable verbose debug logging for the worker.', NOW()),
-                    ('nvenc_cq_hd', '32', 'Constant Quality (CQ) for NVIDIA NVENC on HD+ videos.', NOW()),
-                    ('nvenc_cq_sd', '28', 'Constant Quality (CQ) for NVIDIA NVENC on SD videos.', NOW()),
-                    ('vaapi_cq_hd', '28', 'Constant Quality (CQ) for Intel/AMD VAAPI on HD+ videos.', NOW()),
-                    ('vaapi_cq_sd', '24', 'Constant Quality (CQ) for Intel/AMD VAAPI on SD videos.', NOW()),
-                    ('cpu_cq_hd', '28', 'Constant Quality (CRF) for CPU encoding on HD+ videos.', NOW()),
-                    ('cpu_cq_sd', '24', 'Constant Quality (CRF) for CPU encoding on SD videos.', NOW()),
-                    ('cq_width_threshold', '1900', 'The video width (in pixels) to consider as High Definition (HD).', NOW()),
-                    ('extensions', '.mkv,.avi,.mp4,.mov,.wmv,.flv,.m4v,.ts,.mpg,.mpeg', 'Comma-separated list of file extensions to scan.', NOW())
-                    ON CONFLICT (key) DO NOTHING;
-                """)
-
-                # Add 'status' column to 'active_nodes' if it doesn't exist
-                cur.execute("ALTER TABLE active_nodes ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'idle'")
-
-            conn.close()
-
-    def report_start(self, filename, hostname, codec, original_size):
-        """Logs the start of an encoding process and returns the new record's ID."""
+    def update_heartbeat(self, status, current_file=None, progress=None, fps=None):
+        """Updates the worker's status in the central database."""
         sql = """
-        INSERT INTO encoded_files (filename, hostname, codec, original_size, new_size, status)
-        VALUES (%s, %s, %s, %s, 0, 'encoding') RETURNING id
-        """
-        conn = self.get_conn()
-        if conn:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (filename, hostname, codec, original_size))
-                    return cur.fetchone()[0]
-            finally:
-                conn.close()
-        return None
-
-    def report_finish(self, history_id, new_size):
-        """Updates a history record to 'completed' with the final size."""
-        sql = "UPDATE encoded_files SET new_size = %s, status = 'completed' WHERE id = %s"
-        conn = self.get_conn()
-        if conn:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (new_size, history_id))
-            finally:
-                conn.close()
-
-    def update_heartbeat(self, filename, codec, percent, speed, version, status='running', fps=0):
-        sql = """
-        INSERT INTO active_nodes (hostname, file, codec, percent, speed, last_updated, version, status, fps)
-        VALUES (%s, %s, %s, %s, %s, NOW(), %s, %s, %s)
-        ON CONFLICT (hostname) 
-        DO UPDATE SET 
-            file = EXCLUDED.file,
-            codec = EXCLUDED.codec,
-            percent = EXCLUDED.percent,
-            speed = EXCLUDED.speed,
+        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps)
+        VALUES (%s, NOW(), %s, %s, %s, %s, %s)
+        ON CONFLICT (hostname) DO UPDATE SET
+            last_heartbeat = EXCLUDED.last_heartbeat,
             status = EXCLUDED.status,
-            last_updated = NOW(),
             version = EXCLUDED.version,
+            current_file = EXCLUDED.current_file,
+            progress = EXCLUDED.progress,
             fps = EXCLUDED.fps;
         """
-        conn = self.get_conn()
+        conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, filename, codec, percent, speed, version, status, fps))
-                # Heartbeats are too frequent to log
+                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps))
+                conn.commit()
             except Exception as e:
-                print(f"Heartbeat Failed: {e}")
+                print(f"[{datetime.now()}] Heartbeat Error: Could not update status. {e}")
             finally:
                 conn.close()
-
-    def get_cluster_status(self):
-        conn = self.get_conn()
-        nodes = []
-        failures = 0
-        if conn:
-            try:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("""
-                        SELECT *, EXTRACT(EPOCH FROM (NOW() - last_updated)) as age 
-                        FROM active_nodes 
-                        WHERE last_updated > NOW() - INTERVAL '5 minutes'
-                        ORDER BY hostname
-                    """)
-                    nodes = cur.fetchall()
-                    
-                    cur.execute("SELECT COUNT(*) as cnt FROM failed_files")
-                    failures = cur.fetchone()['cnt']
-            finally:
-                conn.close()
-        return nodes, failures
-
-    def report_failure(self, filename, reason="Crash/Fail", log=""):
-        sql = """
-        INSERT INTO failed_files (filename, reason, log, reported_at) 
-        VALUES (%s, %s, %s, NOW()) 
-        ON CONFLICT (filename) 
-        DO UPDATE SET reason = EXCLUDED.reason, log = EXCLUDED.log, reported_at = NOW()
-        """
-        conn = self.get_conn()
-        if conn:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute(sql, (filename, reason, log))
-                    print(f"Reported Failure: {filename[:15]}...")
-            finally:
-                conn.close()
-
-    def get_failed_files(self):
-        conn = self.get_conn()
-        files = set()
-        if conn:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT filename FROM failed_files")
-                    for row in cur.fetchall():
-                        files.add(row[0])
-            finally:
-                conn.close()
-        return files
-
-    def get_encoded_files(self):
-        """Gets the set of all successfully encoded filenames from the history."""
-        conn = self.get_conn()
-        files = set()
-        if conn:
-            try:
-                with conn.cursor() as cur:
-                    cur.execute("SELECT filename FROM encoded_files WHERE status = 'completed'")
-                    for row in cur.fetchall():
-                        files.add(row[0])
-            finally:
-                conn.close()
-        return files
-
-    def get_worker_settings(self):
-        """Fetches all worker settings from the database."""
-        settings = {}
-        conn = self.get_conn()
-        if conn:
-            try:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT key, value FROM worker_settings")
-                    for row in cur.fetchall():
-                        settings[row['key']] = row['value']
-            except Exception as e:
-                print(f"DB Error fetching settings: {e}")
-            finally:
-                conn.close()
-        return settings
 
     def get_node_command(self, hostname):
         """Fetches the status for a specific node, which can act as a command."""
-        settings = {}
-        conn = self.get_conn()
-        if conn:
-            try:
-                with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                    cur.execute("SELECT status FROM active_nodes WHERE hostname = %s", (hostname,))
-                    result = cur.fetchone()
-                    return result['status'] if result else 'idle'
-            finally:
-                conn.close()
-        return settings
-
-    def clear_node(self):
-        conn = self.get_conn()
+        conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM active_nodes WHERE hostname = %s", (HOSTNAME,))
+                    cur.execute("SELECT command FROM nodes WHERE hostname = %s", (hostname,))
+                    result = cur.fetchone()
+                    return result[0] if result else 'idle'
+            finally:
+                conn.close()
+        return 'idle'
+
+    def clear_node(self):
+        conn = self._get_conn()
+        if conn:
+            try:
+                with conn.cursor() as cur:
+                    cur.execute("DELETE FROM nodes WHERE hostname = %s", (HOSTNAME,))
+                conn.commit()
             finally:
                 conn.close()
 
@@ -388,493 +165,226 @@ def detect_hardware_settings(accel_mode):
 # Worker Logic
 # ===========================
 
-def get_media_info(filepath):
-    cmd = ["ffprobe", "-v", "quiet", "-print_format", "json", "-show_format", "-show_streams", str(filepath)]
+def get_dashboard_settings():
+    """Fetches all worker settings from the dashboard's API."""
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
-        data = json.loads(result.stdout)
-        
-        # Find all video streams
-        video_streams = [s for s in data.get('streams', []) if s['codec_type'] == 'video']
-        if not video_streams:
+        response = requests.get(f"{DASHBOARD_URL}/api/settings", timeout=10)
+        response.raise_for_status()
+        settings_data = response.json().get('settings', {})
+        # Flatten the settings for easier access
+        return {key: value['setting_value'] for key, value in settings_data.items()}
+    except requests.exceptions.RequestException as e:
+        print(f"[{datetime.now()}] API Error: Could not fetch settings from {DASHBOARD_URL}. {e}")
+        print("    Ensure the dashboard is running and accessible from this machine.")
+        if 'localhost' in DASHBOARD_URL:
+            print("    If running the worker on a different machine, set the DASHBOARD_URL environment variable. Example: DASHBOARD_URL=http://<dashboard_ip>:5000 ./transcode.py")
+        return {}
+
+def request_job_from_dashboard():
+    """Requests a new job from the dashboard's API."""
+    try:
+        print(f"[{datetime.now()}] Requesting a new job...")
+        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, timeout=10)
+        response.raise_for_status()
+        job_data = response.json()
+        if job_data and job_data.get('job_id'):
+            print(f"[{datetime.now()}] Received job {job_data['job_id']} for file: {job_data['filepath']}")
+            return job_data
+        else:
+            print(f"[{datetime.now()}] No pending jobs available.")
             return None
-
-        # Select the stream with the largest resolution (width * height)
-        # This handles cases with embedded low-res album art.
-        main_video_stream = max(video_streams, key=lambda s: s.get('width', 0) * s.get('height', 0))
-
-        return {
-            'codec': main_video_stream.get('codec_name'),
-            'width': int(main_video_stream.get('width', 0)),
-            'height': int(main_video_stream.get('height', 0)),
-            'duration': float(data['format'].get('duration', 0)),
-            'size': int(data['format'].get('size', 0)),
-            'stream_index': main_video_stream.get('index')
-        }
-    except (subprocess.CalledProcessError, json.JSONDecodeError, StopIteration):
-        # Handle cases where ffprobe fails or file is not valid media
+    except requests.exceptions.RequestException as e:
+        print(f"[{datetime.now()}] API Error: Could not request job. {e}")
         return None
 
-def run_with_progress(cmd, total_duration, db, filename, hw_settings):
-    process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True, encoding='utf-8', errors='replace', env=os.environ)
-    pattern = re.compile(r"fps=\s*(\d+).*time=(\d{2}):(\d{2}):(\d{2}\.\d+).*speed=\s*([\d\.]+)x")
+def update_job_status(job_id, status, details=None):
+    """Updates the job's status via the dashboard's API."""
+    payload = {"status": status}
+    if details:
+        payload.update(details)
     
-    last_update = 0
-    err_log = [] 
-    is_paused = False
-    fps = 0 # Initialize fps to 0
-
     try:
-        while True:
-            if STOP_EVENT.is_set():
-                process.kill()
-                return -999, "Stopped by user command"
+        response = requests.post(f"{DASHBOARD_URL}/api/update_job/{job_id}", json=payload, timeout=10)
+        response.raise_for_status()
+        print(f"[{datetime.now()}] Successfully updated job {job_id} to status '{status}'.")
+    except requests.exceptions.RequestException as e:
+        print(f"[{datetime.now()}] API Error: Could not update job {job_id}. {e}")
 
-            # --- Pause/Resume Logic ---
-            command = db.get_node_command(HOSTNAME)
-            if command == 'quit':
-                if is_debug_mode: print("\nDEBUG: Received 'quit' command during transcode. Shutting down.")
-                STOP_EVENT.set()
-                process.kill() # Immediately kill ffmpeg
-                break
-            elif command == 'paused' and not is_paused:
-                if is_debug_mode: print(f"\nDEBUG: Received command from dashboard: 'pause'")
-                print("\n⏸️ Pausing transcode...")
-                process.send_signal(signal.SIGSTOP)
-                is_paused = True
-                db.update_heartbeat("Paused", hw_settings['codec'], int(percent) if 'percent' in locals() else 0, "0", VERSION, status='paused')
-            elif command == 'running' and is_paused:
-                # The 'running' status acts as the 'resume' command here
-                if is_debug_mode:
-                    print(f"\nDEBUG: Received command from dashboard: 'resume'")
-                print("\n▶️ Resuming transcode...")
-                process.send_signal(signal.SIGCONT)
-                is_paused = False
-            
-            if is_paused:
-                time.sleep(2) # While paused, check for resume command every 2 seconds
-                continue
+def process_file(filepath, db, settings):
+    """Handles the full transcoding process for a given file using ffmpeg."""
+    print(f"[{datetime.now()}] Starting transcode for: {filepath}")
+    db.update_heartbeat('encoding', current_file=os.path.basename(filepath), progress=0, fps=0)
 
-            char = process.stderr.read(1)
-            if not char and process.poll() is not None: break
-            if char != '\r' and char != '\n': 
-                err_log.append(char)
-                continue
-            
-            line = "".join(err_log[-200:])
-            if not line: continue
-
-            match = pattern.search(line)
-            if match:
-                fps = match.group(1)
-                h, m, s = map(float, match.groups()[1:4])
-                speed = match.group(5)
-                curr_seconds = h*3600 + m*60 + s
-                percent = (curr_seconds / total_duration) * 100
-                
-                print(f"\r🚀 {filename[:30]:<30} | {percent: >5.1f}% | {speed}x | FPS: {fps} ", end="", flush=True)
-                
-                err_log = [] 
-
-                if time.time() - last_update > 2:
-                    # Check for a stop command during the transcode
-                    current_command = db.get_node_command(HOSTNAME)
-                    if current_command == 'idle':
-                        # A stop command was issued. Enter 'finishing' state.
-                        db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION, status='finishing', fps=int(fps))
-                    else:
-                        # Otherwise, just send a normal running heartbeat.
-                        db.update_heartbeat(filename, hw_settings['codec'], int(percent), speed, VERSION, status='running', fps=int(fps))
-                    last_update = time.time()
-
-        remainder = process.stderr.read()
-        full_log = "".join(err_log) + remainder
-        return process.returncode, full_log
+    # --- Get settings from the dashboard ---
+    hw_mode = settings.get('hardware_acceleration', 'auto')
+    hw_config = detect_hardware_settings(hw_mode)
+    
+    # Determine which CQ value to use based on video width
+    try:
+        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width", "-of", "csv=s=x:p=0", filepath]
+        width_str = subprocess.check_output(ffprobe_cmd, text=True).strip()
+        video_width = int(width_str)
+        cq_width_threshold = int(settings.get('cq_width_threshold', '1900'))
+        
+        if video_width >= cq_width_threshold:
+            cq_value = settings.get(f"{hw_config['type']}_cq_hd", '28')
+        else:
+            cq_value = settings.get(f"{hw_config['type']}_cq_sd", '24')
     except Exception as e:
-        process.kill()
-        return -1, str(e)
+        print(f"⚠️ Could not determine video width, falling back to SD quality. Error: {e}")
+        cq_value = settings.get(f"{hw_config['type']}_cq_sd", '24')
 
-def get_cq_value(width, hw_type, settings):
-    is_hd = width >= int(settings.cq_width_threshold)
-    if hw_type == "nvidia":
-        return settings.nvenc_cq_hd if is_hd else settings.nvenc_cq_sd
-    elif hw_type == "intel":
-        return settings.vaapi_cq_hd if is_hd else settings.vaapi_cq_sd
+    # --- Prepare file paths ---
+    original_path = Path(filepath)
+    temp_output_path = original_path.parent / f".tmp_{original_path.name}"
+    final_output_path = original_path.with_suffix('.mkv') # Always output to MKV
+
+    # --- Build FFmpeg Command ---
+    ffmpeg_cmd = ["ffmpeg", "-y", "-hide_banner"]
+    ffmpeg_cmd.extend(hw_config["hw_pre_args"])
+    ffmpeg_cmd.extend(["-i", str(original_path)])
+    ffmpeg_cmd.extend([
+        "-map", "0", "-c", "copy", "-c:v:0", hw_config["codec"],
+        hw_config["cq_flag"], str(cq_value)
+    ])
+    if hw_config["preset"]:
+        ffmpeg_cmd.extend(["-preset", hw_config["preset"]])
+    ffmpeg_cmd.extend(hw_config["extra"])
+    ffmpeg_cmd.append(str(temp_output_path))
+
+    print(f"🔩 FFmpeg command: {' '.join(ffmpeg_cmd)}")
+
+    # --- Execute FFmpeg and Capture Output ---
+    process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True)
+    
+    total_duration_seconds = 0
+    log_buffer = []
+
+    for line in process.stdout:
+        log_buffer.append(line)
+        if "Duration:" in line:
+            match = re.search(r'Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
+            if match:
+                h, m, s, ms = map(int, match.groups())
+                total_duration_seconds = h * 3600 + m * 60 + s + ms / 100.0
+
+        if "frame=" in line and total_duration_seconds > 0:
+            time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
+            fps_match = re.search(r'fps=\s*([\d\.]+)', line)
+            if time_match:
+                h, m, s, ms = map(int, time_match.groups())
+                current_seconds = h * 3600 + m * 60 + s + ms / 100.0
+                progress = round((current_seconds / total_duration_seconds) * 100)
+                fps = float(fps_match.group(1)) if fps_match else 0
+                db.update_heartbeat('encoding', current_file=os.path.basename(filepath), progress=progress, fps=fps)
+
+    process.wait()
+
+    # --- Process Results ---
+    if process.returncode == 0:
+        print(f"[{datetime.now()}] Finished transcode for: {filepath}")
+        original_size = os.path.getsize(filepath)
+        new_size = os.path.getsize(temp_output_path)
+
+        # Handle file replacement
+        if settings.get('keep_original') == 'true':
+            backup_dir_str = settings.get('backup_directory', '')
+            if backup_dir_str:
+                backup_path = Path(backup_dir_str) / original_path.name
+                print(f"  -> Moving original to backup: {backup_path}")
+                backup_path.parent.mkdir(parents=True, exist_ok=True)
+                shutil.move(original_path, backup_path)
+            else:
+                print("  -> Keeping original file (no backup directory specified).")
+        else:
+            print(f"  -> Deleting original file: {original_path}")
+            os.remove(original_path)
+        
+        print(f"  -> Renaming temporary file to final output: {final_output_path}")
+        os.rename(temp_output_path, final_output_path)
+
+        return True, {"original_size": original_size, "new_size": new_size}
     else:
-        return settings.cpu_cq_hd if is_hd else settings.cpu_cq_sd
+        print(f"[{datetime.now()}] FAILED transcode for: {filepath}. FFmpeg exited with code {process.returncode}")
+        if os.path.exists(temp_output_path):
+            os.remove(temp_output_path)
+        return False, {"reason": f"FFmpeg failed with code {process.returncode}", "log": "".join(log_buffer)}
 
-def worker_loop(root, db, cli_args):
-    print(f"🚀 Node Online: {HOSTNAME}")
+def cleanup_file(filepath, db):
+    """
+    Deletes a single stale file identified by the dashboard.
+    Returns a tuple: (success, details_dict).
+    """
+    print(f"[{datetime.now()}] Starting cleanup for: {filepath}")
+    db.update_heartbeat('cleaning', current_file=os.path.basename(filepath))
+    try:
+        if os.path.exists(filepath):
+            os.remove(filepath)
+            print(f"[{datetime.now()}] Successfully deleted stale file: {filepath}")
+            return True, {}
+        else:
+            print(f"[{datetime.now()}] Stale file not found (already deleted?): {filepath}")
+            return True, {"reason": "File not found on worker"} # Still success, as the file is gone
+    except Exception as e:
+        print(f"[{datetime.now()}] FAILED cleanup for: {filepath}. Reason: {e}")
+        return False, {"reason": "File deletion error on worker", "log": str(e)}
 
-    # --- Initial Hardware Detection ---
-    # Fetch settings once at the start to determine which hardware to probe.
-    initial_settings = db.get_worker_settings()
-    accel_mode = initial_settings.get('hardware_acceleration', 'auto')
-    hw_settings = detect_hardware_settings(accel_mode)
-    # Check if command-line debug flag is set. If so, it overrides the DB setting.
-    db_debug = initial_settings.get('debug', 'false').lower() == 'true'
-    is_debug_mode = cli_args.debug or db_debug
+def main_loop(db):
+    """The main worker loop."""
+    print(f"[{datetime.now()}] Worker '{HOSTNAME}' starting up. Version: {VERSION}")
+    db.update_heartbeat('booting')
+    time.sleep(2) # Stagger startup
 
-    print(f"⚙️  Detected Encoder: {hw_settings['codec']}")
+    settings = get_dashboard_settings()
+    if not settings:
+        print("❌ Could not fetch settings from dashboard on startup. Will retry.")
 
-    # --- Main Watcher Loop ---
-    # This outer loop allows the worker to return to an idle state after being stopped.
     while not STOP_EVENT.is_set():
-
-        # --- State-Driven Main Loop ---
+        db.update_heartbeat('idle')
         command = db.get_node_command(HOSTNAME)
 
         if command == 'quit':
-            if is_debug_mode: print("\nDEBUG: Received 'quit' command. Shutting down.")
-            STOP_EVENT.set()
+            print(f"[{datetime.now()}] Quit command received. Shutting down.")
+            db.update_heartbeat('offline')
             break
 
-        if command == 'idle' or command == 'paused' or command == 'finishing':
-            # Send a heartbeat on each loop to keep the node visible in the dashboard while idle.
-            status_message = "Idle (Awaiting Start)" if command == 'idle' else command.capitalize()
-            db.update_heartbeat(status_message, "N/A", 0, "0", VERSION, status=command)
-            time.sleep(5) # Check for command every 5 seconds
-            continue # Restart the loop to fetch the next command
-        
-        # If the command is 'running', proceed to scan.
-        if command == 'running':
+        if command in ['idle', 'paused', 'finishing']:
+            print(f"[{datetime.now()}] In '{command}' state. Standing by...")
+            db.update_heartbeat(command)
+            time.sleep(30) # Check for new commands every 30 seconds
+            continue
 
-            files_processed_this_scan = 0
-            stop_command_received = False
+        # If the command is 'running' (or anything else), try to get a job.
+        # The dashboard will deny the request if the queue is paused, which is the
+        # desired behavior. The worker will then just loop and ask again.
+        db.update_heartbeat('running')
 
-            # Fetch the latest settings at the start of each full scan
-            settings_raw = db.get_worker_settings()
-
-            # Check if command-line debug flag is set. If so, it overrides the DB setting.
-            db_debug = settings_raw.get('debug', 'false').lower() == 'true'
-            is_debug_mode = cli_args.debug or db_debug
-            
-            # Define a simple structure for settings
-            WorkerArgs = namedtuple('WorkerArgs', settings_raw.keys())
-            args = WorkerArgs(
-                rescan_delay_minutes=int(settings_raw.get('rescan_delay_minutes', 5)),
-                skip_encoded_folder=settings_raw.get('skip_encoded_folder', 'true').lower() == 'true',
-                min_length=float(settings_raw.get('min_length', 1.5)),
-                recursive_scan=settings_raw.get('recursive_scan', 'true').lower() == 'true',
-                keep_original=settings_raw.get('keep_original', 'false').lower() == 'true',
-                backup_directory=settings_raw.get('backup_directory', ''),
-                allow_hevc=settings_raw.get('allow_hevc', 'false').lower() == 'true',
-                allow_av1=settings_raw.get('allow_av1', 'false').lower() == 'true',
-                hardware_acceleration=settings_raw.get('hardware_acceleration', 'auto'),
-                auto_update=settings_raw.get('auto_update', 'true').lower() == 'true',
-                clean_failures=settings_raw.get('clean_failures', 'false').lower() == 'true',
-                debug=is_debug_mode,
-                nvenc_cq_hd=settings_raw.get('nvenc_cq_hd', '32'),
-                nvenc_cq_sd=settings_raw.get('nvenc_cq_sd', '28'),
-                vaapi_cq_hd=settings_raw.get('vaapi_cq_hd', '28'),
-                vaapi_cq_sd=settings_raw.get('vaapi_cq_sd', '24'),
-                cpu_cq_hd=settings_raw.get('cpu_cq_hd', '28'),
-                cpu_cq_sd=settings_raw.get('cpu_cq_sd', '24'),
-                cq_width_threshold=settings_raw.get('cq_width_threshold', '1900'),
-                extensions=settings_raw.get('extensions', '.mkv,.mp4')
-            )
-            allowed_extensions = {ext.strip() for ext in args.extensions.split(',')}
-
-            # Report that the node is starting a scan
-            db.update_heartbeat("Scanning for files...", "N/A", 0, "0", VERSION, status='running')
-            
-            # Get a fresh list of failed files for each scan
-            global_failures = db.get_failed_files()
-
-            # Get a fresh list of already encoded files from the history
-            encoded_history = db.get_encoded_files()
-            
-            # Get a fresh iterator for each scan
-            iterator = os.walk(root) if args.recursive_scan else [(str(root), [], os.listdir(root))]
-
-            for dirpath, dirnames, filenames in iterator:
-                if STOP_EVENT.is_set(): break
-
-                if args.skip_encoded_folder and 'encoded' in dirnames:
-                    dirnames.remove('encoded') # This stops os.walk from descending into it
-
-                dir_path = Path(dirpath)
-                for fname in filenames:
-                    if STOP_EVENT.is_set(): break
-                    fpath = dir_path / fname
-                    
-                    # --- Filtering Checks ---
-                    if fpath.suffix.lower() not in allowed_extensions: 
-                        if args.debug: print(f"DEBUG: Skip: {fname} (Extension)")
-                        continue
-                    
-                    if fname in global_failures:
-                        if args.debug: print(f"DEBUG: Skip: {fname} (Global Fail)")
-                        continue
-
-                    lock_file = fpath.with_suffix('.lock')
-                    if lock_file.exists(): 
-                        if args.debug: print(f"DEBUG: Skip: {fname} (Locked)")
-                        continue 
-                        
-                    if fname in encoded_history:
-                        if args.debug: print(f"DEBUG: Skip: {fname} (Already in DB History)")
-                        continue
-
-                    info = get_media_info(fpath)
-                    if not info or (info['duration'] / 60) < args.min_length:
-                        if args.debug: print(f"DEBUG: Skip: {fname} (Too short or not media)")
-                        continue
-                    # --- End Filtering Checks ---
-
-                    try:
-                        # Attempt to lock (claim file)
-                        with open(lock_file, 'w') as f: f.write(HOSTNAME)
-                    except: 
-                        # Failed to lock (e.g., permissions issue)
-                        continue
-                    
-                    if args.debug: print(f"DEBUG: Lock Acquired: {fname}")
-                    files_processed_this_scan += 1
-
-                    try:
-                        should_skip = False
-                        if not info: 
-                            if args.debug: print(f"DEBUG: Skip: {fname} (FFprobe failed)")
-                            should_skip = True
-                        elif info['codec'] == 'hevc' and not args.allow_hevc: 
-                            if args.debug: print(f"DEBUG: Skip: {fname} (HEVC codec, not allowed)")
-                            should_skip = True
-                        elif info['codec'] == 'av1' and not args.allow_av1: 
-                            if args.debug: print(f"DEBUG: Skip: {fname} (AV1 codec, not allowed)")
-                            should_skip = True
-
-                        if should_skip:
-                            lock_file.unlink()
-                            continue
-
-                        print(f"\n✅ [Accepted] {fname}")
-                        if args.debug: print(f"DEBUG: Processing: {fname}")
-
-                        cq = get_cq_value(info['width'], hw_settings['type'], args)
-                        # Log the start of the transcode to the history table
-                        history_id = db.report_start(fname, HOSTNAME, hw_settings['codec'], info['size'])
-
-                        temp_out = dir_path / f".tmp_{fpath.stem}.mkv"
-                        
-                        cmd = ['ffmpeg', '-y', '-hide_banner', '-loglevel', 'error', '-stats']
-                        cmd.extend(hw_settings["hw_pre_args"])
-                        cmd.extend(['-i', str(fpath)])
-                        cmd.extend(['-map', f"0:{info['stream_index']}", '-map', '0:a?', '-map', '0:s?'])
-                        cmd.extend(['-c:v', hw_settings["codec"]])
-                        if hw_settings["preset"]: cmd.extend(['-preset', hw_settings["preset"]])
-                        cmd.extend([hw_settings["cq_flag"], str(cq)] + hw_settings["extra"])
-                        cmd.extend(['-c:a', 'aac', '-b:a', '256k'])
-                        cmd.extend(['-c:s', 'copy', str(temp_out)])
-
-                        if args.debug:
-                            # Print the full command for debugging purposes
-                            print(f"\nDEBUG: Running command:\n{' '.join(cmd)}\n")
-
-                        # Start FFmpeg subprocess
-                        ret, err_log = run_with_progress(cmd, info['duration'], db, fname, hw_settings)
-
-                        # --- Naming Logic ---
-                        hw_tag = 'NVENC' if hw_settings['type'] == 'nvidia' else 'VAAPI'
-                        new_filename_base = f"{fpath.stem}.{hw_tag}.mkv"
-
-
-                        # --- Post-Processing ---
-                        if ret == 0:
-                            if temp_out.exists() and temp_out.stat().st_size < info['size']:                        
-                                finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
-                                print("\n✅ Finished.")
-
-                            else:
-                                if args.debug: print(f"DEBUG: Discarded: {fname} (Too Large or Missing Output)")
-                                if temp_out.exists(): temp_out.unlink()
-                                print("\n⚠️ Larger or missing output, discarded.")
-
-                        else:
-                            # --- Fallback and Crash Reporting ---
-                            if "minimum supported value" in err_log and hw_settings['type'] != 'cpu':
-                                print(f"\n⚠️  HW encode failed for low resolution. Falling back to CPU for {fname}...")
-                                cpu_hw_settings = get_hw_config("cpu") # This is fine, it's just a struct
-                                cpu_cq = get_cq_value(info['width'], cpu_hw_settings['type'], args)
-                                
-                                cmd[cmd.index(hw_settings['codec'])] = cpu_hw_settings['codec']
-                                cmd[cmd.index(str(cq))] = str(cpu_cq)
-                                
-                                ret, err_log = run_with_progress(cmd, info['duration'], db, fname, cpu_hw_settings, VERSION)
-
-                                if ret == 0 and temp_out.exists() and temp_out.stat().st_size < info['size']:
-                                    finalize_file(db, history_id, fpath, temp_out, new_filename_base, args.keep_original, args.backup_directory)
-                                    print("\n✅ Finished (CPU Fallback).")
-                                else:
-                                    report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
-                            else:
-                                report_and_log_failure(fname, ret, err_log, db, global_failures, temp_out)
-
-
-                    except Exception as e:
-                        print(f"Fatal Error on {fname}: {e}")
-                    finally:
-                        if lock_file.exists(): lock_file.unlink()
-
-                        # After each file, check if a stop command has been issued.
-                        # This is the most critical point to check.
-                        if db.get_node_command(HOSTNAME) == 'idle':
-                            if is_debug_mode: print("\nDEBUG: 'stop' command detected after file. Forcing idle state.")
-                            db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-                            stop_command_received = True
-                            break # Exit the file loop (for fname in filenames)
-                        # Also check for a quit command after each file.
-                        if db.get_node_command(HOSTNAME) == 'quit':
-                            if is_debug_mode: print("\nDEBUG: 'quit' command detected after file. Shutting down.")
-                            STOP_EVENT.set()
-                            stop_command_received = True # Use this to break outer loops
-                            break
-                        
-                        if args.debug: print(f"DEBUG: Lock Released: {fname}")
-                # This check is inside the directory loop. If a stop is received,
-                # we must break out of this loop to proceed to the main check below.
-                if stop_command_received:
-                    break
-
-            # After the scan is complete (or was broken by a stop command), check if we need to loop.
-            # If a stop/quit was received, we break out of this inner scan/wait loop.
-            if stop_command_received or STOP_EVENT.is_set():
-                if is_debug_mode: print("\nDEBUG: Stop/Quit command processed. Returning to main loop.")
-                continue # This goes back to the top of the main `while` loop, which will then enter the idle state.
-
-            # --- Responsive Wait Loop ---
-            # Instead of one long wait, we wait in small chunks (e.g., 5 seconds)
-            # and check for the stop command in between each chunk.
-            wait_seconds = args.rescan_delay_minutes * 60
-            if wait_seconds <= 0: wait_seconds = 60
-            current_time = datetime.now().strftime('%H:%M:%S')
-            print(f"\n{current_time} 🏁 Scan complete. Next scan in {wait_seconds / 60:.0f} minute(s)...")
-
-            time_waited = 0
-            while time_waited < wait_seconds:
-                # Check for the stop command every 5 seconds.
-                command = db.get_node_command(HOSTNAME)
-                if command == 'quit':
-                    if is_debug_mode: print("\nDEBUG: Received 'quit' command during wait. Shutting down.")
-                    STOP_EVENT.set()
-                    stop_command_received = True
-                    break
-                if db.get_node_command(HOSTNAME) == 'idle':
-                    if is_debug_mode:
-                        print("\nDEBUG: Received 'stop' command. Returning to idle state.")
-                    # Force the state to idle in the database immediately.
-                    db.update_heartbeat("Idle (Awaiting Start)", "N/A", 0, "0", VERSION, status='idle')
-                    stop_command_received = True
-                    break # Exit the wait loop
-                
-                time.sleep(5)
-                time_waited += 5
-            
-            if stop_command_received:
-                continue # Go back to the top of the main loop.
-            # If the wait completes, the main loop will restart, triggering a new scan.
-
-    print("\nWatcher stopped.")
-    db.clear_node() 
-
-def finalize_file(db, history_id, original_path, temp_path, new_filename_base, keep_original, backup_dir):
-    """Handles file operations for a successful transcode."""
-    new_size = temp_path.stat().st_size
-    db.report_finish(history_id, new_size)
-
-    if keep_original:
-        encoded_dir = original_path.parent / "encoded"
-        encoded_dir.mkdir(exist_ok=True)
-        new_name = encoded_dir / new_filename_base
-        shutil.move(temp_path, new_name)
-    else:
-        if backup_dir:
-            backup_path = Path(backup_dir)
-            backup_path.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(original_path, backup_path / original_path.name)
-
-        target_tagged_mkv = original_path.parent / new_filename_base
-        shutil.move(temp_path, target_tagged_mkv)
-        
-        if original_path.suffix != target_tagged_mkv.suffix or original_path.name != target_tagged_mkv.name: 
-            original_path.unlink()
-
-def report_and_log_failure(filename, exit_code, log, db, failure_set, temp_file):
-    """Consolidates failure reporting and logging."""
-    if temp_file.exists():
-        try:
-            temp_file.unlink()
-        except OSError:
-            pass
-            
-    reason = f"FFmpeg exited with code {exit_code}"
-    db.report_failure(filename, reason=reason, log=log)
-    failure_set.add(filename)
-
-    print(f"\n❌ CRASH REPORT FOR {filename}: {reason}. Log saved to database.")
-    print("-" * 40)
-
-
-def check_for_updates(auto_update=False):
-    """Checks GitHub for a newer version of the script and prompts to update."""
-    print(f"Worker Version: {VERSION}")
-    version_url = "https://raw.githubusercontent.com/m1ckyb/CluserEncode/develop/VERSION.txt"
-    script_url = f"https://raw.githubusercontent.com/m1ckyb/CluserEncode/develop/worker/transcode.py"
-
-    try:
-        with urllib.request.urlopen(version_url) as response:
-            remote_version = response.read().decode('utf-8').strip()
-
-        # Simple version comparison
-        if remote_version > VERSION:
-            print(f"✨ A new version is available: {remote_version}")
-
-            if auto_update:
-                print("Downloading update...")
-                with urllib.request.urlopen(script_url) as response:
-                    new_script_content = response.read()
-
-                script_path = Path(__file__).resolve()
-                with open(script_path, 'wb') as f:
-                    f.write(new_script_content)
-                
-                print("✅ Update successful! Please run the script again.")
-                sys.exit(0)
-            else:
-                print("Skipping update. To update, run with the --update flag.")
-
-    except Exception as e:
-        print(f"⚠️  Could not check for updates: {e}")
+        job = request_job_from_dashboard()
+        if job:
+            settings = get_dashboard_settings() # Refresh settings before each job
+            if job.get('job_type') == 'cleanup':
+                success, details = cleanup_file(job['filepath'], db)
+            else: # Default to 'transcode'
+                success, details = process_file(job['filepath'], db, settings)
+            update_job_status(job['job_id'], 'completed' if success else 'failed', details)
+        else:
+            # No jobs were available, wait before asking again
+            poll_interval = int(settings.get('worker_poll_interval', 30))
+            print(f"[{datetime.now()}] No jobs. Waiting for {poll_interval} seconds...")
+            time.sleep(poll_interval)
 
 # ===========================
 # Main Execution
 # ===========================
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("folder", help="The root folder to scan for videos.")
-    parser.add_argument("--update", action="store_true", help="Check for updates and exit.")
-    parser.add_argument("--debug", action="store_true", help="Enable debug logging, overriding the database setting.")
-    args = parser.parse_args()
-
-    # Perform self-update check before doing anything else
-    if args.update:
-        check_for_updates(auto_update=True)
-        sys.exit(0)
-    else:
-        check_for_updates(auto_update=False)
-
     # Connect to DB using centralized config
-    db = DatabaseHandler(DB_CONFIG)
-    if not db.get_conn():
+    db = DatabaseHandler(DB_CONFIG) # This is now just for heartbeats and commands
+    if not db._get_conn():
         sys.exit(1)
 
     # --- Worker Thread Setup ---
-    root = Path(args.folder).resolve()
-    
-    # All other settings are now fetched from the database inside the loop.
-    # We pass the command-line args to allow for overrides like --debug.
-    worker_thread = threading.Thread(target=worker_loop, args=(root, db, args))
+    worker_thread = threading.Thread(target=main_loop, args=(db,))
     worker_thread.daemon = True
     worker_thread.start()
     

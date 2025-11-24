@@ -1,20 +1,133 @@
 # [Unreleased]
 
-### Added
+---
+## [0.10.6] - 2025-11-24 - Stability Fix
 
-## [0.8.7] - 2025-11-21 - UI Refinements & Bug Fixes
+This is a minor stability release that fixes a critical bug with the stale file cleanup feature.
+
+### Fixed
+- **Stale File Cleanup Timeout**: Fixed a Gunicorn worker timeout that occurred when queuing a stale file cleanup on large media libraries. The cleanup scan is now a non-blocking, asynchronous background task, providing an instant response to the UI.
+
+---
+## [0.10.5] - 2025-11-24 - OIDC Authentication & UI Polish
+
+This release takes the experimental authentication features from the previous version and makes them production-ready. It includes a series of critical bug fixes for the OIDC login flow and several UI enhancements for a more polished user experience.
 
 ### Added
+- **Dynamic Welcome Message**: The dashboard now greets logged-in users with a dynamic message (e.g., "Good morning," "Good afternoon") based on the server's time of day.
+
+### Changed
+- **OIDC Production Ready**: The OpenID Connect (OIDC) integration is now stable and considered ready for production use.
+- **UI Polish**:
+    - The logged-in user's name and welcome message are now displayed prominently in the main dashboard header.
+    - The welcome message was moved to appear after the logout button for better visual flow.
+    - The "Logout" button's styling now matches other header buttons for a consistent look.
+- **Cleaned Footer**: The user's name and login/logout buttons have been removed from the shared footer to avoid redundancy.
+
+### Fixed
+- **OIDC Login Flow**: Fixed a series of critical bugs that prevented the OIDC login from working, including `NameError` on startup, redirect loops, incorrect callback URLs behind a reverse proxy (`Redirect URI Error`), invalid token verification (`Invalid key set format`), and unsupported signing algorithms (`UnsupportedAlgorithmError`).
+- **Local Login Loop**: Resolved a redirect loop that occurred during local login attempts.
+
+## [0.10.4] - 2025-11-24 - Secure Access
+
+This release introduces a comprehensive and flexible authentication system to secure the dashboard.
+
+### Added
+- **Authentication System**: Implemented a master `AUTH_ENABLED` switch to protect the entire dashboard.
+- **Local Login**: Added a local username/password login method, configured via environment variables. The password is required to be base64 encoded for improved security.
+- **OIDC Integration (Untested)**: Added support for OpenID Connect (OIDC) as a primary authentication method. This feature is new and should be considered experimental.
+
+---
+
+## [0.10.3] - 2025-11-24 - The Polishing Act
+
+This is a significant stability and bug-fix release that addresses numerous issues across the entire stack, from the worker's core logic to the dashboard's UI rendering.
+
+### Fixed
+- **Job Distribution**: Fixed a critical bug where the dashboard would incorrectly report the job queue as "paused", preventing workers from receiving jobs.
+- **Progress Bar**: Fixed an issue where the progress bar on worker nodes was not displaying or updating during a transcode.
+- **UI State & Rendering**:
+    - The "Pause Queue" button now correctly updates to "Resume Queue" to reflect the current state.
+    - The "Node" and "Codec" columns in the History table now display correct information instead of "undefined".
+    - Fixed a bug causing "undefined" to appear on idle node cards.
+    - The live FPS and Speed metrics have been re-implemented and are now correctly displayed in the node card footer.
+- **Job Queue Sorting**: The job queue is now correctly sorted to always show "Encoding" jobs at the top for better visibility.
+
+## [0.10.2] - 2025-11-24 - Cluster Control
+
+This release focuses on massive stability improvements, extensive bug fixing, and adding critical quality-of-life features for queue and cluster management.
+
+### Added
+- **Manual Plex Scan**: A "Manual Scan" button has been added to the Job Queue page, allowing users to trigger a library scan on demand for immediate feedback.
+- **Force Rescan**: A "Force" checkbox was added next to the manual scan button. When checked, the scanner will ignore the existing job and history lists, re-queueing any non-HEVC files it finds.
+- **Pause/Resume Job Queue**: A "Pause Queue" button has been added to the UI. When paused, the dashboard will stop distributing new jobs to workers, allowing the cluster to gracefully finish its current work.
+- **Clear Job Queue**: A "Clear Queue" button was added to instantly and permanently delete all jobs from the pending queue.
+- **Configurable Auto-Scan**: A "Rescan Delay" setting has been added to the Options page. This allows users to define how many minutes the system should wait between automatic scans. Setting it to `0` disables automatic scanning entirely.
+- **Job Queue Pagination**: Implemented a full, smart pagination system for the Job Queue page. This prevents the UI from locking up when loading thousands of jobs and makes navigation easy.
+- **Centralized Settings API**: Added a new `/api/settings` endpoint to the dashboard, allowing workers to fetch their configuration centrally.
+
+### Changed
+- **Asynchronous Scanning**: The manual scan process is now fully asynchronous. The API endpoint immediately returns a response to the UI while the actual scan runs in the background, fixing all Gunicorn worker timeout errors.
+- **UI Layout**: The Plex settings on the Options page have been reorganized into a cleaner two-column layout.
+
+### Fixed
+- **Critical Scanner Bugs**:
+    - Resolved a series of `AttributeError` and `TypeError` crashes that prevented the scanner from correctly reading video codec information from the Plex API.
+    - The scanner now correctly calls `video.reload()` to fetch full media details, fixing an issue where all codecs were reported as `N/A`.
+    - The scanner now correctly iterates through all of a video's "parts", ensuring it finds the correct video stream even in libraries with optimized versions.
+    - The library filter was fixed to correctly identify and scan "Music Videos" and "Other Videos" (e.g., YouTube) libraries.
+- **Job Queue Failures**:
+    - Fixed a bug where the UI would show "Failed to fetch job queue" because the `/api/jobs` endpoint was missing.
+    - Fixed a database commit issue where the scanner would identify files but fail to save them to the job queue.
+- **Background Thread Stability**: Fixed a `RuntimeError: Working outside of request context` crash that occurred when the automatic scanner tried to access web request data.
+- **UI Auto-Refresh Bug**: The Job Queue page no longer reverts to page 1 on auto-refresh and now correctly stays on the user's currently selected page.
+- **Job Queue Rendering**: Fixed a UI rendering bug where a "ghost" job from a previous page would sometimes appear at the bottom of the current page.
+- **Standalone Worker Execution**: The worker script now defaults to connecting to `localhost`, fixing a DNS error and allowing it to be run outside of Docker for development and testing.
+- **Worker Startup Crash**: Fixed an `AttributeError` that caused the worker script to crash immediately on startup due to an incorrect method name.
+- **Form Resubmission Error**: Implemented the Post-Redirect-Get (PRG) pattern for the Options page, eliminating the browser warning on page refresh after saving settings.
+
+## [0.10.1] - 2025-11-23 - The Scanner Awakens
+
+This is a stability release that ensures the new Plex integration features from `v0.10.0` run correctly in a production Docker environment.
+
+### Changed
+- **Database Initialization**: The database initialization logic is now handled by a dedicated `init_db.py` script. The `docker-compose.yml` file has been updated to run this script before starting the web server, ensuring the database is ready and preventing race conditions.
+
+### Fixed
+- **Plex Scanner in Docker**: Corrected a critical bug where the background Plex scanner thread would not start when the application was run with Gunicorn inside a Docker container. The scanner now initializes correctly, allowing for automated job creation in production.
+
+---
+
+## [0.10.0] - 2025-11-23 - User-Friendly Plex Integration
+
+### Added
+- **In-App Plex Authentication**: Implemented a secure, PIN-based OAuth flow directly within the dashboard. Users can now link their Plex account by visiting `plex.tv/link` and entering a code, eliminating the need to handle authentication tokens manually.
+- **Dynamic Plex Library Selection**: Once authenticated, the "Options" tab now dynamically fetches and displays a list of the user's available Plex libraries, allowing them to be selected for monitoring via checkboxes.
+- **Plex Login/Logout**: Added "Link Plex Account" and "Unlink Plex Account" buttons to the UI for managing the authentication state.
+
+### Changed
+- **Configuration Storage**: All Plex-related settings (URL, Token, and Monitored Libraries) are now stored securely in the database and managed via the UI, not in environment files.
+- **Options UI**: The "Options" tab was redesigned to support the new Plex authentication flow and dynamic library list.
+
+### Removed
+- **Plex Environment Variables**: Removed the requirement for `PLEX_URL`, `PLEX_TOKEN`, and `PLEX_LIBRARIES` in the `.env` file, simplifying the initial setup process.
+
+## [0.9.0] - 2025-11-21 - CodecShift Rebrand & Stability
+
+### Added
+- **Dashboard Dockerfile**: Created a `Dockerfile` for the dashboard to ensure all static assets (like the new logo) are correctly included in the container image.
 - **Node Health Indicator**: Added a colored dot (green/orange/red) next to each worker's hostname to provide an at-a-glance view of its health based on the last heartbeat.
 - **Search & Pagination**: Implemented search and pagination for the history table, making it easier to navigate large numbers of encoded files.
 
 ### Changed
+- **Project Rebrand**: The project has been renamed from "Transcode Cluster" to **"CodecShift"**. All relevant files, Docker image names, and UI text have been updated.
 - **Consolidated UI**: Merged the "History" and "Stats" tabs into a single "History & Stats" tab to simplify the interface.
 - **UI Polish**:
   - The "View Errors" button is now consistently styled and only turns red when errors are present, otherwise remaining in its default outline style.
   - The footer now has a more pronounced "glass" effect with increased transparency.
 
 ### Fixed
+- **Worker Stability**: Resolved a series of critical bugs in the worker's main loop that caused it to stop processing, ignore commands, or disappear from the dashboard while idle. The worker is now significantly more robust.
 - **Layout & Stability**: Fixed numerous UI bugs, including:
   - A floating pagination bar on the history tab.
   - Inconsistent button colors between tabs.

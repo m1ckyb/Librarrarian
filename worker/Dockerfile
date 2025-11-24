@@ -1,5 +1,5 @@
 # Use a Python image that includes OS build tools
-FROM python:3.9-slim-bullseye
+FROM python:3.13-slim-bullseye
 
 # Set non-interactive frontend for package installers
 ENV DEBIAN_FRONTEND=noninteractive
