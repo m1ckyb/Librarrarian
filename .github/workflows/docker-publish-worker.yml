@@ -3,6 +3,8 @@ name: Publish Worker Docker Image
 on:
   push:
     branches: [ "develop" ]
+    paths:
+      - 'worker/**'
   release:
     types: [ created ]
 

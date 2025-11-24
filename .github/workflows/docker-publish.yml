@@ -8,6 +8,8 @@ name: Publish Dashboard Docker Image
 on:
   push:
     branches: [ "develop" ]
+    paths:
+      - 'dashboard/**'
   release:
     types: [ created ]
 

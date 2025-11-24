@@ -366,12 +366,14 @@ def main_loop(db):
     if autostart:
         print(f"[{datetime.now()}] AUTOSTART is enabled. Worker will start processing jobs immediately.")
 
+    first_loop = True
     while not STOP_EVENT.is_set():
-        # Get the latest command from the dashboard, but default to our current state
-        # This prevents the worker from going idle unless explicitly told to.
-        command_from_db = db.get_node_command(HOSTNAME)
-        if command_from_db != current_command:
-            current_command = command_from_db
+        # On the first loop with autostart, force the command to 'running'
+        # to override the default 'idle' state from the database.
+        if not (first_loop and autostart):
+            command_from_db = db.get_node_command(HOSTNAME)
+            if command_from_db != current_command:
+                current_command = command_from_db
 
         if current_command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")
@@ -400,6 +402,8 @@ def main_loop(db):
             poll_interval = int(settings.get('worker_poll_interval', 30))
             print(f"[{datetime.now()}] No jobs. Waiting for {poll_interval} seconds...")
             time.sleep(poll_interval)
+        
+        first_loop = False
 
 # ===========================
 # Main Execution
