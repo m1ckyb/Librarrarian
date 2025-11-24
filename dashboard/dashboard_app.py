@@ -48,8 +48,8 @@ def setup_auth(app):
         app.config['AUTH_ENABLED'] = False
         return
 
-    oauth = OAuth(app)
     if app.config['OIDC_ENABLED']:
+        oauth = OAuth(app)
         oauth.register(
             name='oidc_provider',
             client_id=os.environ.get('OIDC_CLIENT_ID'),
@@ -57,7 +57,7 @@ def setup_auth(app):
             server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
             client_kwargs={'scope': 'openid email profile'}
         )
-    app.oauth = oauth
+        app.oauth = oauth
 
     @app.before_request
     def require_login():
