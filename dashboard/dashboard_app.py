@@ -585,8 +585,11 @@ def api_jobs():
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Query for the paginated list of jobs
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
+            # We also calculate the age of the job in minutes to detect stuck jobs.
             cur.execute("""
-                SELECT * FROM jobs
+                SELECT *,
+                       EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS age_minutes
+                FROM jobs
                 ORDER BY
                     CASE status
                         WHEN 'encoding' THEN 1
@@ -988,7 +991,6 @@ def run_cleanup_scan():
                 return
 
             print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of paths: {', '.join(scan_paths)}")
-            stale_extensions = ('.lock', '.tmp_hevc')
             jobs_created = 0
             db = get_db()
             with db.cursor(cursor_factory=RealDictCursor) as cur:
@@ -997,9 +999,10 @@ def run_cleanup_scan():
 
                 for path in scan_paths:
                     if not os.path.isdir(path): continue
+                    # Scan for files ending in .lock or starting with tmp_
                     for root, _, files in os.walk(path):
                         for file in files:
-                            if file.endswith(stale_extensions):
+                            if file.endswith('.lock') or file.startswith('tmp_'):
                                 full_path = os.path.join(root, file)
                                 if full_path not in existing_jobs:
                                     cur.execute(

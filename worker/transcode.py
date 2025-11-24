@@ -255,7 +255,7 @@ def process_file(filepath, db, settings):
 
     # --- Prepare file paths ---
     original_path = Path(filepath)
-    temp_output_path = original_path.parent / f".tmp_{original_path.name}"
+    temp_output_path = original_path.parent / f"tmp_{original_path.name}"
     final_output_path = original_path.with_suffix('.mkv') # Always output to MKV
 
     # --- Build FFmpeg Command ---

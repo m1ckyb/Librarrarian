@@ -12,6 +12,8 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
+      # --- General Settings ---
+      - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
       # --- Authentication ---
       - API_KEY=${API_KEY} # For worker authentication
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
@@ -48,6 +50,8 @@ services:
       - POSTGRES_DB=${POSTGRES_DB}
       - API_KEY=${API_KEY} # For authenticating with the dashboard
       - DASHBOARD_URL=http://dashboard:5000
+      # --- General Settings ---
+      - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
     volumes:
       - ./media:/media
     # The command is now defined in the worker/Dockerfile

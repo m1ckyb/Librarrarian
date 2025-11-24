@@ -52,6 +52,10 @@ This is the recommended method for running CodecShift.
     # Generate a random string for this, e.g., by running: openssl rand -hex 32
     FLASK_SECRET_KEY=your_flask_secret_key
     
+    # --- General Settings ---
+    # Set the timezone for the containers, e.g., 'Australia/Sydney', 'America/New_York'
+    TZ=UTC
+
     # --- API Key for Worker Authentication ---
     # This is required if AUTH_ENABLED is true. Generate a secure random string.
     # e.g., openssl rand -hex 32
