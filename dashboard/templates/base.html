@@ -87,10 +87,50 @@
             <div class="d-flex align-items-center">
                 <span class="me-3">Web Dashboard v0.10.5</span>
             </div>
+            <div class="d-flex align-items-center">
+                <!-- Theme Switcher Dropdown -->
+                <div class="dropdown me-3">
+                    <button class="btn btn-sm btn-outline-secondary dropdown-toggle" type="button" id="themeDropdown" data-bs-toggle="dropdown" aria-expanded="false">
+                        <span id="theme-icon" class="mdi"></span> Theme
+                    </button>
+                    <ul class="dropdown-menu" aria-labelledby="themeDropdown">
+                        <li><button class="dropdown-item d-flex align-items-center" data-theme-value="light"><span class="mdi mdi-weather-sunny me-2"></span> Light</button></li>
+                        <li><button class="dropdown-item d-flex align-items-center" data-theme-value="dark"><span class="mdi mdi-weather-night me-2"></span> Dark</button></li>
+                        <li><button class="dropdown-item d-flex align-items-center" data-theme-value="auto"><span class="mdi mdi-desktop-classic me-2"></span> System</button></li>
+                    </ul>
+                </div>
+                <a href="https://github.com/m1ckyb/CodecShift" target="_blank" class="text-decoration-none">
+                    <span class="mdi mdi-github"></span> GitHub
+                </a>
+            </div>
         </div>
     </footer>
 
     <script>
+        // --- Theme Switcher Logic ---
+        (function() {
+            const themeIcon = document.getElementById('theme-icon');
+            const getStoredTheme = () => localStorage.getItem('theme');
+            const setStoredTheme = theme => localStorage.setItem('theme', theme);
+
+            const setTheme = theme => {
+                document.documentElement.setAttribute('data-bs-theme', theme);
+                // Update icon based on theme
+                if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
+                else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
+                else themeIcon.className = 'mdi mdi-desktop-classic';
+            };
+
+            setTheme(getStoredTheme() || 'dark'); // Set initial theme
+
+            document.querySelectorAll('[data-theme-value]').forEach(toggle => {
+                toggle.addEventListener('click', () => {
+                    const theme = toggle.getAttribute('data-theme-value');
+                    setStoredTheme(theme);
+                    setTheme(theme);
+                });
+            });
+        })();
     </script>
     {% block scripts %}{% endblock %}
     </body>
