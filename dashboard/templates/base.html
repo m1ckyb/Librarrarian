@@ -87,10 +87,10 @@
                 <span class="me-3">Web Dashboard v0.10.4</span>
             </div>
             <div>
-                {% if session.user %}
-                    <span class="me-3">Logged in as: <strong>{{ session.user.email or session.user.name }}</strong></span>
+                {% if auth_enabled and user_name %}
+                    <span class="me-3">Welcome, <strong>{{ user_name }}</strong></span>
                     <a href="{{ url_for('logout') }}" class="btn btn-sm btn-outline-secondary">Logout</a>
-                {% elif oidc_enabled %}
+                {% elif auth_enabled %}
                     <a href="{{ url_for('login') }}" class="btn btn-sm btn-primary">Login</a>
                 {% endif %}
             </div>

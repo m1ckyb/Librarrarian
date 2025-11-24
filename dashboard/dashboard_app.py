@@ -96,7 +96,12 @@ def setup_auth(app):
     @app.context_processor
     def inject_auth_status():
         """Makes auth status available to all templates."""
-        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False), session=session)
+        user_name = None
+        if 'user' in session:
+            # OIDC providers might use 'name', 'email', or 'preferred_username'.
+            user_info = session['user']
+            user_name = user_info.get('name') or user_info.get('email') or user_info.get('preferred_username')
+        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False), user_name=user_name)
 
 # Initialize authentication
 setup_auth(app)
