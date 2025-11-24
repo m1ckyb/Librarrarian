@@ -4,6 +4,15 @@ This document is a summary of the key architectural patterns, decisions, and com
 
 ---
 
+## Guiding Principles
+
+1.  **Security First**: All new features must be designed with security in mind. This includes protecting user-facing pages with session-based authentication and securing machine-to-machine API endpoints with API keys.
+2.  **Clear Data Contracts**: The data structure sent by a backend API endpoint (the "contract") must exactly match what the frontend JavaScript expects. Any changes to one must be reflected in the other to prevent "undefined" errors in the UI.
+3.  **Configuration Management**:
+    *   **Secrets & Deployment Config** (e.g., database passwords, API keys, OIDC details) belong in environment variables (`.env` file).
+    *   **User-Tunable Settings** (e.g., quality values, scan delays, feature flags) belong in the `worker_settings` database table and should be managed via the UI.
+
+---
 ## Development Workflow
 
 1.  **Continuous Documentation**: After every feature addition, change, or bug fix, `unreleased.md` **must** be updated immediately with a concise summary of the change under the appropriate heading (`### Added`, `### Changed`, `### Fixed`). This ensures the changelog is always ready for the next release.
@@ -51,7 +60,7 @@ This document is a summary of the key architectural patterns, decisions, and com
 **Correct Pattern:** A multi-layered approach.
 
 1.  **User Authentication (OIDC / Local):** Handled by the Flask session (`'user' in session`). The `require_login` function protects all UI-facing routes.
-2.  **Worker Authentication (API Key):** All API routes (`/api/*`) are protected. The `require_login` function checks for a valid `X-API-Key` in the request headers. The worker script **must** send this header with every API call if `AUTH_ENABLED` is true.
+2.  **Worker Authentication (API Key):** All API routes (`/api/*`) **must** be protected. The `require_login` function must check for a valid `X-API-Key` in the request headers. The worker script **must** send this header with every API call if `AUTH_ENABLED` is true.
 3.  **OIDC Gotchas:** Remember the series of fixes for OIDC:
     *   `ProxyFix` middleware is required when behind a reverse proxy.
     *   Explicitly list supported signing algorithms (`id_token_signing_alg_values_supported`).
