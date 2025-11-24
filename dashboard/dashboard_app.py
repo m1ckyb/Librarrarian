@@ -768,6 +768,34 @@ def api_stats():
 
     return jsonify(stats=stats, history=history, db_error=db_error)
 
+@app.route('/api/jobs/create_cleanup', methods=['POST'])
+def create_cleanup_jobs():
+    """Scans the media directory for stale files and creates cleanup jobs."""
+    media_dir = '/media'
+    stale_extensions = ('.lock', '.tmp_hevc')
+    jobs_created = 0
+
+    try:
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Get a set of all filepaths currently in the jobs table to avoid duplicates
+            cur.execute("SELECT filepath FROM jobs")
+            existing_jobs = {row['filepath'] for row in cur.fetchall()}
+
+            for root, _, files in os.walk(media_dir):
+                for file in files:
+                    if file.endswith(stale_extensions):
+                        full_path = os.path.join(root, file)
+                        if full_path not in existing_jobs:
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
+                            jobs_created += 1
+        db.commit()
+        message = f"Successfully created {jobs_created} cleanup jobs." if jobs_created > 0 else "No stale files found to clean up."
+        return jsonify(success=True, message=message)
+    except Exception as e:
+        print(f"Error creating cleanup jobs: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
 @app.route('/api/plex/login', methods=['POST'])
 def plex_login():
     """Logs into Plex using username/password and saves the auth token."""
