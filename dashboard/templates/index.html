@@ -1296,7 +1296,34 @@
             const changelogContent = document.getElementById('changelog-content');
             const versionToggle = document.getElementById('changelog-version-toggle');
 
-            const converter = new showdown.Converter();
+            const converter = new showdown.Converter({ simplifiedAutoLink: true, openLinksInNewWindow: true });
+
+            async function determineAndLoadChangelog() {
+                const internalVersion = "{{ version }}";
+                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/main/VERSION.txt";
+
+                try {
+                    const response = await fetch(mainVersionUrl);
+                    const latestStableVersion = await response.text().trim();
+
+                    // Use localeCompare with numeric option for proper version comparison (e.g., "0.10.7b" > "0.10.7")
+                    const comparison = internalVersion.localeCompare(latestStableVersion, undefined, { numeric: true });
+
+                    if (comparison > 0) {
+                        // Current version is newer than main, default to develop
+                        versionToggle.checked = true;
+                    } else {
+                        // Current version is same or older, default to main
+                        versionToggle.checked = false;
+                    }
+                } catch (error) {
+                    console.error("Could not fetch latest stable version, defaulting to main branch.", error);
+                    versionToggle.checked = false;
+                } finally {
+                    // Load the changelog based on the determined default
+                    await loadChangelog();
+                }
+            }
 
             async function loadChangelog() {
                 const isDevelop = versionToggle.checked;
@@ -1304,25 +1331,20 @@
                 const url = `https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/${branch}/CHANGELOG.md`;
 
                 changelogContent.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
-
                 try {
                     const response = await fetch(url);
-                    if (!response.ok) {
-                        throw new Error(`HTTP error! status: ${response.status}`);
-                    }
+                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
                     const markdown = await response.text();
                     const html = converter.makeHtml(markdown);
                     changelogContent.innerHTML = html;
                 } catch (error) {
                     console.error('Error fetching changelog:', error);
-                    changelogContent.innerHTML = '<div class="alert alert-danger">Failed to load changelog. Please check your internet connection or try again later.</div>';
+                    changelogContent.innerHTML = '<div class="alert alert-danger">Failed to load changelog. Please check your internet connection.</div>';
                 }
             }
 
             // Load content when the modal is shown
-            changelogModal.addEventListener('show.bs.modal', () => {
-                loadChangelog();
-            });
+            changelogModal.addEventListener('show.bs.modal', determineAndLoadChangelog);
 
             // Reload content when the toggle is switched
             versionToggle.addEventListener('change', loadChangelog);
