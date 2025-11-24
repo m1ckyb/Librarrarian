@@ -831,15 +831,21 @@ def plex_login():
     """Logs into Plex using username/password and saves the auth token."""
     username = request.json.get('username')
     password = request.json.get('password')
+    plex_url = request.json.get('plex_url')
 
     if not username or not password:
         return jsonify(success=False, error="Username and password are required."), 400
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
 
     try:
         # Instantiate the account object with username and password to sign in.
         account = MyPlexAccount(username, password)
         token = account.authenticationToken
         if token:
+            # Save both the URL and the token
+            update_worker_setting('plex_url', plex_url)
             update_worker_setting('plex_token', token)
             return jsonify(success=True, message="Plex account linked successfully!")
         else:

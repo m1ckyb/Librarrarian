@@ -1070,6 +1070,7 @@
                 plexSignInBtn.addEventListener('click', async () => {
                     const usernameInput = document.getElementById('plex-username');
                     const passwordInput = document.getElementById('plex-password');
+                    const urlInput = document.getElementById('plex_url'); // Get the URL input
                     const statusDiv = document.getElementById('plex-login-status');
                     statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
 
@@ -1078,7 +1079,8 @@
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ 
                             username: usernameInput.value, 
-                            password: passwordInput.value 
+                            password: passwordInput.value,
+                            plex_url: urlInput.value // Send the URL along with credentials
                         })
                     });
                     const data = await response.json();
