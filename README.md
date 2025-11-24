@@ -56,7 +56,7 @@ This is the recommended method for running CodecShift.
     # Master switch to enable authentication features.
     AUTH_ENABLED=false
     
-    # OIDC Provider Settings (if AUTH_ENABLED is true)
+    # OIDC Provider Settings (if AUTH_ENABLED is true) - NOTE: This feature is new and untested.
     OIDC_ENABLED=false
     OIDC_ISSUER_URL=https://your-provider.com/auth/realms/your-realm
     OIDC_CLIENT_ID=your-client-id

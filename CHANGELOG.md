@@ -1,8 +1,15 @@
 # [Unreleased]
 
+---
+
+## [0.10.4] - 2025-11-24 - Secure Access
+
+This release introduces a comprehensive and flexible authentication system to secure the dashboard.
+
 ### Added
-- **Refined Authentication Controls**: Implemented a master `AUTH_ENABLED` switch. Added distinct `OIDC_ENABLED` and `LOCAL_LOGIN_ENABLED` flags for more granular control over login methods. Renamed `FALLBACK_*` variables to `LOCAL_*` for clarity.
-- **Enhanced Security**: The `LOCAL_PASSWORD` for the local login is now expected to be base64 encoded in the environment file to avoid storing it in plain text.
+- **Authentication System**: Implemented a master `AUTH_ENABLED` switch to protect the entire dashboard.
+- **Local Login**: Added a local username/password login method, configured via environment variables. The password is required to be base64 encoded for improved security.
+- **OIDC Integration (Untested)**: Added support for OpenID Connect (OIDC) as a primary authentication method. This feature is new and should be considered experimental.
 
 ---
 
