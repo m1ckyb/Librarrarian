@@ -34,7 +34,7 @@
                 {% if oidc_enabled and local_login_enabled %}<hr>{% endif %}
 
                 {% if oidc_enabled %}
-                    <a href="{{ url_for('login') }}" class="btn btn-primary w-100">Login with OIDC Provider</a>
+                    <a href="{{ url_for('login_oidc') }}" class="btn btn-primary w-100">Login with OIDC Provider</a>
                 {% endif %}
             </div>
         </div>
