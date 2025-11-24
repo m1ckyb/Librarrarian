@@ -214,6 +214,21 @@ def update_job_status(job_id, status, details=None):
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not update job {job_id}. {e}")
 
+def translate_path_for_worker(filepath, settings):
+    """
+    Translates a container-centric path from the dashboard to a path the worker can use.
+    This is crucial for non-Docker workers or complex mount setups.
+    """
+    path_from = settings.get('plex_path_from')
+    path_to = settings.get('plex_path_to')
+
+    # If mappings are defined and the incoming path starts with the container path (`path_to`),
+    # replace it with the Plex path (`path_from`). This gives us the "real" network path.
+    if path_from and path_to and filepath.startswith(path_to):
+        # This is a simple replacement for now. A more robust solution might be needed
+        # if the worker's root path isn't the project directory.
+        return filepath.replace(path_to, path_from, 1)
+    return filepath
 def process_file(filepath, db, settings):
     """Handles the full transcoding process for a given file using ffmpeg."""
     print(f"[{datetime.now()}] Starting transcode for: {filepath}")
@@ -320,17 +335,19 @@ def cleanup_file(filepath, db):
     Returns a tuple: (success, details_dict).
     """
     print(f"[{datetime.now()}] Starting cleanup for: {filepath}")
-    db.update_heartbeat('cleaning', current_file=os.path.basename(filepath))
+    local_filepath = translate_path_for_worker(filepath, settings)
+    
+    db.update_heartbeat('cleaning', current_file=os.path.basename(local_filepath))
     try:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-            print(f"[{datetime.now()}] Successfully deleted stale file: {filepath}")
+        if os.path.exists(local_filepath):
+            os.remove(local_filepath)
+            print(f"[{datetime.now()}] Successfully deleted stale file: {local_filepath}")
             return True, {}
         else:
-            print(f"[{datetime.now()}] Stale file not found (already deleted?): {filepath}")
+            print(f"[{datetime.now()}] Stale file not found (already deleted?): {local_filepath}")
             return True, {"reason": "File not found on worker"} # Still success, as the file is gone
     except Exception as e:
-        print(f"[{datetime.now()}] FAILED cleanup for: {filepath}. Reason: {e}")
+        print(f"[{datetime.now()}] FAILED cleanup for: {local_filepath}. Reason: {e}")
         return False, {"reason": "File deletion error on worker", "log": str(e)}
 
 def main_loop(db):
@@ -367,7 +384,7 @@ def main_loop(db):
         if job:
             settings = get_dashboard_settings() # Refresh settings before each job
             if job.get('job_type') == 'cleanup':
-                success, details = cleanup_file(job['filepath'], db)
+                success, details = cleanup_file(job['filepath'], db, settings)
             else: # Default to 'transcode'
                 success, details = process_file(job['filepath'], db, settings)
             update_job_status(job['job_id'], 'completed' if success else 'failed', details)
