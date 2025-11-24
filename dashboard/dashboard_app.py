@@ -66,7 +66,13 @@ def setup_auth(app):
             # Use a session that respects the SSL_VERIFY setting for fetching metadata
             fetch_token=lambda: oauth.fetch_access_token(verify=ssl_verify),
             server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
-            client_kwargs={'scope': 'openid email profile'}
+            client_kwargs={'scope': 'openid email profile'},
+            # Explicitly define the supported signing algorithms for the ID token.
+            # Authlib defaults to just 'RS256', but many providers use others.
+            server_metadata_options={
+                "id_token_signing_alg_values_supported": ["RS256", "RS384", "RS512",
+                                                          "ES256", "ES384", "ES512"]
+            }
         )
         app.oauth = oauth
 
