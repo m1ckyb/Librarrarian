@@ -10,6 +10,7 @@ on:
     branches: [ "develop" ]
     paths:
       - 'dashboard/**'
+      - 'VERSION.txt'
   release:
     types: [ created ]
 
