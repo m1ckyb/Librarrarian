@@ -282,11 +282,17 @@
                             <p class="form-text text-body-secondary">Translate paths from what the media scanner sees to what the container sees. Useful if your media is on a NAS (e.g., `/nfs/media` -> `/media`).</p>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
-                                    <label for="plex_path_from" class="form-label"><strong>Path on Source</strong></label>
+                                    <label for="plex_path_from" class="form-label">
+                                        <strong id="path-from-label">Path in Plex</strong>
+                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" id="path-from-tooltip" title="The absolute path to your media as seen by the Plex server. e.g., /data/movies"></span>
+                                    </label>
                                     <input type="text" class="form-control" id="plex_path_from" name="plex_path_from" value="{{ settings.get('plex_path_from', {}).get('setting_value', '') }}" placeholder="/nfs/media/">
                                 </div>
                                 <div class="col-md-6 mb-3">
-                                    <label for="plex_path_to" class="form-label"><strong>Path in Container</strong></label>
+                                    <label for="plex_path_to" class="form-label">
+                                        <strong>Path in Container</strong>
+                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the CodecShift container. This should match your Docker volume mapping. e.g., /media"></span>
+                                    </label>
                                     <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
                                 </div>
                             </div>
@@ -1188,20 +1194,30 @@
             const scannerPlexRadio = document.getElementById('scanner_plex');
             const scannerInternalRadio = document.getElementById('scanner_internal');
             const pathFromInput = document.getElementById('plex_path_from');
+            const pathFromLabel = document.getElementById('path-from-label');
+            const pathFromTooltip = document.getElementById('path-from-tooltip');
 
             function togglePathMapping() {
+                // Both inputs should always be enabled.
+                pathFromInput.disabled = false;
+
                 if (scannerPlexRadio.checked) {
-                    pathFromInput.disabled = false;
-                    document.querySelector('label[for="plex_path_from"]').innerHTML = '<strong>Path in Plex</strong>';
+                    pathFromLabel.innerText = 'Plex Worker Path';
+                    pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
                 } else if (scannerInternalRadio.checked) {
-                    pathFromInput.disabled = true;
-                    document.querySelector('label[for="plex_path_from"]').innerHTML = '<strong>Path on Source (Disabled)</strong>';
+                    pathFromLabel.innerText = 'Internal Worker Path';
+                    pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the worker machine (e.g., /nfs/media)');
                 }
+                // Re-initialize the tooltip with the new text
+                const tooltip = bootstrap.Tooltip.getInstance(pathFromTooltip);
+                if (tooltip) {
+                    tooltip.dispose();
+                }
+                new bootstrap.Tooltip(pathFromTooltip);
             }
 
             scannerPlexRadio.addEventListener('change', togglePathMapping);
             scannerInternalRadio.addEventListener('change', togglePathMapping);
-            togglePathMapping(); // Run on page load
 
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');
