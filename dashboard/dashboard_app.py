@@ -404,10 +404,12 @@ def login():
             flash('Invalid credentials.', 'danger')
             return redirect(url_for('login'))
 
-    # If OIDC is the only method, redirect immediately.
-    if app.config.get('OIDC_ENABLED') and not app.config.get('LOCAL_LOGIN_ENABLED'):
+    # If OIDC is enabled, always attempt to redirect to the provider.
+    # The login page will be shown if the user navigates back or if local login is also enabled.
+    if app.config.get('OIDC_ENABLED'):
         redirect_uri = url_for('authorize', _external=True)
-        return app.oauth.oidc_provider.authorize_redirect(redirect_uri)
+        if hasattr(app, 'oauth') and 'oidc_provider' in app.oauth._clients:
+            return app.oauth.oidc_provider.authorize_redirect(redirect_uri)
 
     # Otherwise, render the login page which can handle both.
     return render_template('login.html', oidc_enabled=app.config.get('OIDC_ENABLED'), local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'))
@@ -415,6 +417,8 @@ def login():
 @app.route('/authorize')
 def authorize():
     """Callback route for the OIDC provider."""
+    if not hasattr(app, 'oauth') or 'oidc_provider' not in app.oauth._clients:
+        return "OIDC provider not configured.", 500
     token = app.oauth.oidc_provider.authorize_access_token()
     session['user'] = token.get('userinfo')
     return redirect(url_for('dashboard'))
