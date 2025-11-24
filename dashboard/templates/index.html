@@ -702,6 +702,10 @@
                                 `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
                                 ''
                             }
+                            ${job.status === 'encoding' && job.age_minutes > 10 ?
+                                `<button class="btn btn-xs btn-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
+                                ''
+                            }
                         </td>
                     </tr>
                 `).join('');
