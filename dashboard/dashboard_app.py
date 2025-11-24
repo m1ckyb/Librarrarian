@@ -12,6 +12,7 @@ try:
     from plexapi.server import PlexServer
     import psycopg2
     from psycopg2.extras import RealDictCursor
+    from authlib.integrations.flask_client import OAuth
 except ImportError:
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
