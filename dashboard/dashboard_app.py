@@ -56,10 +56,15 @@ def setup_auth(app):
 
     if app.config['OIDC_ENABLED']:
         oauth = OAuth(app)
+        # Allow SSL verification to be disabled for development (e.g., with self-signed certs)
+        ssl_verify = os.environ.get('OIDC_SSL_VERIFY', 'true').lower() == 'true'
+        
         oauth.register(
             name='oidc_provider',
             client_id=os.environ.get('OIDC_CLIENT_ID'),
             client_secret=os.environ.get('OIDC_CLIENT_SECRET'),
+            # Use a session that respects the SSL_VERIFY setting for fetching metadata
+            fetch_token=lambda: oauth.fetch_access_token(verify=ssl_verify),
             server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
             client_kwargs={'scope': 'openid email profile'}
         )
