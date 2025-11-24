@@ -199,6 +199,7 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS encoded_files (
                 id SERIAL PRIMARY KEY,
+                job_id INTEGER,
                 filename TEXT,
                 original_size BIGINT,
                 new_size BIGINT,
