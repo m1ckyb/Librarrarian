@@ -120,7 +120,8 @@ def setup_auth(app):
             auth_enabled=app.config.get('AUTH_ENABLED', False), 
             user_name=user_name, 
             greeting=greeting,
-            oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME')
+            oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'),
+            version=get_project_version()
         )
 
 # Initialize authentication
@@ -422,9 +423,7 @@ def dashboard():
         nodes=nodes, 
         fail_count=fail_count, 
         db_error=db_error or settings_db_error, # Show error from either query
-        settings=settings,
-        last_updated=datetime.now().strftime('%H:%M:%S'),
-        version=get_project_version()
+        settings=settings
     )
 
 @app.route('/login', methods=['GET', 'POST'])

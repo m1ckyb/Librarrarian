@@ -1,6 +1,32 @@
 # [Unreleased]
 
 ---
+## [0.10.7] - 2025-11-24 - Cluster Stability & Management
+
+This is a major release focused on improving the stability, manageability, and deployment process of the entire cluster. It introduces critical features for version management, worker automation, and safe file cleanup, while also fixing numerous bugs related to database initialization, permissions, and state management.
+
+### Added
+- **Version Mismatch Detection**: The dashboard and workers now compare versions on startup. A prominent warning is displayed in both the worker's log and the dashboard UI if a mismatch is detected, preventing compatibility issues.
+- **Worker Autostart**: A new `AUTOSTART=true` environment variable allows workers to begin processing jobs immediately on startup, bypassing the need for manual intervention from the UI.
+- **Cleanup Job Approval Workflow**: Stale file cleanup jobs are now created with an `Awaiting Approval` status. An administrator must manually release them from the UI (individually or all at once) before a worker will process them, adding a critical layer of safety.
+- **Individual Job Deletion**: Added the ability to delete any `pending`, `failed`, or `awaiting_approval` job directly from the queue UI.
+- **Force Remove for Stuck Jobs**: A "Force Remove" button now automatically appears for any job that has been in the "Encoding" state for more than 10 minutes, allowing for manual resolution of stuck workers.
+- **Timezone Configuration**: Added a `TZ` environment variable to the `docker-compose.yml` file, allowing all container logs and timestamps to be set to a local timezone.
+- **Path Mapping for Cleanup**: The cleanup scanner now uses the path mapping settings from the UI, allowing it to correctly find and queue stale files in complex setups (e.g., non-Docker workers, NAS mounts).
+
+### Changed
+- **Database Initialization**: The database is now initialized using a standard `init.sql` script via Docker's entrypoint mechanism. This is more efficient and resolves all race conditions on a fresh deployment.
+- **Default Settings**: The `init.sql` script now populates the `worker_settings` table with a full set of default values, ensuring the dashboard starts correctly on a fresh database.
+- **CI/CD Pipeline**: The GitHub Actions workflows have been updated to use the correct build context, resolving build failures and ensuring version consistency between local and automated builds.
+
+### Fixed
+- **Critical Startup Race Condition**: Fixed a series of `relation "nodes" does not exist` and `permission denied` errors that occurred when starting the cluster with a fresh database.
+- **Worker Authentication**: Fixed a critical bug where workers could not authenticate with the dashboard after the security features were enabled.
+- **Worker State Machine**: Resolved several bugs in the worker's main loop that caused `AUTOSTART` workers to incorrectly go idle after their first job check.
+- **Job ID Reuse**: The "Clear Queue" function now uses `DELETE` instead of `TRUNCATE`, preventing the reuse of job IDs and ensuring data integrity with the history table.
+- **Stale File Detection**: Corrected the logic for detecting stale temporary files, which now correctly looks for files starting with `tmp_`.
+
+---
 ## [0.10.6] - 2025-11-24 - Stability Fix
 
 This is a minor stability release that fixes a critical bug with the stale file cleanup feature.
@@ -21,6 +47,7 @@ This release takes the experimental authentication features from the previous ve
 - **UI Polish**:
     - The logged-in user's name and welcome message are now displayed prominently in the main dashboard header.
     - The welcome message was moved to appear after the logout button for better visual flow.
+    - The dashboard version in the footer is now read dynamically from `VERSION.txt`, ensuring consistency.
     - The "Logout" button's styling now matches other header buttons for a consistent look.
 - **Cleaned Footer**: The user's name and login/logout buttons have been removed from the shared footer to avoid redundancy.
 
