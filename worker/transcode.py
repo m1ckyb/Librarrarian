@@ -26,7 +26,7 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
-VERSION = "0.10.4" # Updated version
+VERSION = "0.10.5" # Updated version
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 

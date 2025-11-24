@@ -1,6 +1,24 @@
 # [Unreleased]
 
 ---
+## [0.10.5] - 2025-11-24 - OIDC Authentication & UI Polish
+
+This release takes the experimental authentication features from the previous version and makes them production-ready. It includes a series of critical bug fixes for the OIDC login flow and several UI enhancements for a more polished user experience.
+
+### Added
+- **Dynamic Welcome Message**: The dashboard now greets logged-in users with a dynamic message (e.g., "Good morning," "Good afternoon") based on the server's time of day.
+
+### Changed
+- **OIDC Production Ready**: The OpenID Connect (OIDC) integration is now stable and considered ready for production use.
+- **UI Polish**:
+    - The logged-in user's name and welcome message are now displayed prominently in the main dashboard header.
+    - The welcome message was moved to appear after the logout button for better visual flow.
+    - The "Logout" button's styling now matches other header buttons for a consistent look.
+- **Cleaned Footer**: The user's name and login/logout buttons have been removed from the shared footer to avoid redundancy.
+
+### Fixed
+- **OIDC Login Flow**: Fixed a series of critical bugs that prevented the OIDC login from working, including `NameError` on startup, redirect loops, incorrect callback URLs behind a reverse proxy (`Redirect URI Error`), invalid token verification (`Invalid key set format`), and unsupported signing algorithms (`UnsupportedAlgorithmError`).
+- **Local Login Loop**: Resolved a redirect loop that occurred during local login attempts.
 
 ## [0.10.4] - 2025-11-24 - Secure Access
 
