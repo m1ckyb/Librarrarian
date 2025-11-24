@@ -1,6 +1,14 @@
 # [Unreleased]
 
 ---
+## [0.10.6] - 2025-11-24 - Stability Fix
+
+This is a minor stability release that fixes a critical bug with the stale file cleanup feature.
+
+### Fixed
+- **Stale File Cleanup Timeout**: Fixed a Gunicorn worker timeout that occurred when queuing a stale file cleanup on large media libraries. The cleanup scan is now a non-blocking, asynchronous background task, providing an instant response to the UI.
+
+---
 ## [0.10.5] - 2025-11-24 - OIDC Authentication & UI Polish
 
 This release takes the experimental authentication features from the previous version and makes them production-ready. It includes a series of critical bug fixes for the OIDC login flow and several UI enhancements for a more polished user experience.
