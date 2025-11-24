@@ -74,7 +74,7 @@ def setup_auth(app):
     @app.context_processor
     def inject_auth_status():
         """Makes auth status available to all templates."""
-        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False))
+        return dict(auth_enabled=app.config.get('AUTH_ENABLED', False), session=session)
 
 # Initialize authentication
 setup_auth(app)

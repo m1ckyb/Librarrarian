@@ -22,13 +22,18 @@
             <img src="{{ url_for('static', filename='logo.png') }}" alt="CodecShift Logo" style="height: 40px;" class="me-3">
             <h1 class="mb-0">CodecShift</h1>
         </div>
-        <div class="btn-group" role="group">
-            <button type="button" class="btn btn-outline-secondary" id="view-errors-btn" data-bs-toggle="modal" data-bs-target="#failuresModal">
-                View Errors <span class="badge" id="fail-count-badge"></span>
-            </button>
-            <button type="button" class="btn btn-outline-danger" id="clear-errors-btn" title="Clear All Errors">
-                &times;
-            </button>
+        <div class="btn-toolbar" role="toolbar">
+            <div class="btn-group me-2" role="group">
+                <button type="button" class="btn btn-outline-secondary" id="view-errors-btn" data-bs-toggle="modal" data-bs-target="#failuresModal">
+                    View Errors <span class="badge" id="fail-count-badge"></span>
+                </button>
+                <button type="button" class="btn btn-outline-danger" id="clear-errors-btn" title="Clear All Errors">
+                    &times;
+                </button>
+            </div>
+            {% if auth_enabled and session.user %}
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary"><span class="mdi mdi-logout"></span> Logout</a>
+            {% endif %}
         </div>
     </div>
     <!-- The clock is now below the buttons -->
