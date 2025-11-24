@@ -1117,6 +1117,12 @@ def update_job(job_id):
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
 
+        elif job['job_type'] == 'cleanup':
+            # For cleanups, add a simplified entry to the history
+            cur.execute(
+                "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, 0, 0, %s, 'completed')",
+                (job_id, job['filepath'], job['assigned_to'])
+            )
         # For all completed jobs (transcode or cleanup), delete from the jobs queue
         cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
         message = f"Job {job_id} ({job['job_type']}) completed and removed from queue."
