@@ -4,6 +4,19 @@ This document is a summary of the key architectural patterns, decisions, and com
 
 ---
 
+## Session Initialization
+
+When a new chat session begins, I must first read the following files to establish a complete understanding of the project's current state, architecture, and purpose:
+
+1.  `remember.md` (for architectural principles and workflows)
+2.  `README.md` (for project overview and deployment instructions)
+3.  `summary.md` (for a high-level feature summary)
+4.  `CHANGELOG.md` (for recent changes and version history)
+
+This ensures all subsequent responses are informed by the full project context.
+
+---
+
 ## Guiding Principles
 
 1.  **Security First**: All new features must be designed with security in mind. This includes protecting user-facing pages with session-based authentication and securing machine-to-machine API endpoints with API keys.
@@ -16,6 +29,7 @@ This document is a summary of the key architectural patterns, decisions, and com
 ## Development Workflow
 
 1.  **Continuous Documentation**: After every feature addition, change, or bug fix, `unreleased.md` **must** be updated immediately with a concise summary of the change under the appropriate heading (`### Added`, `### Changed`, `### Fixed`). This ensures the changelog is always ready for the next release.
+    *   **Exception**: Changes made to this file (`remember.md`) do not need to be documented in `unreleased.md`.
 
 ---
 
@@ -90,6 +104,7 @@ When requested to **"Update to version <number>"**, the following steps must be 
     *   Create a new version heading (e.g., `## [0.10.9] - YYYY-MM-DD - Release Name`).
     *   Move all content from `UNRELEASED.md` into this new section.
     *   Ensure the formatting is correct and consistent with previous entries.
+    *   **Do not** add an `[Unreleased]` section back to the top of `CHANGELOG.md`. This file should only contain released versions.
 
 2.  **Clear `UNRELEASED.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
 

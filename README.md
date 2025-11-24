@@ -5,7 +5,7 @@
 ## Features
 
 *   **Distributed Transcoding:** Run worker nodes on multiple machines to process files in parallel.
-*   **Plex Integration:** Link your Plex account, select libraries, and let the dashboard automatically find and queue non-HEVC files.
+*   **Flexible Media Scanning:** Choose between a deep Plex Media Server integration or a powerful built-in scanner to find and queue files from your media directories.
 *   **Hardware Acceleration:** Automatically detects and uses NVIDIA (NVENC), Intel (QSV/VAAPI), and Apple VideoToolbox for fast transcoding, with a fallback to CPU.
 *   **Centralized Web Dashboard:** A Flask-based UI for real-time monitoring and management.
     *   **Full Remote Control**: Start, stop, and pause individual worker nodes.

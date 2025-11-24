@@ -1,3 +1,25 @@
+# [Unreleased]
+
+All upcoming features and bug fixes will be documented here until they are part of an official release.
+
+---
+
+## [0.10.9] - 2025-11-24 - Integrations & Internal Scanner
+
+This release refactors the media source configuration into a new "Integrations" system and introduces a built-in Internal Media Scanner as a powerful alternative to Plex.
+
+### Added
+- **Internal Media Scanner**: Implemented a built-in media scanner that can scan specified subdirectories within the `/media` volume, using `ffprobe` to detect codecs.
+- **Dynamic Folder Selection**: The "Internal Scanner" tab now dynamically lists and allows selection of subdirectories for scanning.
+
+### Changed
+- **Redesigned Integrations UI**: The "Plex Integration" section has been refactored into a new "Integrations" section with a tabbed interface (Plex, Internal, Sonarr, Radarr).
+- **Conditional UI**: The settings tab and path mapping labels now dynamically update based on the selected media scanner (Plex or Internal), disabling irrelevant options to improve clarity.
+- **Project Memory**: Updated `remember.md` to include instructions for the AI to read all high-level documentation at the start of each new session for better context.
+
+### Fixed
+- **Plex Account Linking**: Improved the Plex account linking process. The Plex Server URL is now saved automatically when linking an account, preventing the URL from being lost on page refresh.
+
 ## [0.10.8] - 2025-11-24 - Changelog Viewer
 
 This release adds a user-friendly changelog viewer directly into the dashboard.
