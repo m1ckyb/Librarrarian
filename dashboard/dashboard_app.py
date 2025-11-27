@@ -145,6 +145,73 @@ def get_project_version():
 print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 
 # ===========================
+# Database Migrations
+# ===========================
+TARGET_SCHEMA_VERSION = 3
+
+MIGRATIONS = {
+    # Version 2: Add uptime tracking
+    2: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;",
+        # Backfill the connected_at for existing nodes to prevent them from showing "N/A" uptime.
+        # We'll use their last_heartbeat as a reasonable approximation for when they connected.
+        "UPDATE nodes SET connected_at = last_heartbeat WHERE connected_at IS NULL;"
+    ],
+    # Version 3: Add Plex path mapping toggle and internal scanner settings
+    3: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('plex_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('media_scanner_type', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('internal_scan_paths', '') ON CONFLICT (setting_name) DO NOTHING;"
+    ]
+}
+
+def run_migrations():
+    """Checks the current DB schema version and applies any necessary migrations."""
+    print("Checking database schema version...")
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        # Check if the schema_version table exists. If not, this is a pre-migration database.
+        cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
+        if not cur.fetchone()[0]:
+            print("Schema version table not found. Assuming version 1.")
+            current_version = 1
+            cur.execute("CREATE TABLE schema_version (version INT PRIMARY KEY);")
+            cur.execute("INSERT INTO schema_version (version) VALUES (1);")
+            conn.commit()
+        else:
+            cur.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+            res = cur.fetchone()
+            current_version = res[0] if res else 1
+
+        print(f"Current schema version: {current_version}. Target version: {TARGET_SCHEMA_VERSION}.")
+
+        if current_version >= TARGET_SCHEMA_VERSION:
+            print("Database schema is up to date.")
+            cur.close()
+            conn.close()
+            return
+
+        # Apply migrations in order
+        for version in sorted(MIGRATIONS.keys()):
+            if version > current_version:
+                print(f"Applying migration for version {version}...")
+                for statement in MIGRATIONS[version]:
+                    print(f"  -> Executing: {statement[:80]}...")
+                    cur.execute(statement)
+                cur.execute("UPDATE schema_version SET version = %s", (version,))
+                conn.commit()
+                print(f"Successfully migrated to version {version}.")
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ CRITICAL: Database migration failed: {e}")
+        print("   The application cannot start. Please resolve the database issue and restart the container.")
+        sys.exit(1)
+
+# ===========================
 # Database Layer
 # ===========================
 def get_db():
@@ -548,6 +615,7 @@ def options():
         'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
         'plex_path_from': request.form.get('plex_path_from', ''),
         'plex_path_to': request.form.get('plex_path_to', ''),
+        'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
     }
 
     # Handle multi-select for Plex libraries
@@ -1094,8 +1162,14 @@ def run_cleanup_scan():
                     if section.title in plex_libraries:
                         for location in section.locations:
                             local_path = location
-                            if path_from and path_to:
+                            # Only perform path replacement if the feature is enabled
+                            # and both 'from' and 'to' paths are actually defined.
+                            path_mapping_enabled = settings.get('plex_path_mapping_enabled', {}).get('setting_value') == 'true'
+                            if path_mapping_enabled and path_from and path_to:
                                 local_path = location.replace(path_from, path_to, 1)
+                                print(f"[{datetime.now()}] Cleanup Scanner: Mapping Plex path '{location}' to '{local_path}'")
+                            else:
+                                print(f"[{datetime.now()}] Cleanup Scanner: Using direct Plex path '{location}' (mapping disabled or not configured).")
                             scan_paths.add(local_path)
             except Exception as e:
                 print(f"[{datetime.now()}] Cleanup scan failed: Could not connect to Plex to get library paths. Error: {e}")
@@ -1308,5 +1382,10 @@ cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
 
 if __name__ == '__main__':
+    # Run migrations before starting the Flask app for local development
+    run_migrations()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
+else:
+    # When run by Gunicorn in production, run migrations first
+    run_migrations()
