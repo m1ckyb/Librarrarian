@@ -1,0 +1,53 @@
+# This is a basic workflow to help you get started with Actions
+
+name: Publish Dashboard Docker Image
+
+# This action triggers on:
+# 1. A push to the 'develop' branch
+# 2. A new release being created
+on:
+  push:
+    branches: [ "develop" ]
+    paths:
+      - 'dashboard/**'
+      - 'VERSION.txt'
+  release:
+    types: [ created ]
+
+env:
+  # The name of the Docker image you want to build
+  IMAGE_NAME: codecshift-dashboard
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    # Permissions are needed to read the repo and write to the container registry
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ forgejo.runner.context.forgejo.actions_url }}
+          username: ${{ forgejo.actor }}
+          password: ${{ secrets.FORGEJO_TOKEN }}
+
+      - name: Extract metadata (tags, labels) for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ forgejo.runner.context.forgejo.actions_url }}/${{ forgejo.repository_owner }}/${{ env.IMAGE_NAME }}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./dashboard/Dockerfile
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
