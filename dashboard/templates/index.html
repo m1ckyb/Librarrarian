@@ -1260,6 +1260,9 @@
                 } else {
                     container.innerHTML = `<p class="text-muted">${data.error || 'No subdirectories found in /media.'}</p>`;
                 }
+
+                // Apply the initial visibility based on the toggle's state
+                document.getElementById('internal-show-hidden-toggle').dispatchEvent(new Event('change'));
             }
             const internalTab = document.getElementById('internal-integration-tab');
             internalTab.addEventListener('shown.bs.tab', () => {

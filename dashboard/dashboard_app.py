@@ -662,16 +662,21 @@ def options():
                 elif key.startswith('type_internal_'):
                     folder_name = key.replace('type_internal_', '')
                     cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'internal', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (folder_name, value))
-
-            # Handle 'hide' toggles. We need to find all sources and update them based on whether their hide checkbox was submitted.
-            all_sources = request.form.getlist('plex_libraries') + request.form.getlist('internal_scan_paths')
-            for source in all_sources:
-                is_hidden = f'hide_{source}' in request.form
-                scanner = 'plex' if source in request.form.getlist('plex_libraries') else 'internal'
-                # This will insert a new record if one doesn't exist, or update the existing one.
-                # It's important to handle the case where a user hides a library without changing its type.
-                cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden) VALUES (%s, %s, 'other', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET is_hidden = EXCLUDED.is_hidden", (source, scanner, is_hidden))
-
+            
+            # --- Correctly handle 'hide' toggles ---
+            # Get all possible sources by looking at all submitted 'type' and 'hide' fields.
+            all_possible_sources = set()
+            for key in request.form.keys():
+                if key.startswith('type_plex_'): all_possible_sources.add(key.replace('type_plex_', ''))
+                if key.startswith('type_internal_'): all_possible_sources.add(key.replace('type_internal_', ''))
+                if key.startswith('hide_'): all_possible_sources.add(key.replace('hide_', ''))
+            
+            for source_name in all_possible_sources:
+                is_hidden = f'hide_{source_name}' in request.form
+                # Determine scanner type based on which 'type' field exists
+                scanner_type = 'internal' if f'type_internal_{source_name}' in request.form else 'plex'
+                # This only updates the 'is_hidden' flag, leaving the media_type untouched.
+                cur.execute("UPDATE media_source_types SET is_hidden = %s WHERE source_name = %s AND scanner_type = %s", (is_hidden, source_name, scanner_type))
         db.commit()
     except Exception as e:
         errors.append(f"Could not save media type assignments: {e}")
@@ -1012,15 +1017,16 @@ def plex_get_libraries():
         db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
-            saved_types = {row['source_name']: row['media_type'] for row in cur.fetchall()}
+            saved_types = {row['source_name']: {'media_type': row['media_type'], 'is_hidden': row['is_hidden']} for row in cur.fetchall()}
 
         plex = PlexServer(plex_url, plex_token)
         libraries = [
             {
                 "title": section.title, 
                 "key": section.key, 
-                "type": saved_types.get(section.title, {}).get('media_type', section.type), # Use saved type, fallback to Plex API type
-                "is_hidden": saved_types.get(section.title, {}).get('is_hidden', False)
+                "type": saved_types.get(section.title, {}).get('media_type') or section.type, # Use saved type, fallback to Plex API type
+                "is_hidden": saved_types.get(section.title, {}).get('is_hidden', False),
+                "plex_type": section.type # Pass the original plex type for better defaults
             }
             for section in plex.library.sections()
             if section.type in ['movie', 'show', 'artist', 'photo'] # Allow all types
