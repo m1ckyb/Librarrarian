@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS media_source_types (
     scanner_type VARCHAR(50) NOT NULL, -- 'plex' or 'internal'
     media_type VARCHAR(50) NOT NULL, -- 'movie', 'show', 'music', 'other'
     UNIQUE(source_name, scanner_type)
+    is_hidden BOOLEAN DEFAULT false,
 );
 GRANT ALL PRIVILEGES ON TABLE media_source_types TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO transcode;
@@ -110,5 +111,5 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INT PRIMARY KEY
 );
 -- For new installs, the schema is at the latest version.
-INSERT INTO schema_version (version) VALUES (4) ON CONFLICT (version) DO NOTHING;
+INSERT INTO schema_version (version) VALUES (5) ON CONFLICT (version) DO NOTHING;
 ALTER TABLE schema_version OWNER TO transcode;

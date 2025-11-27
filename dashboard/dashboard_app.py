@@ -147,7 +147,7 @@ print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 4
+TARGET_SCHEMA_VERSION = 5
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -174,6 +174,10 @@ MIGRATIONS = {
             UNIQUE(source_name, scanner_type)
         );
         """
+    ],
+    # Version 5: Add 'is_hidden' flag to media sources
+    5: [
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false;"
     ]
 }
 
@@ -651,12 +655,23 @@ def options():
         db = get_db()
         with db.cursor() as cur:
             for key, value in request.form.items():
+                # Handle media type assignments
                 if key.startswith('type_plex_'):
                     library_name = key.replace('type_plex_', '')
                     cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'plex', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (library_name, value))
                 elif key.startswith('type_internal_'):
                     folder_name = key.replace('type_internal_', '')
                     cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'internal', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (folder_name, value))
+
+            # Handle 'hide' toggles. We need to find all sources and update them based on whether their hide checkbox was submitted.
+            all_sources = request.form.getlist('plex_libraries') + request.form.getlist('internal_scan_paths')
+            for source in all_sources:
+                is_hidden = f'hide_{source}' in request.form
+                scanner = 'plex' if source in request.form.getlist('plex_libraries') else 'internal'
+                # This will insert a new record if one doesn't exist, or update the existing one.
+                # It's important to handle the case where a user hides a library without changing its type.
+                cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden) VALUES (%s, %s, 'other', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET is_hidden = EXCLUDED.is_hidden", (source, scanner, is_hidden))
+
         db.commit()
     except Exception as e:
         errors.append(f"Could not save media type assignments: {e}")
@@ -996,7 +1011,7 @@ def plex_get_libraries():
     try:
         db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type FROM media_source_types WHERE scanner_type = 'plex'")
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
             saved_types = {row['source_name']: row['media_type'] for row in cur.fetchall()}
 
         plex = PlexServer(plex_url, plex_token)
@@ -1004,7 +1019,8 @@ def plex_get_libraries():
             {
                 "title": section.title, 
                 "key": section.key, 
-                "type": saved_types.get(section.title, section.type) # Use saved type, fallback to Plex API type
+                "type": saved_types.get(section.title, {}).get('media_type', section.type), # Use saved type, fallback to Plex API type
+                "is_hidden": saved_types.get(section.title, {}).get('is_hidden', False)
             }
             for section in plex.library.sections()
             if section.type in ['movie', 'show', 'artist', 'photo'] # Allow all types
@@ -1032,8 +1048,8 @@ def api_internal_folders():
     try:
         db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type FROM media_source_types WHERE scanner_type = 'internal'")
-            saved_types = {row['source_name']: row['media_type'] for row in cur.fetchall()}
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'internal'")
+            saved_types = {row['source_name']: {'media_type': row['media_type'], 'is_hidden': row['is_hidden']} for row in cur.fetchall()}
 
         if os.path.isdir(media_path):
             for item in os.listdir(media_path):
@@ -1041,7 +1057,8 @@ def api_internal_folders():
                     default_type = infer_type(item)
                     folders.append({
                         "name": item, 
-                        "type": saved_types.get(item, default_type) # Use saved type, fallback to inferred type
+                        "type": saved_types.get(item, {}).get('media_type', default_type), # Use saved type, fallback to inferred type
+                        "is_hidden": saved_types.get(item, {}).get('is_hidden', False)
                     })
         # Sort by name for consistent ordering
         return jsonify(folders=sorted(folders, key=lambda x: x['name']))

@@ -264,6 +264,10 @@
                                         </div>
                                         <div class="col-md-6 mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
                                             <label class="form-label"><strong>Monitored Libraries</strong></label>
+                                            <div class="form-check form-switch float-end">
+                                                <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
+                                                <label class="form-check-label" for="plex-show-hidden-toggle">Show Hidden</label>
+                                            </div>
                                             <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;"></div>
                                         </div>
                                     </div>
@@ -271,6 +275,10 @@
                                 <!-- Internal Scanner Tab -->
                                 <div class="tab-pane fade" id="internal-integration-pane" role="tabpanel">
                                     <label class="form-label"><strong>Monitored Folders</strong></label>
+                                    <div class="form-check form-switch float-end">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="internal-show-hidden-toggle">
+                                        <label class="form-check-label" for="internal-show-hidden-toggle">Show Hidden</label>
+                                    </div>
                                     <p class="form-text text-body-secondary">Select which folders inside your main <code>/media</code> directory you want to scan.</p>
                                     <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
                                 </div>
@@ -1171,15 +1179,17 @@
                 const mediaTypes = {
                     'movie': 'Movie',
                     'show': 'TV Show',
-                    'artist': 'Music', // Plex uses 'artist' for music libraries
                     'music': 'Music',
-                    'photo': 'Other Videos', // Map photo libraries to 'other'
-                    'other': 'Other Videos'
+                    'other': 'Other Videos',
+                    'none': 'None (Ignore)'
                 };
-                const createDropdown = (name, selectedType) => {
-                    const options = Object.entries(mediaTypes).filter(([key, _]) => !['artist', 'photo'].includes(key)).map(([key, value]) => `<option value="${key}" ${selectedType === key || (selectedType === 'artist' && key === 'music') || (selectedType === 'photo' && key === 'other') ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm ms-auto" name="${name}" style="width: 150px;">${options}</select>`;
+                const createDropdown = (name, plexType, selectedType) => {
+                    // Default to music for 'artist', other for 'photo', otherwise use the saved type.
+                    const finalSelectedType = selectedType || (plexType === 'artist' ? 'music' : (plexType === 'photo' ? 'other' : plexType));
+                    const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${finalSelectedType === key ? 'selected' : ''}>${value}</option>`).join('');
+                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
                 };
+
                 // Use the settings rendered directly into the page by the server.
                 // This completely avoids any race conditions with the DOM.
                 const hasToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
@@ -1195,12 +1205,15 @@
 
                 if (data.libraries && data.libraries.length > 0) {
                     container.innerHTML = data.libraries.map(lib => `
-                        <div class="d-flex align-items-center mb-2">
+                        <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${lib.is_hidden}">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                                 <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
                             </div>
-                            ${createDropdown(`type_plex_${lib.title}`, lib.type)}
+                            <div class="ms-auto d-flex align-items-center">
+                                ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
+                                <input class="form-check-input ms-3" type="checkbox" name="hide_${lib.title}" title="Hide this library" ${lib.is_hidden ? 'checked' : ''}>
+                            </div>
                         </div>
                     `).join('');
                 } else {
@@ -1218,11 +1231,12 @@
                     'movie': 'Movie',
                     'show': 'TV Show',
                     'music': 'Music',
-                    'other': 'Other Videos'
+                    'other': 'Other Videos',
+                    'none': 'None (Ignore)'
                 };
                 const createDropdown = (name, selectedType) => {
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm ms-auto" name="${name}" style="width: 150px;">${options}</select>`;
+                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
                 };
                 container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading folders...';
 
@@ -1232,12 +1246,15 @@
 
                 if (data.folders && data.folders.length > 0) {
                     container.innerHTML = data.folders.map(item => `
-                        <div class="d-flex align-items-center mb-2">
+                        <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${item.is_hidden}">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
                                 <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
                             </div>
-                            ${createDropdown(`type_internal_${item.name}`, item.type)}
+                            <div class="ms-auto d-flex align-items-center">
+                                ${createDropdown(`type_internal_${item.name}`, item.type)}
+                                <input class="form-check-input ms-3" type="checkbox" name="hide_${item.name}" title="Hide this folder" ${item.is_hidden ? 'checked' : ''}>
+                            </div>
                         </div>
                     `).join('');
                 } else {
@@ -1248,6 +1265,26 @@
             internalTab.addEventListener('shown.bs.tab', () => {
                 loadInternalFolders();
             });
+
+            // --- Show/Hide Logic ---
+            function setupShowHiddenToggle(toggleId, listContainerId) {
+                const toggle = document.getElementById(toggleId);
+                const listContainer = document.getElementById(listContainerId);
+
+                function applyVisibility() {
+                    const showHidden = toggle.checked;
+                    listContainer.querySelectorAll('.media-source-item').forEach(item => {
+                        if (item.dataset.isHidden === 'true' && !showHidden) {
+                            item.style.display = 'none';
+                        } else {
+                            item.style.display = 'flex';
+                        }
+                    });
+                }
+                toggle.addEventListener('change', applyVisibility);
+            }
+            setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
+            setupShowHiddenToggle('internal-show-hidden-toggle', 'internal-folders-list');
 
             // --- NEW: Integrations Tab Logic ---
             const scannerPlexRadio = document.getElementById('scanner_plex');
