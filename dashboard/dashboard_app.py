@@ -333,6 +333,8 @@ def get_cluster_status():
                     node['uptime_str'] = f"{days}d {hours}h {minutes}m"
                 else:
                     node['uptime_str'] = "N/A"
+                # Remove the raw timedelta object as it's not JSON serializable
+                node.pop('uptime', None)
             
             # Get total failure count
             cur.execute("SELECT COUNT(*) as cnt FROM failed_files")

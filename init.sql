@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS nodes (
 );
 GRANT ALL PRIVILEGES ON TABLE nodes TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE nodes_id_seq TO transcode;
+ALTER TABLE nodes OWNER TO transcode;
 
 CREATE TABLE IF NOT EXISTS jobs (
     id SERIAL PRIMARY KEY,
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 GRANT ALL PRIVILEGES ON TABLE jobs TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE jobs_id_seq TO transcode;
+ALTER TABLE jobs OWNER TO transcode;
 
 CREATE TABLE IF NOT EXISTS worker_settings (
     id SERIAL PRIMARY KEY,
@@ -33,6 +35,7 @@ CREATE TABLE IF NOT EXISTS worker_settings (
 );
 GRANT ALL PRIVILEGES ON TABLE worker_settings TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE worker_settings_id_seq TO transcode;
+ALTER TABLE worker_settings OWNER TO transcode;
 
 CREATE TABLE IF NOT EXISTS encoded_files (
     id SERIAL PRIMARY KEY,
@@ -46,6 +49,7 @@ CREATE TABLE IF NOT EXISTS encoded_files (
 );
 GRANT ALL PRIVILEGES ON TABLE encoded_files TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE encoded_files_id_seq TO transcode;
+ALTER TABLE encoded_files OWNER TO transcode;
 
 CREATE TABLE IF NOT EXISTS failed_files (
     id SERIAL PRIMARY KEY,
@@ -56,6 +60,7 @@ CREATE TABLE IF NOT EXISTS failed_files (
 );
 GRANT ALL PRIVILEGES ON TABLE failed_files TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE failed_files_id_seq TO transcode;
+ALTER TABLE failed_files OWNER TO transcode;
 
 -- Insert default settings on initial creation
 INSERT INTO worker_settings (setting_name, setting_value) VALUES
@@ -82,5 +87,16 @@ INSERT INTO worker_settings (setting_name, setting_value) VALUES
     ('cq_width_threshold', '1900'),
     ('plex_path_from', ''),
     ('plex_path_to', ''),
-    ('pause_job_distribution', 'false')
+    ('pause_job_distribution', 'false'),
+    ('plex_path_mapping_enabled', 'true'),
+    ('media_scanner_type', 'plex'),
+    ('internal_scan_paths', '')
 ON CONFLICT (setting_name) DO NOTHING;
+
+-- Create a table to track the database schema version
+CREATE TABLE IF NOT EXISTS schema_version (
+    version INT PRIMARY KEY
+);
+-- For new installs, the schema is at the latest version.
+INSERT INTO schema_version (version) VALUES (3) ON CONFLICT (version) DO NOTHING;
+ALTER TABLE schema_version OWNER TO transcode;
