@@ -10,6 +10,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Changed
 - **CI/CD Migration**: Migrated the CI/CD pipeline from GitHub Actions to Forgejo Actions.
 - **Path Mapping UI**: The Path Mapping toggle is now correctly shown for the Plex scanner and hidden for the Internal scanner (where it is always active).
+- **Path Mapping UI**: Added a tooltip to the Plex Path Mapping toggle to clarify its function.
 
 ### Fixed
 - **Plex Path Mapping Logic**: Corrected the logic in the cleanup scanner to ensure path mapping is only performed when the feature is enabled *and* both the "from" and "to" paths are configured.

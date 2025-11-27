@@ -287,7 +287,10 @@
                                 <div class="form-check form-switch" id="path-mapping-toggle-container">
                                     {% set mapping_enabled = settings.get('plex_path_mapping_enabled', {}).get('setting_value', 'true') == 'true' %}
                                     <input class="form-check-input" type="checkbox" role="switch" id="plex_path_mapping_enabled" name="plex_path_mapping_enabled" value="true" {{ 'checked' if mapping_enabled }}>
-                                    <label class="form-check-label" for="plex_path_mapping_enabled"><strong>Enable</strong></label>
+                                    <label class="form-check-label" for="plex_path_mapping_enabled">
+                                        <strong>Enable</strong>
+                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable to manually map paths. Disable if your Plex paths are identical to your container paths."></span>
+                                    </label>
                                 </div>
                             </div>
                             <div class="row">
