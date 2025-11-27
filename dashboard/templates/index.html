@@ -98,7 +98,9 @@
                                     </div>
                                 {% endif %}
                             </div>
-                            <div class="card-footer text-end bg-transparent">
+                            <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
+                                <span class="text-muted small">Uptime: {{ node.uptime_str or 'N/A' }}</span>
+                                <div>
                                 {% if node.percent > 0 %}
                                     <span class="badge text-bg-secondary me-2">FPS: {{ node.fps }}</span>
                                     <span class="badge text-bg-secondary me-2">Speed: {{ node.speed }}x</span>
@@ -106,6 +108,7 @@
                                 {% else %}
                                     <span class="badge text-bg-secondary">Idle</span>
                                 {% endif %}
+                                </div>
                             </div>
                         </div>
                         {% endfor %}
@@ -505,7 +508,9 @@
                         </div>
                     `}
                 </div>
-                <div class="card-footer text-end bg-transparent">
+                <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
+                    <span class="text-muted small">Uptime: ${node.uptime_str || 'N/A'}</span>
+                    <div>
                     ${node.percent > 0 ? `
                         <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
                         <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
@@ -513,6 +518,7 @@
                     ` : `
                         <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.current_file || 'Idle')}</span>
                     `}
+                    </div>
                 </div>
             </div>`;
         }
