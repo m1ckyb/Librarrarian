@@ -1210,10 +1210,10 @@
                                 <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                                 <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
                             </div>
-                            <div class="ms-auto d-flex align-items-center">
+                            <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
-                                <input class="form-check-input ms-3" type="checkbox" name="hide_${lib.title}" title="Hide this library" ${lib.is_hidden ? 'checked' : ''}>
                             </div>
+                            <input class="form-check-input" type="checkbox" name="hide_${lib.title}" title="Hide this library" ${lib.is_hidden ? 'checked' : ''}>
                         </div>
                     `).join('');
                 } else {
@@ -1251,10 +1251,10 @@
                                 <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
                                 <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
                             </div>
-                            <div class="ms-auto d-flex align-items-center">
+                            <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_internal_${item.name}`, item.type)}
-                                <input class="form-check-input ms-3" type="checkbox" name="hide_${item.name}" title="Hide this folder" ${item.is_hidden ? 'checked' : ''}>
                             </div>
+                            <input class="form-check-input" type="checkbox" name="hide_${item.name}" title="Hide this folder" ${item.is_hidden ? 'checked' : ''}>
                         </div>
                     `).join('');
                 } else {
