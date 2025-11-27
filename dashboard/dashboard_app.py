@@ -243,14 +243,29 @@ def get_cluster_status():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Get active nodes (updated in the last 5 minutes)
-            # Using the new 'nodes' table schema
+            # Also calculate the uptime based on the connected_at timestamp
             cur.execute("""
-                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age, version_mismatch
+                SELECT 
+                    *, 
+                    EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age, 
+                    version_mismatch,
+                    (NOW() - connected_at) as uptime
                 FROM nodes
                 WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
                 ORDER BY hostname
             """)
             nodes = cur.fetchall()
+
+            # Format uptime into a human-readable string
+            for node in nodes:
+                uptime_delta = node.get('uptime')
+                if uptime_delta:
+                    days = uptime_delta.days
+                    hours, rem = divmod(uptime_delta.seconds, 3600)
+                    minutes, _ = divmod(rem, 60)
+                    node['uptime_str'] = f"{days}d {hours}h {minutes}m"
+                else:
+                    node['uptime_str'] = "N/A"
             
             # Get total failure count
             cur.execute("SELECT COUNT(*) as cnt FROM failed_files")
@@ -376,6 +391,7 @@ def set_node_status(hostname, status):
                 # Corrected to insert into the 'nodes' table
                 cur.execute("""
                     INSERT INTO nodes (hostname, status, command, last_heartbeat) VALUES (%s, %s, %s, NOW())
+                    -- The connected_at column will be set to its default value (CURRENT_TIMESTAMP)
                     ON CONFLICT (hostname) DO NOTHING;
                 """, (hostname, status, status))
         db.commit()

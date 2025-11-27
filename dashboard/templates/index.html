@@ -279,7 +279,14 @@
                         <!-- Path Mappings -->
                         <div class="p-3 border rounded mb-4">
                             <h5>Path Mappings</h5>
+                            <div class="d-flex justify-content-between align-items-center">
                             <p class="form-text text-body-secondary">Translate paths from what the media scanner sees to what the container sees. Useful if your media is on a NAS (e.g., `/nfs/media` -> `/media`).</p>
+                                <div class="form-check form-switch" id="path-mapping-toggle-container">
+                                    {% set mapping_enabled = settings.get('plex_path_mapping_enabled', {}).get('setting_value', 'true') == 'true' %}
+                                    <input class="form-check-input" type="checkbox" role="switch" id="plex_path_mapping_enabled" name="plex_path_mapping_enabled" value="true" {{ 'checked' if mapping_enabled }}>
+                                    <label class="form-check-label" for="plex_path_mapping_enabled"><strong>Enable</strong></label>
+                                </div>
+                            </div>
                             <div class="row">
                                 <div class="col-md-6 mb-3">
                                     <label for="plex_path_from" class="form-label">
@@ -1203,6 +1210,8 @@
             const pathFromLabel = document.getElementById('path-from-label');
             const pathFromTooltip = document.getElementById('path-from-tooltip');
             const plexTabButton = document.getElementById('plex-integration-tab');
+            const pathMappingToggleContainer = document.getElementById('path-mapping-toggle-container');
+            const pathMappingToggle = document.getElementById('plex_path_mapping_enabled');
             const internalTabButton = document.getElementById('internal-integration-tab');
 
             function handleScannerChange() {
@@ -1210,12 +1219,18 @@
                 pathFromInput.disabled = false;
 
                 if (scannerPlexRadio.checked) {
-                    pathFromLabel.innerText = 'Plex Worker Path';
+                    pathFromLabel.innerText = 'Path in Plex';
                     pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
                     // Enable Plex tab, disable Internal tab
                     plexTabButton.disabled = false;
                     internalTabButton.disabled = true;
                     // If the internal tab was active, switch to the plex tab
+                    pathMappingToggleContainer.style.display = 'block'; // Show the toggle
+                    // Disable/enable path inputs based on the toggle's state
+                    const isMappingEnabled = pathMappingToggle.checked;
+                    document.getElementById('plex_path_from').disabled = !isMappingEnabled;
+                    document.getElementById('plex_path_to').disabled = !isMappingEnabled;
+
                     if (internalTabButton.classList.contains('active')) {
                         new bootstrap.Tab(plexTabButton).show();
                     }
@@ -1225,6 +1240,10 @@
                     // Disable Plex tab, enable Internal tab
                     plexTabButton.disabled = true;
                     internalTabButton.disabled = false;
+                    pathMappingToggleContainer.style.display = 'none'; // Hide the toggle
+                    // Always enable path inputs for internal scanner
+                    document.getElementById('plex_path_from').disabled = false;
+                    document.getElementById('plex_path_to').disabled = false;
                     // If the plex tab was active, switch to the internal tab
                     if (plexTabButton.classList.contains('active')) {
                         new bootstrap.Tab(internalTabButton).show();
@@ -1245,6 +1264,13 @@
 
             scannerPlexRadio.addEventListener('change', handleScannerChange);
             scannerInternalRadio.addEventListener('change', handleScannerChange);
+            // Add listener for the new toggle
+            pathMappingToggle.addEventListener('change', () => {
+                const isEnabled = pathMappingToggle.checked;
+                document.getElementById('plex_path_from').disabled = !isEnabled;
+                document.getElementById('plex_path_to').disabled = !isEnabled;
+            });
+
             handleScannerChange(); // Run on page load to set initial state
 
             // --- Manual Plex Scan Logic ---

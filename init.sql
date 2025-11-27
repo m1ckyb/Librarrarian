@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS nodes (
     hostname VARCHAR(255) UNIQUE NOT NULL,
     status VARCHAR(50),
     last_heartbeat TIMESTAMP,
+    connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
     version VARCHAR(50),
     version_mismatch BOOLEAN DEFAULT false,
     command VARCHAR(50) DEFAULT 'idle',
