@@ -1219,6 +1219,9 @@
                 } else {
                     container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
                 }
+
+                // Apply the initial visibility based on the toggle's state
+                document.getElementById('plex-show-hidden-toggle').dispatchEvent(new Event('change'));
             }
             if (document.getElementById('plex-libraries-container').style.display !== 'none') {
                 loadPlexLibraries();
