@@ -1277,16 +1277,17 @@
                 const toggle = document.getElementById(toggleId);
                 const listContainer = document.getElementById(listContainerId);
 
-                function applyVisibility() {
+                const applyVisibility = () => {
                     const showHidden = toggle.checked;
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        if (item.dataset.isHidden === 'true' && !showHidden) {
+                        const isItemHidden = item.dataset.isHidden === 'true';
+                        if (isItemHidden && !showHidden) {
                             item.style.display = 'none';
                         } else {
                             item.style.display = 'flex';
                         }
                     });
-                }
+                };
                 toggle.addEventListener('change', applyVisibility);
             }
             setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
