@@ -237,6 +237,7 @@
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="internal-integration-tab" data-bs-toggle="tab" data-bs-target="#internal-integration-pane" type="button">Internal</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="sonarr-integration-tab" data-bs-toggle="tab" data-bs-target="#sonarr-integration-pane" type="button">Sonarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="radarr-integration-tab" data-bs-toggle="tab" data-bs-target="#radarr-integration-pane" type="button">Radarr</button></li>
+                                <li class="nav-item" role="presentation"><button class="nav-link" id="lidarr-integration-tab" data-bs-toggle="tab" data-bs-target="#lidarr-integration-pane" type="button">Lidarr</button></li>
                             </ul>
 
                             <div class="tab-content border border-top-0 p-3" id="integrationsTabContent">
@@ -277,6 +278,8 @@
                                 <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Sonarr integration will be available in a future version.</p></div>
                                 <!-- Radarr Tab -->
                                 <div class="tab-pane fade" id="radarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Radarr integration will be available in a future version.</p></div>
+                                <!-- Lidarr Tab -->
+                                <div class="tab-pane fade" id="lidarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Lidarr integration will be available in a future version.</p></div>
                             </div>
                         </div>
                         <!-- Path Mappings -->
@@ -1165,6 +1168,18 @@
             // --- Dynamic Plex Library Loading ---
             async function loadPlexLibraries() {
                 const container = document.getElementById('plex-libraries-list');
+                const mediaTypes = {
+                    'movie': 'Movie',
+                    'show': 'TV Show',
+                    'artist': 'Music', // Plex uses 'artist' for music libraries
+                    'music': 'Music',
+                    'photo': 'Other Videos', // Map photo libraries to 'other'
+                    'other': 'Other Videos'
+                };
+                const createDropdown = (name, selectedType) => {
+                    const options = Object.entries(mediaTypes).filter(([key, _]) => !['artist', 'photo'].includes(key)).map(([key, value]) => `<option value="${key}" ${selectedType === key || (selectedType === 'artist' && key === 'music') || (selectedType === 'photo' && key === 'other') ? 'selected' : ''}>${value}</option>`).join('');
+                    return `<select class="form-select form-select-sm ms-auto" name="${name}" style="width: 150px;">${options}</select>`;
+                };
                 // Use the settings rendered directly into the page by the server.
                 // This completely avoids any race conditions with the DOM.
                 const hasToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
@@ -1180,7 +1195,13 @@
 
                 if (data.libraries && data.libraries.length > 0) {
                     container.innerHTML = data.libraries.map(lib => `
-                        <div class="form-check"><input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}><label class="form-check-label" for="lib-${lib.key}">${lib.title}</label></div>
+                        <div class="d-flex align-items-center mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
+                                <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
+                            </div>
+                            ${createDropdown(`type_plex_${lib.title}`, lib.type)}
+                        </div>
                     `).join('');
                 } else {
                     container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
@@ -1193,6 +1214,16 @@
             // --- Dynamic Internal Folder Loading ---
             async function loadInternalFolders() {
                 const container = document.getElementById('internal-folders-list');
+                const mediaTypes = {
+                    'movie': 'Movie',
+                    'show': 'TV Show',
+                    'music': 'Music',
+                    'other': 'Other Videos'
+                };
+                const createDropdown = (name, selectedType) => {
+                    const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
+                    return `<select class="form-select form-select-sm ms-auto" name="${name}" style="width: 150px;">${options}</select>`;
+                };
                 container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading folders...';
 
                 const response = await fetch('/api/internal/folders');
@@ -1200,8 +1231,14 @@
                 const currentPaths = "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',');
 
                 if (data.folders && data.folders.length > 0) {
-                    container.innerHTML = data.folders.map(folder => `
-                        <div class="form-check"><input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${folder}" id="folder-${folder}" ${currentPaths.includes(folder) ? 'checked' : ''}><label class="form-check-label" for="folder-${folder}">${folder}</label></div>
+                    container.innerHTML = data.folders.map(item => `
+                        <div class="d-flex align-items-center mb-2">
+                            <div class="form-check">
+                                <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
+                                <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
+                            </div>
+                            ${createDropdown(`type_internal_${item.name}`, item.type)}
+                        </div>
                     `).join('');
                 } else {
                     container.innerHTML = `<p class="text-muted">${data.error || 'No subdirectories found in /media.'}</p>`;

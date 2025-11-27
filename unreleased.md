@@ -9,6 +9,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Changed
 - **CI/CD Migration**: Migrated the CI/CD pipeline from GitHub Actions to Forgejo Actions.
+- **Integrations UI**: Replaced static type badges with dropdown menus, allowing users to assign a media type (Movie, TV Show, Music, etc.) to each Plex library and Internal folder. This lays the groundwork for Sonarr/Radarr/Lidarr integration.
 - **Path Mapping UI**: The Path Mapping toggle is now correctly shown for the Plex scanner and hidden for the Internal scanner (where it is always active).
 - **Path Mapping UI**: Added a tooltip to the Plex Path Mapping toggle to clarify its function.
 

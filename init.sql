@@ -62,6 +62,18 @@ GRANT ALL PRIVILEGES ON TABLE failed_files TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE failed_files_id_seq TO transcode;
 ALTER TABLE failed_files OWNER TO transcode;
 
+-- New table to store user-defined types for media sources (Plex libraries, internal folders)
+CREATE TABLE IF NOT EXISTS media_source_types (
+    id SERIAL PRIMARY KEY,
+    source_name VARCHAR(255) NOT NULL,
+    scanner_type VARCHAR(50) NOT NULL, -- 'plex' or 'internal'
+    media_type VARCHAR(50) NOT NULL, -- 'movie', 'show', 'music', 'other'
+    UNIQUE(source_name, scanner_type)
+);
+GRANT ALL PRIVILEGES ON TABLE media_source_types TO transcode;
+GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO transcode;
+ALTER TABLE media_source_types OWNER TO transcode;
+
 -- Insert default settings on initial creation
 INSERT INTO worker_settings (setting_name, setting_value) VALUES
     ('rescan_delay_minutes', '0'),
@@ -98,5 +110,5 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version INT PRIMARY KEY
 );
 -- For new installs, the schema is at the latest version.
-INSERT INTO schema_version (version) VALUES (3) ON CONFLICT (version) DO NOTHING;
+INSERT INTO schema_version (version) VALUES (4) ON CONFLICT (version) DO NOTHING;
 ALTER TABLE schema_version OWNER TO transcode;

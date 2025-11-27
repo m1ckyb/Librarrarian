@@ -147,7 +147,7 @@ print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 3
+TARGET_SCHEMA_VERSION = 4
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -162,6 +162,18 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('plex_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('media_scanner_type', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('internal_scan_paths', '') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 4: Add table for user-defined media source types
+    4: [
+        """
+        CREATE TABLE IF NOT EXISTS media_source_types (
+            id SERIAL PRIMARY KEY,
+            source_name VARCHAR(255) NOT NULL,
+            scanner_type VARCHAR(50) NOT NULL, -- 'plex' or 'internal'
+            media_type VARCHAR(50) NOT NULL, -- 'movie', 'show', 'music', 'other'
+            UNIQUE(source_name, scanner_type)
+        );
+        """
     ]
 }
 
@@ -624,11 +636,30 @@ def options():
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
 
+    # Handle internal folder paths
+    internal_paths = request.form.getlist('internal_scan_paths')
+    settings_to_update['internal_scan_paths'] = ','.join(internal_paths)
+
     errors = []
     for key, value in settings_to_update.items():
         success, error = update_worker_setting(key, value)
         if not success:
             errors.append(error)
+    
+    # --- NEW: Save the media type assignments ---
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            for key, value in request.form.items():
+                if key.startswith('type_plex_'):
+                    library_name = key.replace('type_plex_', '')
+                    cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'plex', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (library_name, value))
+                elif key.startswith('type_internal_'):
+                    folder_name = key.replace('type_internal_', '')
+                    cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'internal', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (folder_name, value))
+        db.commit()
+    except Exception as e:
+        errors.append(f"Could not save media type assignments: {e}")
 
     if not errors:
         flash('Worker settings have been updated successfully!', 'success')
@@ -953,22 +984,30 @@ def plex_logout():
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
     """Fetches a list of video libraries from the configured Plex server."""
-    settings, _ = get_worker_settings()
+    settings, db_error = get_worker_settings()
+    if db_error: return jsonify(libraries=[], error=db_error), 500
+
     plex_url = settings.get('plex_url', {}).get('setting_value')
     plex_token = settings.get('plex_token', {}).get('setting_value')
-
-    # Debugging: Print the values to the console
-    print(f"Attempting to connect to Plex. URL: '{plex_url}', Token: '{plex_token[:5]}...'")
 
     if not all([plex_url, plex_token]):
         return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
 
     try:
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT source_name, media_type FROM media_source_types WHERE scanner_type = 'plex'")
+            saved_types = {row['source_name']: row['media_type'] for row in cur.fetchall()}
+
         plex = PlexServer(plex_url, plex_token)
         libraries = [
-            {"title": section.title, "key": section.key}
+            {
+                "title": section.title, 
+                "key": section.key, 
+                "type": saved_types.get(section.title, section.type) # Use saved type, fallback to Plex API type
+            }
             for section in plex.library.sections()
-            if section.type in ['movie', 'show', 'artist', 'photo']
+            if section.type in ['movie', 'show', 'artist', 'photo'] # Allow all types
         ]
         return jsonify(libraries=libraries)
     except Exception as e:
@@ -976,15 +1015,36 @@ def plex_get_libraries():
 
 @app.route('/api/internal/folders', methods=['GET'])
 def api_internal_folders():
-    """Lists the subdirectories inside the /media folder."""
+    """Lists the subdirectories inside the /media folder and infers their type."""
+    def infer_type(folder_name):
+        """Simple heuristic to guess the folder type. Now includes music."""
+        name = folder_name.lower()
+        if 'movie' in name or 'film' in name:
+            return 'movie'
+        if 'tv' in name or 'show' in name or 'series' in name:
+            return 'show'
+        if 'music' in name or 'audio' in name:
+            return 'music'
+        return 'other' # Generic fallback
+
     media_path = '/media'
     folders = []
     try:
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT source_name, media_type FROM media_source_types WHERE scanner_type = 'internal'")
+            saved_types = {row['source_name']: row['media_type'] for row in cur.fetchall()}
+
         if os.path.isdir(media_path):
             for item in os.listdir(media_path):
                 if os.path.isdir(os.path.join(media_path, item)):
-                    folders.append(item)
-        return jsonify(folders=sorted(folders))
+                    default_type = infer_type(item)
+                    folders.append({
+                        "name": item, 
+                        "type": saved_types.get(item, default_type) # Use saved type, fallback to inferred type
+                    })
+        # Sort by name for consistent ordering
+        return jsonify(folders=sorted(folders, key=lambda x: x['name']))
     except Exception as e:
         print(f"Error listing internal folders: {e}")
         return jsonify(folders=[], error=str(e)), 500
