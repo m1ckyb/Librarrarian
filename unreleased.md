@@ -4,6 +4,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Added
 - **Node Uptime**: Added an uptime indicator to each worker node card, showing how long the node has been connected to the cluster.
+- **Automatic Database Migrations**: Implemented a system to automatically update the database schema on startup, eliminating the need for manual changes or database resets.
 - **Plex Path Mapping Toggle**: Added a toggle to enable or disable Plex path mappings. When disabled, the system uses file paths directly from the Plex API, simplifying setup for users whose container paths match their Plex paths.
 
 ### Changed

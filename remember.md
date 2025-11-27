@@ -67,6 +67,35 @@ This ensures all subsequent responses are informed by the full project context.
 
 ---
 
+## 5. Database Migrations
+
+**Problem:** When the database schema needs to be changed (e.g., adding a new column or setting), existing users would have to either manually run SQL commands or completely reset their database, causing data loss.
+
+**Correct Pattern:** An automatic migration system that runs on application startup.
+
+1.  **Schema Versioning:** The database contains a `schema_version` table that holds a single integer representing the current version of the schema.
+2.  **Target Version:** The `dashboard_app.py` file defines a `TARGET_SCHEMA_VERSION` constant, which is the version the code expects.
+3.  **Migration Dictionary:** A `MIGRATIONS` dictionary in `dashboard_app.py` maps version numbers to a list of SQL commands required to upgrade to that version.
+4.  **Startup Check:** On startup, the `run_migrations()` function compares the database's version to the target version. If the database is outdated, it applies all necessary migrations in sequential order, updating the schema version after each step.
+
+**How to Add a New Migration:**
+
+1.  **Increment Target Version:** In `dashboard_app.py`, increase the `TARGET_SCHEMA_VERSION` constant by 1 (e.g., from `3` to `4`).
+2.  **Add Migration SQL:** Add a new entry to the `MIGRATIONS` dictionary. The key should be the new version number. The value should be a list of SQL strings.
+3.  **Write Idempotent SQL:** The SQL commands **must** be idempotent, meaning they can be run multiple times without causing errors. Use clauses like `ADD COLUMN IF NOT EXISTS` and `INSERT ... ON CONFLICT DO NOTHING`.
+
+**Example (`dashboard_app.py`):**
+```python
+TARGET_SCHEMA_VERSION = 4
+MIGRATIONS = {
+    # ... existing migrations ...
+    4: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS new_feature_flag BOOLEAN DEFAULT false;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('new_setting', 'default_value') ON CONFLICT (setting_name) DO NOTHING;"
+    ]
+}
+```
+
 ## 3. Authentication & Authorization
 
 **Problem:** The cluster has two types of clients: human users (via browser) and machine clients (workers). A single auth system can cause conflicts.
