@@ -3,6 +3,9 @@
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
 ### Added
+- **Arr Integration Setup**: Added UI in the "Options" tab to configure connection settings (Host and API Key) for Sonarr, Radarr, and Lidarr.
+- **Arr Connection Testing**: Implemented a "Test Connection" button for each Arr service that validates the provided credentials and provides immediate feedback.
+
 
 ### Bugs / Buggy Features
 - **Media Source Management**: Added advanced controls for media sources in the Integrations tab.

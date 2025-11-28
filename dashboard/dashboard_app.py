@@ -15,6 +15,7 @@ try:
     from psycopg2.extras import RealDictCursor
     from authlib.integrations.flask_client import OAuth
     from werkzeug.middleware.proxy_fix import ProxyFix
+    import requests
 except ImportError:
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
@@ -635,6 +636,12 @@ def options():
         'plex_path_to': request.form.get('plex_path_to', ''),
         'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
     }
+    # Add the new *Arr settings
+    for arr_type in ['sonarr', 'radarr', 'lidarr']:
+        settings_to_update[f'{arr_type}_host'] = request.form.get(f'{arr_type}_host', '')
+        # Only update the API key if a new value is provided to avoid overwriting with blanks on password fields
+        if request.form.get(f'{arr_type}_api_key'):
+            settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
@@ -1339,6 +1346,40 @@ def release_cleanup_jobs():
     except Exception as e:
         print(f"Error releasing cleanup jobs: {e}")
         return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/arr/test', methods=['POST'])
+def api_arr_test():
+    """Tests the connection to a Sonarr/Radarr/Lidarr instance."""
+    data = request.get_json()
+    arr_type = data.get('arr_type')
+    host = data.get('host')
+    api_key = data.get('api_key')
+
+    if not all([arr_type, host, api_key]):
+        return jsonify(success=False, message="Missing required parameters."), 400
+
+    # Use /api/v3/system/status for modern Sonarr/Radarr, /api/v1 for Lidarr
+    api_version = 'v1' if arr_type == 'lidarr' else 'v3'
+    test_url = f"{host.rstrip('/')}/api/{api_version}/system/status"
+    headers = {'X-Api-Key': api_key}
+
+    try:
+        # Make the request with a timeout and without SSL verification for local setups
+        response = requests.get(test_url, headers=headers, timeout=5, verify=False)
+
+        if response.status_code == 200:
+            # Check for a valid JSON response as an extra verification step
+            response_data = response.json()
+            if 'version' in response_data:
+                return jsonify(success=True, message=f"Success! Connected to {arr_type.capitalize()} version {response_data['version']}.")
+            else:
+                return jsonify(success=False, message="Connection successful, but the response was not as expected.")
+        else:
+            return jsonify(success=False, message=f"Connection failed. Status code: {response.status_code}. Check URL and API Key."), 400
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, message="Connection failed: The request timed out. Check the host address and port."), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify(success=False, message=f"Connection failed: {e}. Check the host address and ensure it is reachable."), 500
 
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():

@@ -158,3 +158,4 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 ## Agent Capabilities & Limitations
 
 *   **Shell Access**: I do not have direct access to the user's shell. I cannot run commands like `docker-compose`, `git`, or other command-line tools myself. I must always ask the user to run these commands and provide the output if needed.
+*   **File System Access**: I have full read and write access to all files within this project repository. I will make necessary changes directly without asking for permission, as per standing instructions.
