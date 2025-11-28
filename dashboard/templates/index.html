@@ -1280,7 +1280,7 @@
                 const applyVisibility = () => {
                     const showHidden = toggle.checked;
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        const isItemHidden = item.dataset.isHidden === 'true';
+                        const isItemHidden = item.dataset.isHidden.toLowerCase() === 'true';
                         if (isItemHidden && !showHidden) {
                             item.style.display = 'none';
                         } else {
