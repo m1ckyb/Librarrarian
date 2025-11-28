@@ -647,6 +647,7 @@ def options():
         # Only update the API key if a new value is provided to avoid overwriting with blanks on password fields
         if request.form.get(f'{arr_type}_api_key'):
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
+    settings_to_update['sonarr_add_to_queue'] = 'true' if 'sonarr_add_to_queue' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
@@ -1259,28 +1260,39 @@ def api_trigger_scan():
 
 def run_sonarr_rename_scan():
     """
-    Scans the Sonarr queue for completed downloads and adds them as 'rename' jobs.
+    Handles Sonarr integration. Can either trigger Sonarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
     """
-    if not scanner_lock.acquire(blocking=False):
-        print(f"[{datetime.now()}] Rename scan trigger ignored: A scan is already in progress.")
-        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+    settings, db_error = get_worker_settings()
+    if db_error: return {"success": False, "message": "Database not available."}
 
-    try:
-        with app.app_context():
-            settings, db_error = get_worker_settings()
-            if db_error: return {"success": False, "message": "Database not available."}
+    host = settings.get('sonarr_host', {}).get('setting_value')
+    api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+    add_to_queue = settings.get('sonarr_add_to_queue', {}).get('setting_value') == 'true'
 
-            host = settings.get('sonarr_host', {}).get('setting_value')
-            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+    if not host or not api_key:
+        return {"success": False, "message": "Sonarr is not configured."}
 
-            if not host or not api_key:
-                return {"success": False, "message": "Sonarr is not configured."}
-
+    if not add_to_queue:
+        # --- Mode 1: Trigger Sonarr API Directly ---
+        print(f"[{datetime.now()}] Triggering Sonarr 'DownloadedEpisodesScan' command...")
+        command_url = f"{host.rstrip('/')}/api/v3/command"
+        headers = {'X-Api-Key': api_key}
+        payload = {'name': 'DownloadedEpisodesScan'}
+        try:
+            response = requests.post(command_url, headers=headers, json=payload, timeout=10, verify=False)
+            response.raise_for_status()
+            return {"success": True, "message": "Sonarr import scan triggered successfully."}
+        except requests.RequestException as e:
+            return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+    else:
+        # --- Mode 2: Add to Job Queue ---
+        print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting scan to add jobs to queue...")
+        if not scanner_lock.acquire(blocking=False):
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+        try:
             queue_url = f"{host.rstrip('/')}/api/v3/queue"
             headers = {'X-Api-Key': api_key}
-            
-            print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting scan...")
-            
             try:
                 response = requests.get(queue_url, headers=headers, timeout=10, verify=False)
                 response.raise_for_status()
@@ -1291,27 +1303,23 @@ def run_sonarr_rename_scan():
             conn = get_db()
             cur = conn.cursor()
             new_jobs_found = 0
-
             for item in queue_data.get('records', []):
-                # We are looking for items that are finished downloading but not yet imported by Sonarr
                 if item.get('status') == 'completed' and 'outputPath' in item:
                     filepath = item['outputPath']
                     metadata = {
-                        'source': 'sonarr',
-                        'seriesTitle': item.get('series', {}).get('title'),
+                        'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'),
                         'seasonNumber': item.get('episode', {}).get('seasonNumber'),
                         'episodeNumber': item.get('episode', {}).get('episodeNumber'),
                         'episodeTitle': item.get('episode', {}).get('title'),
                         'quality': item.get('quality', {}).get('quality', {}).get('name'),
                     }
                     cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'rename', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                    if cur.rowcount > 0:
-                        new_jobs_found += 1
-            
+                    if cur.rowcount > 0: new_jobs_found += 1
             conn.commit()
-            return {"success": True, "message": f"Sonarr scan complete. Found {new_jobs_found} new files to rename."}
-    finally:
-        scanner_lock.release()
+            return {"success": True, "message": f"Sonarr scan complete. Found {new_jobs_found} new files to rename. They are awaiting approval in the job queue."}
+        finally:
+            if scanner_lock.locked():
+                scanner_lock.release()
 
 def run_cleanup_scan():
     """
@@ -1544,6 +1552,7 @@ def update_job(job_id):
     elif status == 'failed':
         # For any failed job, log it and mark as failed in the queue
         cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
+        cur.execute("INSERT INTO failed_files (filename, reason, log, reported_at) VALUES (%s, %s, %s, CURRENT_TIMESTAMP)", (job['filepath'], data.get('reason'), data.get('log')))
         cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
         message = f"Job {job_id} ({job['job_type']}) failed and logged."
 
