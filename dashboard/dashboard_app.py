@@ -6,6 +6,7 @@ import uuid
 import base64
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
+import subprocess
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
@@ -88,8 +89,12 @@ def setup_auth(app):
             return
 
         # Block all unauthenticated API access.
+        # This is for machine-to-machine communication (workers).
         if request.path.startswith('/api/'):
-            return jsonify(error="Authentication required"), 401
+            api_key = request.headers.get('X-API-Key')
+            if api_key and api_key == os.environ.get('API_KEY'):
+                return # API key is valid, allow access
+            return jsonify(error="Authentication required. Invalid or missing API Key."), 401
             return
 
         return redirect(url_for('login'))
@@ -116,7 +121,8 @@ def setup_auth(app):
             auth_enabled=app.config.get('AUTH_ENABLED', False), 
             user_name=user_name, 
             greeting=greeting,
-            oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME')
+            oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'),
+            version=get_project_version()
         )
 
 # Initialize authentication
@@ -125,11 +131,101 @@ setup_auth(app)
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
     try:
-        version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt')
-        return open(version_file, 'r').read().strip()
+        # The Dockerfile copies VERSION.txt to the workdir /app
+        return open('VERSION.txt', 'r').read().strip()
     except FileNotFoundError:
-        return "unknown"
+        # Fallback for local development where CWD might be different
+        try:
+            version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt')
+            return open(version_file, 'r').read().strip()
+        except FileNotFoundError:
+            return "unknown"
 
+# Print a startup banner to the logs
+print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
+
+# ===========================
+# Database Migrations
+# ===========================
+TARGET_SCHEMA_VERSION = 5
+
+MIGRATIONS = {
+    # Version 2: Add uptime tracking
+    2: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;",
+        # Backfill the connected_at for existing nodes to prevent them from showing "N/A" uptime.
+        # We'll use their last_heartbeat as a reasonable approximation for when they connected.
+        "UPDATE nodes SET connected_at = last_heartbeat WHERE connected_at IS NULL;"
+    ],
+    # Version 3: Add Plex path mapping toggle and internal scanner settings
+    3: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('plex_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('media_scanner_type', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('internal_scan_paths', '') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 4: Add table for user-defined media source types
+    4: [
+        """
+        CREATE TABLE IF NOT EXISTS media_source_types (
+            id SERIAL PRIMARY KEY,
+            source_name VARCHAR(255) NOT NULL,
+            scanner_type VARCHAR(50) NOT NULL, -- 'plex' or 'internal'
+            media_type VARCHAR(50) NOT NULL, -- 'movie', 'show', 'music', 'other'
+            UNIQUE(source_name, scanner_type)
+        );
+        """
+    ],
+    # Version 5: Add 'is_hidden' flag to media sources
+    5: [
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false;"
+    ]
+}
+
+def run_migrations():
+    """Checks the current DB schema version and applies any necessary migrations."""
+    print("Checking database schema version...")
+    try:
+        conn = psycopg2.connect(**DB_CONFIG)
+        cur = conn.cursor()
+
+        # Check if the schema_version table exists. If not, this is a pre-migration database.
+        cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
+        if not cur.fetchone()[0]:
+            print("Schema version table not found. Assuming version 1.")
+            current_version = 1
+            cur.execute("CREATE TABLE schema_version (version INT PRIMARY KEY);")
+            cur.execute("INSERT INTO schema_version (version) VALUES (1);")
+            conn.commit()
+        else:
+            cur.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+            res = cur.fetchone()
+            current_version = res[0] if res else 1
+
+        print(f"Current schema version: {current_version}. Target version: {TARGET_SCHEMA_VERSION}.")
+
+        if current_version >= TARGET_SCHEMA_VERSION:
+            print("Database schema is up to date.")
+            cur.close()
+            conn.close()
+            return
+
+        # Apply migrations in order
+        for version in sorted(MIGRATIONS.keys()):
+            if version > current_version:
+                print(f"Applying migration for version {version}...")
+                for statement in MIGRATIONS[version]:
+                    print(f"  -> Executing: {statement[:80]}...")
+                    cur.execute(statement)
+                cur.execute("UPDATE schema_version SET version = %s", (version,))
+                conn.commit()
+                print(f"Successfully migrated to version {version}.")
+
+        cur.close()
+        conn.close()
+    except Exception as e:
+        print(f"❌ CRITICAL: Database migration failed: {e}")
+        print("   The application cannot start. Please resolve the database issue and restart the container.")
+        sys.exit(1)
 
 # ===========================
 # Database Layer
@@ -167,6 +263,7 @@ def init_db():
                 status VARCHAR(50),
                 last_heartbeat TIMESTAMP,
                 version VARCHAR(50),
+                version_mismatch BOOLEAN DEFAULT false,
                 command VARCHAR(50) DEFAULT 'idle',
                 progress REAL,
                 fps REAL,
@@ -195,6 +292,7 @@ def init_db():
         cur.execute("""
             CREATE TABLE IF NOT EXISTS encoded_files (
                 id SERIAL PRIMARY KEY,
+                job_id INTEGER,
                 filename TEXT,
                 original_size BIGINT,
                 new_size BIGINT,
@@ -228,20 +326,50 @@ def get_cluster_status():
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Get active nodes (updated in the last 5 minutes)
-            # Using the new 'nodes' table schema
+            # Also calculate the uptime based on the connected_at timestamp
             cur.execute("""
-                SELECT *, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age
+                SELECT 
+                    *, 
+                    EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) as age, 
+                    version_mismatch,
+                    (NOW() - connected_at) as uptime
                 FROM nodes
                 WHERE last_heartbeat > NOW() - INTERVAL '5 minutes'
                 ORDER BY hostname
             """)
             nodes = cur.fetchall()
+
+            # Format uptime into a human-readable string
+            for node in nodes:
+                uptime_delta = node.get('uptime')
+                if uptime_delta:
+                    days = uptime_delta.days
+                    hours, rem = divmod(uptime_delta.seconds, 3600)
+                    minutes, _ = divmod(rem, 60)
+                    node['uptime_str'] = f"{days}d {hours}h {minutes}m"
+                else:
+                    node['uptime_str'] = "N/A"
+                # Remove the raw timedelta object as it's not JSON serializable
+                node.pop('uptime', None)
             
             # Get total failure count
             cur.execute("SELECT COUNT(*) as cnt FROM failed_files")
             failures = cur.fetchone()['cnt']
     except Exception as e:
         db_error = f"Database query failed: {e}"
+
+    # --- Server-Side Version Mismatch Check ---
+    # The dashboard should be the source of truth for version mismatches.
+    # This ensures that if the dashboard is updated, it will flag old workers.
+    dashboard_version = get_project_version()
+    if db is not None and dashboard_version != "unknown":
+        with db.cursor() as cur:
+            for node in nodes:
+                is_mismatched = node['version'] != dashboard_version
+                if node['version_mismatch'] != is_mismatched:
+                    cur.execute("UPDATE nodes SET version_mismatch = %s WHERE hostname = %s", (is_mismatched, node['hostname']))
+                    node['version_mismatch'] = is_mismatched # Update the live data
+        db.commit()
 
     return nodes, failures, db_error
 
@@ -348,6 +476,7 @@ def set_node_status(hostname, status):
                 # Corrected to insert into the 'nodes' table
                 cur.execute("""
                     INSERT INTO nodes (hostname, status, command, last_heartbeat) VALUES (%s, %s, %s, NOW())
+                    -- The connected_at column will be set to its default value (CURRENT_TIMESTAMP)
                     ON CONFLICT (hostname) DO NOTHING;
                 """, (hostname, status, status))
         db.commit()
@@ -411,9 +540,7 @@ def dashboard():
         nodes=nodes, 
         fail_count=fail_count, 
         db_error=db_error or settings_db_error, # Show error from either query
-        settings=settings,
-        last_updated=datetime.now().strftime('%H:%M:%S'),
-        version=get_project_version()
+        settings=settings
     )
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -480,10 +607,11 @@ def logout():
 def options():
     """
     Handles the form submission for worker settings from the main dashboard.
-    This route now follows the Post-Redirect-Get pattern to prevent form resubmission warnings.
+    This route now follows the Post-Redirect-Get pattern and uses a single
+    atomic transaction to save all settings.
     """
-    # A dictionary to hold all settings from the form
     settings_to_update = {
+        'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
         'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
@@ -503,24 +631,58 @@ def options():
         'cpu_cq_hd': request.form.get('cpu_cq_hd', '28'),
         'cpu_cq_sd': request.form.get('cpu_cq_sd', '24'),
         'cq_width_threshold': request.form.get('cq_width_threshold', '1900'),
+        'plex_path_from': request.form.get('plex_path_from', ''),
+        'plex_path_to': request.form.get('plex_path_to', ''),
+        'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
     }
-
-    # Handle multi-select for Plex libraries
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
+    internal_paths = request.form.getlist('internal_scan_paths')
+    settings_to_update['internal_scan_paths'] = ','.join(internal_paths)
 
-    errors = []
-    for key, value in settings_to_update.items():
-        success, error = update_worker_setting(key, value)
-        if not success:
-            errors.append(error)
+    db = get_db()
+    if not db:
+        flash('Could not connect to the database.', 'danger')
+        return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
-    if not errors:
+    try:
+        with db.cursor() as cur:
+            # 1. Update general worker settings
+            for key, value in settings_to_update.items():
+                cur.execute("""
+                    INSERT INTO worker_settings (setting_name, setting_value) VALUES (%s, %s)
+                    ON CONFLICT (setting_name) DO UPDATE SET setting_value = EXCLUDED.setting_value;
+                """, (key, value))
+
+            # 2. Update media type and hide status assignments
+            all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
+            all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
+
+            for source_name in all_plex_sources:
+                media_type = request.form.get(f'type_plex_{source_name}')
+                is_hidden = (media_type == 'none')
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
+                    VALUES (%s, 'plex', %s, %s)
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
+
+            for source_name in all_internal_sources:
+                media_type = request.form.get(f'type_internal_{source_name}')
+                is_hidden = (media_type == 'none')
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
+                    VALUES (%s, 'internal', %s, %s)
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
+
+        db.commit()
         flash('Worker settings have been updated successfully!', 'success')
-    else:
-        flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
 
-    # Redirect back to the main page, anchoring to the options tab
+    except Exception as e:
+        db.rollback()
+        flash(f'Failed to update settings due to a database error: {e}', 'danger')
+
     return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
 @app.route('/api/settings', methods=['GET'])
@@ -529,19 +691,35 @@ def api_settings():
     settings, db_error = get_worker_settings()
     if db_error:
         return jsonify(settings={}, error=db_error), 500
-    return jsonify(settings=settings)
+    return jsonify(settings=settings, dashboard_version=get_project_version())
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
-    """Clears all jobs from the job_queue table."""
+    """Clears all 'pending' jobs from the job_queue table."""
     try:
         db = get_db()
         with db.cursor() as cur:
-            cur.execute("TRUNCATE TABLE jobs RESTART IDENTITY;")
+            # Use DELETE instead of TRUNCATE to preserve the ID sequence and avoid deleting active jobs.
+            cur.execute("DELETE FROM jobs WHERE status = 'pending';")
         db.commit()
         return jsonify(success=True, message="Job queue cleared successfully.")
     except Exception as e:
         print(f"Error clearing job queue: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/jobs/delete/<int:job_id>', methods=['POST'])
+def api_delete_job(job_id):
+    """Deletes a single job from the jobs table."""
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+        db.commit()
+        if cur.rowcount == 0:
+            return jsonify(success=False, error="Job not found."), 404
+        return jsonify(success=True, message=f"Job {job_id} deleted successfully.")
+    except Exception as e:
+        print(f"Error deleting job {job_id}: {e}")
         return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/jobs', methods=['GET'])
@@ -563,8 +741,11 @@ def api_jobs():
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # Query for the paginated list of jobs
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
+            # We also calculate the age of the job in minutes to detect stuck jobs.
             cur.execute("""
-                SELECT * FROM jobs
+                SELECT *,
+                       EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS age_minutes
+                FROM jobs
                 ORDER BY
                     CASE status
                         WHEN 'encoding' THEN 1
@@ -785,15 +966,21 @@ def plex_login():
     """Logs into Plex using username/password and saves the auth token."""
     username = request.json.get('username')
     password = request.json.get('password')
+    plex_url = request.json.get('plex_url')
 
     if not username or not password:
         return jsonify(success=False, error="Username and password are required."), 400
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
 
     try:
         # Instantiate the account object with username and password to sign in.
         account = MyPlexAccount(username, password)
         token = account.authenticationToken
         if token:
+            # Save both the URL and the token
+            update_worker_setting('plex_url', plex_url)
             update_worker_setting('plex_token', token)
             return jsonify(success=True, message="Plex account linked successfully!")
         else:
@@ -812,27 +999,95 @@ def plex_logout():
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
-    """Fetches a list of video libraries from the configured Plex server."""
-    settings, _ = get_worker_settings()
+    """Fetches a list of libraries from the configured Plex server, merged with saved settings."""
+    settings, db_error = get_worker_settings()
+    if db_error: return jsonify(libraries=[], error=db_error), 500
+
     plex_url = settings.get('plex_url', {}).get('setting_value')
     plex_token = settings.get('plex_token', {}).get('setting_value')
-
-    # Debugging: Print the values to the console
-    print(f"Attempting to connect to Plex. URL: '{plex_url}', Token: '{plex_token[:5]}...'")
 
     if not all([plex_url, plex_token]):
         return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
 
     try:
         plex = PlexServer(plex_url, plex_token)
-        libraries = [
-            {"title": section.title, "key": section.key}
-            for section in plex.library.sections()
-            if section.type in ['movie', 'show', 'artist', 'photo']
-        ]
-        return jsonify(libraries=libraries)
+        db = get_db()
+
+        # 1. Fetch saved types from the database into a dictionary
+        saved_types = {}
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
+            for row in cur.fetchall():
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+
+        # 2. Fetch libraries from Plex and merge with saved settings
+        result_libraries = []
+        plex_sections = [s for s in plex.library.sections() if s.type in ['movie', 'show', 'artist', 'photo']]
+        
+        for section in plex_sections:
+            saved_setting = saved_types.get(section.title)
+            if saved_setting:
+                result_libraries.append({
+                    'title': section.title,
+                    'type': saved_setting['type'],
+                    'is_hidden': saved_setting['is_hidden'],
+                    'plex_type': section.type,
+                    'key': section.key
+                })
+            else:
+                # If not in our DB, use Plex's info and default to not hidden
+                result_libraries.append({
+                    'title': section.title,
+                    'type': section.type, # Default to the type from Plex
+                    'is_hidden': False,
+                    'plex_type': section.type,
+                    'key': section.key
+                })
+
+        return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
+        return jsonify(libraries=[], error=f"Could not connect to Plex or process libraries: {e}"), 500
+
+@app.route('/api/internal/folders', methods=['GET'])
+def api_internal_folders():
+    """Lists the subdirectories inside the /media folder and infers their type."""
+    def infer_type(folder_name):
+        """Simple heuristic to guess the folder type. Now includes music."""
+        name = folder_name.lower()
+        if 'movie' in name or 'film' in name:
+            return 'movie'
+        if 'tv' in name or 'show' in name or 'series' in name:
+            return 'show'
+        if 'music' in name or 'audio' in name:
+            return 'music'
+        return 'other' # Generic fallback
+
+    media_path = '/media'
+    folders = []
+    try:
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            folder_names = [item for item in os.listdir(media_path) if os.path.isdir(os.path.join(media_path, item))] if os.path.isdir(media_path) else []
+            
+            if not folder_names:
+                return jsonify(folders=[])
+
+            # This query now correctly joins and handles NULLs for internal folders.
+            cur.execute("""
+                SELECT s.name, COALESCE(mst.media_type, s.inferred_type) as type, COALESCE(mst.is_hidden, false) as is_hidden
+                FROM (SELECT unnest(%(names)s) as name, unnest(%(types)s) as inferred_type) s
+                LEFT JOIN media_source_types mst ON s.name = mst.source_name AND mst.scanner_type = 'internal'
+            """, {
+                'names': folder_names,
+                'types': [infer_type(name) for name in folder_names]
+            })
+            folders = cur.fetchall()
+
+        # Sort by name for consistent ordering
+        return jsonify(folders=sorted(folders, key=lambda x: x['name']))
+    except Exception as e:
+        print(f"Error listing internal folders: {e}")
+        return jsonify(folders=[], error=str(e)), 500
 
 # --- New Background Scanner and Worker API ---
 
@@ -841,6 +1096,67 @@ scan_now_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
 
+def run_internal_scan(force_scan=False):
+    """
+    The core logic for scanning local directories.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return {"success": False, "message": "Database not available."}
+
+        scan_paths_str = settings.get('internal_scan_paths', {}).get('setting_value', '')
+        scan_paths = [path.strip() for path in scan_paths_str.split(',') if path.strip()]
+
+        if not scan_paths:
+            return {"success": False, "message": "Internal scanner is enabled, but no paths are configured to be scanned."}
+
+        conn = get_db()
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+
+        if force_scan:
+            existing_jobs = set()
+            encoded_history = set()
+        else:
+            cur.execute("SELECT filepath FROM jobs")
+            existing_jobs = {row['filepath'] for row in cur.fetchall()}
+            cur.execute("SELECT filename FROM encoded_files")
+            encoded_history = {row['filename'] for row in cur.fetchall()}
+        
+        new_files_found = 0
+        valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
+        print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+
+        for folder in scan_paths:
+            full_scan_path = os.path.join('/media', folder)
+            print(f"[{datetime.now()}] Internal Scanner: Scanning '{full_scan_path}'...")
+            for root, _, files in os.walk(full_scan_path):
+                for file in files:
+                    if not file.lower().endswith(valid_extensions):
+                        continue
+                    
+                    filepath = os.path.join(root, file)
+                    if filepath in existing_jobs or filepath in encoded_history:
+                        continue
+
+                    try:
+                        # Use ffprobe to get the video codec
+                        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
+                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip()
+                        
+                        print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                        if codec and codec not in ['hevc', 'h265']:
+                            print(f"    -> Found non-HEVC file. Adding to queue.")
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                            if cur.rowcount > 0:
+                                new_files_found += 1
+                    except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                        print(f"    -> Could not probe file '{filepath}'. Error: {e}")
+
+        conn.commit()
+        message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+        cur.close()
+        return {"success": True, "message": message}
 
 def run_plex_scan(force_scan=False):
     """
@@ -876,8 +1192,14 @@ def run_plex_scan(force_scan=False):
                 return {"success": False, "message": f"Could not connect to Plex server: {e}"}
 
             # Only check existing jobs/history if it's NOT a forced scan
-            existing_jobs = set() if force_scan else {row['filepath'] for row in (cur.execute("SELECT filepath FROM jobs"), cur.fetchall())[1]}
-            encoded_history = set() if force_scan else {row['filename'] for row in (cur.execute("SELECT filename FROM encoded_files"), cur.fetchall())[1]}
+            if force_scan:
+                existing_jobs = set()
+                encoded_history = set()
+            else:
+                cur.execute("SELECT filepath FROM jobs")
+                existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                cur.execute("SELECT filename FROM encoded_files")
+                encoded_history = {row['filename'] for row in cur.fetchall()}
             
             new_files_found = 0
             print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
@@ -910,8 +1232,8 @@ def run_plex_scan(force_scan=False):
     finally:
         scanner_lock.release()
 
-@app.route('/api/plex/scan', methods=['POST'])
-def api_plex_scan():
+@app.route('/api/scan/trigger', methods=['POST'])
+def api_trigger_scan():
     """API endpoint to manually trigger a Plex scan."""
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
@@ -934,30 +1256,89 @@ def run_cleanup_scan():
 
     try:
         with app.app_context():
-            media_dir = '/media'
-            stale_extensions = ('.lock', '.tmp_hevc')
-            jobs_created = 0
+            settings, _ = get_worker_settings()
+            plex_url = settings.get('plex_url', {}).get('setting_value')
+            plex_token = settings.get('plex_token', {}).get('setting_value')
+            plex_libraries_str = settings.get('plex_libraries', {}).get('setting_value', '')
+            plex_libraries = {lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()}
+            path_from = settings.get('plex_path_from', {}).get('setting_value')
+            path_to = settings.get('plex_path_to', {}).get('setting_value')
 
+            if not all([plex_url, plex_token, plex_libraries]):
+                print(f"[{datetime.now()}] Cleanup scan skipped: Plex integration is not fully configured.")
+                return
+
+            # Get the root paths from the monitored Plex libraries
+            scan_paths = set()
+            try:
+                plex = PlexServer(plex_url, plex_token)
+                for section in plex.library.sections():
+                    if section.title in plex_libraries:
+                        for location in section.locations:
+                            local_path = location
+                            # Only perform path replacement if the feature is enabled
+                            # and both 'from' and 'to' paths are actually defined.
+                            path_mapping_enabled = settings.get('plex_path_mapping_enabled', {}).get('setting_value') == 'true'
+                            if path_mapping_enabled and path_from and path_to:
+                                local_path = location.replace(path_from, path_to, 1)
+                                print(f"[{datetime.now()}] Cleanup Scanner: Mapping Plex path '{location}' to '{local_path}'")
+                            else:
+                                print(f"[{datetime.now()}] Cleanup Scanner: Using direct Plex path '{location}' (mapping disabled or not configured).")
+                            scan_paths.add(local_path)
+            except Exception as e:
+                print(f"[{datetime.now()}] Cleanup scan failed: Could not connect to Plex to get library paths. Error: {e}")
+                return
+
+            if not scan_paths:
+                print(f"[{datetime.now()}] Cleanup scan finished: No valid library paths found to scan.")
+                return
+
+            print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+            jobs_created = 0
             db = get_db()
             with db.cursor(cursor_factory=RealDictCursor) as cur:
-                # Get a set of all filepaths currently in the jobs table to avoid duplicates
                 cur.execute("SELECT filepath FROM jobs")
                 existing_jobs = {row['filepath'] for row in cur.fetchall()}
 
-                print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of {media_dir}...")
-                for root, _, files in os.walk(media_dir):
-                    for file in files:
-                        if file.endswith(stale_extensions):
-                            full_path = os.path.join(root, file)
-                            if full_path not in existing_jobs:
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'pending')", (full_path,))
-                                jobs_created += 1
+                for path in scan_paths:
+                    if not os.path.isdir(path): continue
+                    # Scan for files ending in .lock or starting with tmp_
+                    for root, _, files in os.walk(path):
+                        for file in files:
+                            if file.endswith('.lock') or file.startswith('tmp_'):
+                                full_path = os.path.join(root, file)
+                                if full_path not in existing_jobs:
+                                    cur.execute(
+                                        "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'awaiting_approval')",
+                                        (full_path,))
+                                    jobs_created += 1
             db.commit()
             print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
     except Exception as e:
         print(f"[{datetime.now()}] Error during cleanup scan: {e}")
     finally:
         cleanup_scanner_lock.release()
+
+@app.route('/api/jobs/release', methods=['POST'])
+def release_cleanup_jobs():
+    """Changes the status of cleanup jobs from 'awaiting_approval' to 'pending'."""
+    data = request.get_json()
+    job_ids = data.get('job_ids')
+    release_all = data.get('release_all', False)
+
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            if release_all:
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type = 'cleanup' AND status = 'awaiting_approval'")
+            elif job_ids:
+                # The '%s' placeholder will be correctly formatted by psycopg2 for the IN clause
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type = 'cleanup' AND status = 'awaiting_approval'", (tuple(job_ids),))
+        db.commit()
+        return jsonify(success=True, message="Selected cleanup jobs have been released to the queue.")
+    except Exception as e:
+        print(f"Error releasing cleanup jobs: {e}")
+        return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():
@@ -1042,6 +1423,12 @@ def update_job(job_id):
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
 
+        elif job['job_type'] == 'cleanup':
+            # For cleanups, add a simplified entry to the history
+            cur.execute(
+                "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, 0, 0, %s, 'completed')",
+                (job_id, job['filepath'], job['assigned_to'])
+            )
         # For all completed jobs (transcode or cleanup), delete from the jobs queue
         cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
         message = f"Job {job_id} ({job['job_type']}) completed and removed from queue."
@@ -1080,11 +1467,18 @@ def plex_scanner_thread():
         
         if scan_triggered:
             print(f"[{datetime.now()}] Manual scan trigger received.")
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                scanner_type = settings.get('media_scanner_type', {}).get('setting_value', 'plex')
+                if scanner_type == 'internal':
+                    run_internal_scan(force_scan=True)
+                else:
+                    run_plex_scan(force_scan=True)
             scan_now_event.clear() # Reset the event for the next time
-            run_plex_scan(force_scan=True) # Assume manual scans are forced for simplicity
         elif delay > 0:
             print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
-            run_plex_scan(force_scan=False) # Automatic scans are never forced
+            # This will need to be updated to also check scanner type
+            run_plex_scan(force_scan=False)
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
@@ -1102,5 +1496,10 @@ cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
 
 if __name__ == '__main__':
+    # Run migrations before starting the Flask app for local development
+    run_migrations()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
+else:
+    # When run by Gunicorn in production, run migrations first
+    run_migrations()
