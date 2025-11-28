@@ -650,39 +650,37 @@ def options():
         if not success:
             errors.append(error)
     
-    # --- NEW: Save the media type assignments ---
+    # --- NEW: Save the media type and hide status assignments ---
     try:
         db = get_db()
         with db.cursor() as cur:
-            for key, value in request.form.items():
-                # Handle media type assignments
-                if key.startswith('type_plex_'):
-                    library_name = key.replace('type_plex_', '')
-                    cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'plex', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (library_name, value))
-                elif key.startswith('type_internal_'):
-                    folder_name = key.replace('type_internal_', '')
-                    cur.execute("INSERT INTO media_source_types (source_name, scanner_type, media_type) VALUES (%s, 'internal', %s) ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type", (folder_name, value))
-            
-            # --- Correctly handle 'hide' toggles ---
-            # Get all possible sources by looking at all submitted 'type' and 'hide' fields.
-            all_possible_sources = set()
-            for key in request.form.keys():
-                if key.startswith('type_plex_'): all_possible_sources.add(key.replace('type_plex_', ''))
-                if key.startswith('type_internal_'): all_possible_sources.add(key.replace('type_internal_', ''))
-                if key.startswith('hide_'): all_possible_sources.add(key.replace('hide_', ''))
-            
-            for source_name in all_possible_sources:
-                is_hidden = f'hide_{source_name}' in request.form
-                scanner_type = 'internal' if f'type_internal_{source_name}' in request.form else 'plex'
-                
-                # Use an "upsert" to ensure the record is created if it doesn't exist.
-                # This will update the 'is_hidden' flag while preserving the existing 'media_type' if the record already exists.
-                # If the record is new, it defaults media_type to 'other', which can be changed later.
+            # Get a definitive list of all sources that were rendered on the page
+            all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
+            all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
+
+            # Process Plex sources
+            for source_name in all_plex_sources:
+                media_type = request.form.get(f'type_plex_{source_name}')
+                is_hidden = f'hide_plex_{source_name}' in request.form
+
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, is_hidden, media_type)
-                    VALUES (%s, %s, %s, 'other')
-                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET is_hidden = EXCLUDED.is_hidden;
-                """, (source_name, scanner_type, is_hidden))
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
+                    VALUES (%s, 'plex', %s, %s)
+                    ON CONFLICT (source_name, scanner_type)
+                    DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
+
+            # Process Internal sources
+            for source_name in all_internal_sources:
+                media_type = request.form.get(f'type_internal_{source_name}')
+                is_hidden = f'hide_internal_{source_name}' in request.form
+
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
+                    VALUES (%s, 'internal', %s, %s)
+                    ON CONFLICT (source_name, scanner_type)
+                    DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
         db.commit()
     except Exception as e:
         errors.append(f"Could not save media type assignments: {e}")
