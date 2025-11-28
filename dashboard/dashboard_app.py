@@ -1074,7 +1074,7 @@ def api_internal_folders():
 
             # This query now correctly joins and handles NULLs for internal folders.
             cur.execute("""
-                SELECT s.name, COALESCE(mst.media_type, s.inferred_type) as type, COALESce(mst.is_hidden, false) as is_hidden
+                SELECT s.name, COALESCE(mst.media_type, s.inferred_type) as type, COALESCE(mst.is_hidden, false) as is_hidden
                 FROM (SELECT unnest(%(names)s) as name, unnest(%(types)s) as inferred_type) s
                 LEFT JOIN media_source_types mst ON s.name = mst.source_name AND mst.scanner_type = 'internal'
             """, {
@@ -1114,8 +1114,14 @@ def run_internal_scan(force_scan=False):
         conn = get_db()
         cur = conn.cursor(cursor_factory=RealDictCursor)
 
-        existing_jobs = set() if force_scan else {row['filepath'] for row in (cur.execute("SELECT filepath FROM jobs"), cur.fetchall())[1]}
-        encoded_history = set() if force_scan else {row['filename'] for row in (cur.execute("SELECT filename FROM encoded_files"), cur.fetchall())[1]}
+        if force_scan:
+            existing_jobs = set()
+            encoded_history = set()
+        else:
+            cur.execute("SELECT filepath FROM jobs")
+            existing_jobs = {row['filepath'] for row in cur.fetchall()}
+            cur.execute("SELECT filename FROM encoded_files")
+            encoded_history = {row['filename'] for row in cur.fetchall()}
         
         new_files_found = 0
         valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
@@ -1186,8 +1192,14 @@ def run_plex_scan(force_scan=False):
                 return {"success": False, "message": f"Could not connect to Plex server: {e}"}
 
             # Only check existing jobs/history if it's NOT a forced scan
-            existing_jobs = set() if force_scan else {row['filepath'] for row in (cur.execute("SELECT filepath FROM jobs"), cur.fetchall())[1]}
-            encoded_history = set() if force_scan else {row['filename'] for row in (cur.execute("SELECT filename FROM encoded_files"), cur.fetchall())[1]}
+            if force_scan:
+                existing_jobs = set()
+                encoded_history = set()
+            else:
+                cur.execute("SELECT filepath FROM jobs")
+                existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                cur.execute("SELECT filename FROM encoded_files")
+                encoded_history = {row['filename'] for row in cur.fetchall()}
             
             new_files_found = 0
             print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")

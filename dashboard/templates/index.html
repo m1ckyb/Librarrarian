@@ -1173,6 +1173,30 @@
                 });
             }
 
+            // --- Show/Hide Logic ---
+            // Set up visibility toggles BEFORE loading functions are called
+            function setupShowHiddenToggle(toggleId, listContainerId) {
+                const toggle = document.getElementById(toggleId);
+                const listContainer = document.getElementById(listContainerId);
+
+                const applyVisibility = () => {
+                    const showHidden = toggle.checked;
+                    listContainer.querySelectorAll('.media-source-item').forEach(item => {
+                        const isItemHidden = item.dataset.isHidden === 'true';
+                        if (isItemHidden && !showHidden) {
+                            item.style.display = 'none';
+                        } else {
+                            item.style.display = 'flex';
+                        }
+                    });
+                };
+                toggle.addEventListener('change', applyVisibility);
+                // Return the function so it can be called after loading
+                return applyVisibility;
+            }
+            const applyPlexVisibility = setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
+            const applyInternalVisibility = setupShowHiddenToggle('internal-show-hidden-toggle', 'internal-folders-list');
+
             // --- Dynamic Plex Library Loading ---
             async function loadPlexLibraries() {
                 const container = document.getElementById('plex-libraries-list');
@@ -1220,7 +1244,9 @@
                 }
 
                 // Apply the initial visibility based on the toggle's state
-                document.getElementById('plex-show-hidden-toggle').dispatchEvent(new Event('change'));
+                if (typeof applyPlexVisibility === 'function') {
+                    applyPlexVisibility();
+                }
             }
             if (document.getElementById('plex-libraries-container').style.display !== 'none') {
                 loadPlexLibraries();
@@ -1263,39 +1289,14 @@
                 }
 
                 // Apply the initial visibility based on the toggle's state
-                document.getElementById('internal-show-hidden-toggle').dispatchEvent(new Event('change'));
+                if (typeof applyInternalVisibility === 'function') {
+                    applyInternalVisibility();
+                }
             }
             const internalTab = document.getElementById('internal-integration-tab');
             internalTab.addEventListener('shown.bs.tab', () => {
                 loadInternalFolders();
             });
-
-            // --- Show/Hide Logic ---
-            function setupShowHiddenToggle(toggleId, listContainerId) {
-                const toggle = document.getElementById(toggleId);
-                const listContainer = document.getElementById(listContainerId);
-
-                const applyVisibility = () => {
-                    console.log(`--- DEBUG: Applying visibility for ${listContainerId} ---`);
-                    const showHidden = toggle.checked;
-                    console.log(`'Show Hidden' toggle is checked: ${showHidden}`);
-                    listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        const itemName = item.querySelector('label').innerText; // For better logging
-                        const isItemHidden = item.dataset.isHidden.toLowerCase() === 'true';
-                        console.log(`  -> Item: '${itemName}', data-is-hidden: '${item.dataset.isHidden}', Parsed as hidden: ${isItemHidden}`);
-                        if (isItemHidden && !showHidden) {
-                            console.log(`     Action: HIDING item.`);
-                            item.style.display = 'none';
-                        } else {
-                            console.log(`     Action: SHOWING item.`);
-                            item.style.display = 'flex';
-                        }
-                    });
-                };
-                toggle.addEventListener('change', applyVisibility);
-            }
-            setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
-            setupShowHiddenToggle('internal-show-hidden-toggle', 'internal-folders-list');
 
             // --- NEW: Integrations Tab Logic ---
             const scannerPlexRadio = document.getElementById('scanner_plex');
