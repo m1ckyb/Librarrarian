@@ -68,8 +68,8 @@ CREATE TABLE IF NOT EXISTS media_source_types (
     source_name VARCHAR(255) NOT NULL,
     scanner_type VARCHAR(50) NOT NULL, -- 'plex' or 'internal'
     media_type VARCHAR(50) NOT NULL, -- 'movie', 'show', 'music', 'other'
-    UNIQUE(source_name, scanner_type)
     is_hidden BOOLEAN DEFAULT false,
+    UNIQUE(source_name, scanner_type)
 );
 GRANT ALL PRIVILEGES ON TABLE media_source_types TO transcode;
 GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO transcode;

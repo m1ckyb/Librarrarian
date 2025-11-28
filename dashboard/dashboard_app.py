@@ -647,50 +647,39 @@ def options():
 
     try:
         with db.cursor() as cur:
-            print("--- DEBUG: Starting to save all settings in a single transaction ---")
-            
             # 1. Update general worker settings
             for key, value in settings_to_update.items():
                 cur.execute("""
                     INSERT INTO worker_settings (setting_name, setting_value) VALUES (%s, %s)
                     ON CONFLICT (setting_name) DO UPDATE SET setting_value = EXCLUDED.setting_value;
                 """, (key, value))
-            print("DEBUG: All worker_settings queued for update.")
 
             # 2. Update media type and hide status assignments
-            print(f"DEBUG: Received form data: {request.form}")
             all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
-            print(f"DEBUG: Found Plex sources: {all_plex_sources}")
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
                 is_hidden = (media_type == 'none')
-                print(f"  -> Queuing Plex source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'plex', %s, %s)
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
-            print(f"DEBUG: Found Internal sources: {all_internal_sources}")
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
                 is_hidden = (media_type == 'none')
-                print(f"  -> Queuing Internal source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'internal', %s, %s)
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
-        print("--- DEBUG: Committing all changes to the database. ---")
         db.commit()
-        print("--- DEBUG: Commit successful. ---")
         flash('Worker settings have been updated successfully!', 'success')
 
     except Exception as e:
-        print(f"--- DEBUG: An error occurred. Rolling back transaction. Error: {e} ---")
         db.rollback()
         flash(f'Failed to update settings due to a database error: {e}', 'danger')
 
@@ -1027,7 +1016,7 @@ def plex_get_libraries():
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # This query now correctly joins and handles NULLs, ensuring every library has a defined is_hidden status.
             cur.execute("""
-                SELECT s.title, COALESCE(mst.media_type, s.type) as media_type, COALESCE(mst.is_hidden, false) as is_hidden, s.type as plex_type, s.key
+                SELECT s.title, COALESCE(mst.media_type, s.type) as type, COALESCE(mst.is_hidden, false) as is_hidden, s.type as plex_type, s.key
                 FROM (SELECT unnest(array[%s]) as title, unnest(array[%s]) as type, unnest(array[%s]) as key) s
                 LEFT JOIN media_source_types mst ON s.title = mst.source_name AND mst.scanner_type = 'plex'
             """, ([section.title for section in plex.library.sections()], [section.type for section in plex.library.sections()], [section.key for section in plex.library.sections()]))
