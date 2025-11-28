@@ -4,6 +4,28 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ---
 
+## [0.10.10] - 2025-11-28 - Maintenance Release
+
+This release introduces several key backend improvements and UI refinements to enhance stability and user experience.
+
+### Added
+- **Node Uptime**: Added an uptime indicator to each worker node card, showing how long the node has been connected to the cluster.
+- **Automatic Database Migrations**: Implemented a system to automatically update the database schema on startup, eliminating the need for manual changes or database resets.
+- **Plex Path Mapping Toggle**: Added a toggle to enable or disable Plex path mappings. When disabled, the system uses file paths directly from the Plex API, simplifying setup for users whose container paths match their Plex paths.
+
+### Changed
+- **CI/CD Migration**: Migrated the CI/CD pipeline from GitHub Actions to Forgejo Actions.
+- **Integrations UI**: Replaced static type badges with dropdown menus, allowing users to assign a media type (Movie, TV Show, Music, etc.) to each Plex library and Internal folder. This lays the groundwork for Sonarr/Radarr/Lidarr integration.
+- **Path Mapping UI**: The Path Mapping toggle is now correctly shown for the Plex scanner and hidden for the Internal scanner (where it is always active).
+- **Path Mapping UI**: Added a tooltip to the Plex Path Mapping toggle to clarify its function.
+
+### Fixed
+- **Plex Path Mapping Logic**: Corrected the logic in the cleanup scanner to ensure path mapping is only performed when the feature is enabled *and* both the "from" and "to" paths are configured.
+- **Internal Scanner UI**: Fixed a SQL error (`COALESCE types cannot be matched`) that prevented the list of internal media folders from loading in the Options tab. This also indirectly prevented the "Hide" status for internal folders from being saved.
+- **Plex Media Type Persistence**: Fixed a bug where saved media type and hide settings for Plex libraries would not display correctly after reloading the page. The API was returning the data under the wrong field name, causing the UI to fall back to default values and making it appear as though the settings were not being saved.
+
+---
+
 ## [0.10.9] - 2025-11-24 - Integrations & Internal Scanner
 
 This release refactors the media source configuration into a new "Integrations" system and introduces a built-in Internal Media Scanner as a powerful alternative to Plex.

@@ -12,6 +12,7 @@ When a new chat session begins, I must first read the following files to establi
 2.  `README.md` (for project overview and deployment instructions)
 3.  `summary.md` (for a high-level feature summary)
 4.  `CHANGELOG.md` (for recent changes and version history)
+5.  `unreleased.md` (for upcoming changes and known bugs)
 
 This ensures all subsequent responses are informed by the full project context.
 
@@ -151,6 +152,7 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 ## Technical Debt & Future Improvements
 
 *   **Database Name Consolidation**: The worker (`transcode.py`) currently defaults to the database name `transcode_cluster`, while the dashboard (`dashboard_app.py`) defaults to `codecshift`. This should be unified to `codecshift` in a future release. This change was temporarily reverted to maintain compatibility with existing setups.
+*   **Buggy Media Source Controls**: The "Hide" functionality for media sources in the Integrations tab is not working correctly. Selecting "None (Hide)" does not reliably hide the item from the UI. This needs to be properly fixed and tested.
 
 ---
 
