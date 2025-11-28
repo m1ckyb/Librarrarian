@@ -673,10 +673,16 @@ def options():
             
             for source_name in all_possible_sources:
                 is_hidden = f'hide_{source_name}' in request.form
-                # Determine scanner type based on which 'type' field exists
                 scanner_type = 'internal' if f'type_internal_{source_name}' in request.form else 'plex'
-                # This only updates the 'is_hidden' flag, leaving the media_type untouched.
-                cur.execute("UPDATE media_source_types SET is_hidden = %s WHERE source_name = %s AND scanner_type = %s", (is_hidden, source_name, scanner_type))
+                
+                # Use an "upsert" to ensure the record is created if it doesn't exist.
+                # This will update the 'is_hidden' flag while preserving the existing 'media_type' if the record already exists.
+                # If the record is new, it defaults media_type to 'other', which can be changed later.
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, is_hidden, media_type)
+                    VALUES (%s, %s, %s, 'other')
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, scanner_type, is_hidden))
         db.commit()
     except Exception as e:
         errors.append(f"Could not save media type assignments: {e}")
@@ -1328,6 +1334,9 @@ def request_job():
     worker_hostname = request.json.get('hostname')
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
+
+    # Log which worker is making the request
+    print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
     
     # Check if the queue is paused
     settings, _ = get_worker_settings()

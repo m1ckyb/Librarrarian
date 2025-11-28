@@ -140,3 +140,9 @@ When requested to **"Update to version <number>"**, the following steps must be 
 3.  **Update `VERSION.txt`**: Change the content of `VERSION.txt` to the new version number (e.g., `0.10.9`).
 
 4.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
+
+---
+
+## Technical Debt & Future Improvements
+
+*   **Database Name Consolidation**: The worker (`transcode.py`) currently defaults to the database name `transcode_cluster`, while the dashboard (`dashboard_app.py`) defaults to `codecshift`. This should be unified to `codecshift` in a future release. This change was temporarily reverted to maintain compatibility with existing setups.
