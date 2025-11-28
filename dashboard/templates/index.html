@@ -132,6 +132,9 @@
                                     <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
                                 </div>
                             </div>
+                            <div class="btn-group me-2" role="group" aria-label="Rename controls">
+                                <button class="btn btn-secondary" id="rename-scan-btn" title="Scan Sonarr for completed downloads to rename"><span class="mdi mdi-rename-box"></span> Scan Sonarr</button>
+                            </div>
                             <div class="btn-group me-2" role="group" aria-label="Main queue controls">
                                 <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
                             </div>
@@ -1434,6 +1437,29 @@
                     manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Manual Scan`;
                 }
             });
+
+            // --- Sonarr Rename Scan Logic ---
+            const renameScanBtn = document.getElementById('rename-scan-btn');
+            renameScanBtn.addEventListener('click', async () => {
+                renameScanBtn.disabled = true;
+                renameScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+                scanStatusDiv.innerHTML = '';
+
+                try {
+                    const response = await fetch('/api/scan/rename', { method: 'POST' });
+                    const data = await response.json();
+                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
+                    scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    // Refresh the job queue to show any newly added jobs
+                    updateJobQueue();
+                } catch (error) {
+                    scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                } finally {
+                    renameScanBtn.disabled = false;
+                    renameScanBtn.innerHTML = `<span class="mdi mdi-rename-box"></span> Scan Sonarr`;
+                }
+            });
+
 
             // --- Release Cleanup Jobs Logic ---
             const releaseSelectedBtn = document.getElementById('release-selected-btn');

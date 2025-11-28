@@ -148,7 +148,7 @@ print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 5
+TARGET_SCHEMA_VERSION = 6
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -179,7 +179,11 @@ MIGRATIONS = {
     # Version 5: Add 'is_hidden' flag to media sources
     5: [
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false;"
-    ]
+    ],
+    # Version 6: Add metadata column for advanced job types like renaming
+    6: [
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS metadata JSONB;"
+    ],
 }
 
 def run_migrations():
@@ -1252,6 +1256,62 @@ def api_trigger_scan():
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
+def run_sonarr_rename_scan():
+    """
+    Scans the Sonarr queue for completed downloads and adds them as 'rename' jobs.
+    """
+    if not scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Rename scan trigger ignored: A scan is already in progress.")
+        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+
+    try:
+        with app.app_context():
+            settings, db_error = get_worker_settings()
+            if db_error: return {"success": False, "message": "Database not available."}
+
+            host = settings.get('sonarr_host', {}).get('setting_value')
+            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+
+            if not host or not api_key:
+                return {"success": False, "message": "Sonarr is not configured."}
+
+            queue_url = f"{host.rstrip('/')}/api/v3/queue"
+            headers = {'X-Api-Key': api_key}
+            
+            print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting scan...")
+            
+            try:
+                response = requests.get(queue_url, headers=headers, timeout=10, verify=False)
+                response.raise_for_status()
+                queue_data = response.json()
+            except requests.RequestException as e:
+                return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0
+
+            for item in queue_data.get('records', []):
+                # We are looking for items that are finished downloading but not yet imported by Sonarr
+                if item.get('status') == 'completed' and 'outputPath' in item:
+                    filepath = item['outputPath']
+                    metadata = {
+                        'source': 'sonarr',
+                        'seriesTitle': item.get('series', {}).get('title'),
+                        'seasonNumber': item.get('episode', {}).get('seasonNumber'),
+                        'episodeNumber': item.get('episode', {}).get('episodeNumber'),
+                        'episodeTitle': item.get('episode', {}).get('title'),
+                        'quality': item.get('quality', {}).get('quality', {}).get('name'),
+                    }
+                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'rename', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                    if cur.rowcount > 0:
+                        new_jobs_found += 1
+            
+            conn.commit()
+            return {"success": True, "message": f"Sonarr scan complete. Found {new_jobs_found} new files to rename."}
+    finally:
+        scanner_lock.release()
+
 def run_cleanup_scan():
     """
     The core logic for scanning the media directory for stale files.
@@ -1346,6 +1406,12 @@ def release_cleanup_jobs():
     except Exception as e:
         print(f"Error releasing cleanup jobs: {e}")
         return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/scan/rename', methods=['POST'])
+def api_trigger_rename_scan():
+    """API endpoint to manually trigger a Sonarr rename scan."""
+    result = run_sonarr_rename_scan()
+    return jsonify(result)
 
 @app.route('/api/arr/test', methods=['POST'])
 def api_arr_test():

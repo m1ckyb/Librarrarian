@@ -5,6 +5,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Added
 - **Arr Integration Setup**: Added UI in the "Options" tab to configure connection settings (Host and API Key) for Sonarr, Radarr, and Lidarr.
 - **Arr Connection Testing**: Implemented a "Test Connection" button for each Arr service that validates the provided credentials and provides immediate feedback.
+- **Sonarr Rename Jobs**: Added a new "rename" job type. A "Scan Sonarr" button on the Job Queue page will find completed downloads from the Sonarr API and add them to the queue to be renamed.
 
 
 ### Bugs / Buggy Features
