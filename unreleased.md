@@ -20,3 +20,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Fixed
 - **Plex Path Mapping Logic**: Corrected the logic in the cleanup scanner to ensure path mapping is only performed when the feature is enabled *and* both the "from" and "to" paths are configured.
 - **Media Source "Hide" Functionality**: Fixed a critical bug where the "Hide" status for a media source was not saved correctly. This was most noticeable when a Plex library and an Internal folder had the same name, causing the backend to update the wrong record. The form submission process is now unambiguous, ensuring the setting is always applied to the correct source.
+- **Internal Scanner UI**: Fixed a SQL error (`COALESCE types cannot be matched`) that prevented the list of internal media folders from loading in the Options tab. This also indirectly prevented the "Hide" status for internal folders from being saved.

@@ -1063,10 +1063,13 @@ def api_internal_folders():
 
             # This query now correctly joins and handles NULLs for internal folders.
             cur.execute("""
-                SELECT s.name, COALESCE(mst.media_type, %s) as type, COALESCE(mst.is_hidden, false) as is_hidden
-                FROM (SELECT unnest(array[%s]) as name) s
+                SELECT s.name, COALESCE(mst.media_type, s.inferred_type) as type, COALESce(mst.is_hidden, false) as is_hidden
+                FROM (SELECT unnest(%(names)s) as name, unnest(%(types)s) as inferred_type) s
                 LEFT JOIN media_source_types mst ON s.name = mst.source_name AND mst.scanner_type = 'internal'
-            """, ([infer_type(name) for name in folder_names], folder_names))
+            """, {
+                'names': folder_names,
+                'types': [infer_type(name) for name in folder_names]
+            })
             folders = cur.fetchall()
 
         # Sort by name for consistent ordering
