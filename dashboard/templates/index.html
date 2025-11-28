@@ -285,11 +285,11 @@
                                 <!-- Sonarr Tab -->
                                 <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel">
                                     <div class="row">
-                                        <div class="col-md-8">
+                                        <div class="col-md-6">
                                             <label for="sonarr_host" class="form-label"><strong>Sonarr Host URL</strong></label>
                                             <input type="text" class="form-control" id="sonarr_host" name="sonarr_host" value="{{ settings.get('sonarr_host', {}).get('setting_value', '') }}" placeholder="http://sonarr:8989">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="sonarr_api_key" class="form-label"><strong>API Key</strong></label>
                                             <input type="password" class="form-control" id="sonarr_api_key" name="sonarr_api_key" value="{{ settings.get('sonarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
@@ -300,11 +300,11 @@
                                 <!-- Radarr Tab -->
                                 <div class="tab-pane fade" id="radarr-integration-pane" role="tabpanel">
                                     <div class="row">
-                                        <div class="col-md-8">
+                                        <div class="col-md-6">
                                             <label for="radarr_host" class="form-label"><strong>Radarr Host URL</strong></label>
                                             <input type="text" class="form-control" id="radarr_host" name="radarr_host" value="{{ settings.get('radarr_host', {}).get('setting_value', '') }}" placeholder="http://radarr:7878">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="radarr_api_key" class="form-label"><strong>API Key</strong></label>
                                             <input type="password" class="form-control" id="radarr_api_key" name="radarr_api_key" value="{{ settings.get('radarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
@@ -315,11 +315,11 @@
                                 <!-- Lidarr Tab -->
                                 <div class="tab-pane fade" id="lidarr-integration-pane" role="tabpanel">
                                     <div class="row">
-                                        <div class="col-md-8">
+                                        <div class="col-md-6">
                                             <label for="lidarr_host" class="form-label"><strong>Lidarr Host URL</strong></label>
                                             <input type="text" class="form-control" id="lidarr_host" name="lidarr_host" value="{{ settings.get('lidarr_host', {}).get('setting_value', '') }}" placeholder="http://lidarr:8686">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="lidarr_api_key" class="form-label"><strong>API Key</strong></label>
                                             <input type="password" class="form-control" id="lidarr_api_key" name="lidarr_api_key" value="{{ settings.get('lidarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
