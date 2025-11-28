@@ -1187,11 +1187,10 @@
                         const typeSelector = item.querySelector('select');
                         const isHiddenByType = typeSelector && typeSelector.value === 'none';
 
-                        if ((isItemHidden && !showHidden) || isHiddenByType) {
-                            item.style.display = 'none';
-                        } else {
-                            item.style.display = 'flex';
-                        }
+                        // Hide item if toggle is off AND (item is hidden OR type is "none")
+                        // Show item in all other cases
+                        const shouldHide = !showHidden && (isItemHidden || isHiddenByType);
+                        item.style.display = shouldHide ? 'none' : 'flex';
                     });
                 };
 
