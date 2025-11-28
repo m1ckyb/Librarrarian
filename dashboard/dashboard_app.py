@@ -1016,22 +1016,18 @@ def plex_get_libraries():
     try:
         db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
-            saved_types = {row['source_name']: {'media_type': row['media_type'], 'is_hidden': row['is_hidden']} for row in cur.fetchall()}
+            # This query now correctly joins and handles NULLs, ensuring every library has a defined is_hidden status.
+            cur.execute("""
+                SELECT s.title, COALESCE(mst.media_type, s.type) as media_type, COALESCE(mst.is_hidden, false) as is_hidden, s.type as plex_type, s.key
+                FROM (SELECT unnest(array[%s]) as title, unnest(array[%s]) as type, unnest(array[%s]) as key) s
+                LEFT JOIN media_source_types mst ON s.title = mst.source_name AND mst.scanner_type = 'plex'
+            """, ([section.title for section in plex.library.sections()], [section.type for section in plex.library.sections()], [section.key for section in plex.library.sections()]))
+            libraries = cur.fetchall()
 
-        plex = PlexServer(plex_url, plex_token)
-        libraries = [
-            {
-                "title": section.title, 
-                "key": section.key, 
-                "type": saved_types.get(section.title, {}).get('media_type') or section.type, # Use saved type, fallback to Plex API type
-                "is_hidden": saved_types.get(section.title, {}).get('is_hidden', False),
-                "plex_type": section.type # Pass the original plex type for better defaults
-            }
-            for section in plex.library.sections()
-            if section.type in ['movie', 'show', 'artist', 'photo'] # Allow all types
-        ]
-        return jsonify(libraries=libraries)
+        # Filter to only include valid library types after fetching from DB
+        filtered_libraries = [lib for lib in libraries if lib['plex_type'] in ['movie', 'show', 'artist', 'photo']]
+
+        return jsonify(libraries=filtered_libraries)
     except Exception as e:
         return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
 
@@ -1054,18 +1050,19 @@ def api_internal_folders():
     try:
         db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'internal'")
-            saved_types = {row['source_name']: {'media_type': row['media_type'], 'is_hidden': row['is_hidden']} for row in cur.fetchall()}
+            folder_names = [item for item in os.listdir(media_path) if os.path.isdir(os.path.join(media_path, item))] if os.path.isdir(media_path) else []
+            
+            if not folder_names:
+                return jsonify(folders=[])
 
-        if os.path.isdir(media_path):
-            for item in os.listdir(media_path):
-                if os.path.isdir(os.path.join(media_path, item)):
-                    default_type = infer_type(item)
-                    folders.append({
-                        "name": item, 
-                        "type": saved_types.get(item, {}).get('media_type', default_type), # Use saved type, fallback to inferred type
-                        "is_hidden": saved_types.get(item, {}).get('is_hidden', False)
-                    })
+            # This query now correctly joins and handles NULLs for internal folders.
+            cur.execute("""
+                SELECT s.name, COALESCE(mst.media_type, %s) as type, COALESCE(mst.is_hidden, false) as is_hidden
+                FROM (SELECT unnest(array[%s]) as name) s
+                LEFT JOIN media_source_types mst ON s.name = mst.source_name AND mst.scanner_type = 'internal'
+            """, ([infer_type(name) for name in folder_names], folder_names))
+            folders = cur.fetchall()
+
         # Sort by name for consistent ordering
         return jsonify(folders=sorted(folders, key=lambda x: x['name']))
     except Exception as e:
