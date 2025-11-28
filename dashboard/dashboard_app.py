@@ -1014,6 +1014,8 @@ def plex_get_libraries():
         return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
 
     try:
+        plex = PlexServer(plex_url, plex_token)
+
         db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             # This query now correctly joins and handles NULLs, ensuring every library has a defined is_hidden status.
