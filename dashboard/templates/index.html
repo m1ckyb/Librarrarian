@@ -1187,7 +1187,13 @@
                         const typeSelector = item.querySelector('select');
                         const isHiddenByType = typeSelector && typeSelector.value === 'none';
 
-                        if ((isItemHidden && !showHidden) || isHiddenByType) {
+                        // When "Show Hidden" is checked, show all items (including hidden ones)
+                        // When "Show Hidden" is unchecked, hide items that are either:
+                        //   - marked as hidden via is_hidden flag, OR
+                        //   - have type set to "none"
+                        if (showHidden) {
+                            item.style.display = 'flex';
+                        } else if (isItemHidden || isHiddenByType) {
                             item.style.display = 'none';
                         } else {
                             item.style.display = 'flex';
