@@ -4,6 +4,7 @@ import time
 import threading
 import uuid
 import base64
+import json
 from datetime import datetime
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
