@@ -1183,13 +1183,9 @@
                     if (!listContainer) return;
                     const showHidden = toggle.checked;
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        const isItemHidden = item.dataset.isHidden === 'true';
                         const typeSelector = item.querySelector('select');
                         const isHiddenByType = typeSelector && typeSelector.value === 'none';
-
-                        // Hide item if toggle is off AND (item is hidden OR type is "none")
-                        // Show item in all other cases
-                        const shouldHide = !showHidden && (isItemHidden || isHiddenByType);
+                        const shouldHide = !showHidden && isHiddenByType;
                         item.style.display = shouldHide ? 'none' : 'flex';
                     });
                 };
@@ -1235,7 +1231,7 @@
 
                 if (data.libraries && data.libraries.length > 0) {
                     container.innerHTML = data.libraries.map(lib => `
-                        <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${String(lib.is_hidden).toLowerCase()}">
+                        <div class="d-flex align-items-center mb-2 media-source-item">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                                 <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
@@ -1280,7 +1276,7 @@
 
                 if (data.folders && data.folders.length > 0) {
                     container.innerHTML = data.folders.map(item => `
-                        <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${String(item.is_hidden).toLowerCase()}">
+                        <div class="d-flex align-items-center mb-2 media-source-item">
                             <div class="form-check">
                                 <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
                                 <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
