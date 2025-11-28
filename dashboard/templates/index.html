@@ -300,6 +300,12 @@
                                             <input type="range" class="form-range" id="sonarr_rescan_hours" name="sonarr_rescan_hours" min="1" max="24" step="1" value="{{ rescan_hours | round | int }}">
                                         </div>
                                     </div>
+                                    <div class="form-check form-switch mt-3">
+                                        {% set sonarr_send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_send_to_queue" name="sonarr_send_to_queue" value="true" {{ 'checked' if sonarr_send_to_queue }}>
+                                        <label class="form-check-label" for="sonarr_send_to_queue"><strong>Send Rename Jobs to Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue for a worker to process. If disabled, directly triggers Sonarr's API to handle the import and rename.</p>
+                                    </div>
                                     <div class="form-check form-switch my-3">
                                         {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
@@ -1453,6 +1459,7 @@
 
             // --- Sonarr Options Logic ---
             const manualSonarrScanBtn = document.getElementById('manual-sonarr-scan-btn');
+            const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
             const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
             const sonarrStatusDiv = document.getElementById('sonarr-test-status');
             const rescanSlider = document.getElementById('sonarr_rescan_hours');
@@ -1461,7 +1468,12 @@
             if (rescanSlider) {
                 rescanSlider.addEventListener('input', (event) => { rescanValueSpan.textContent = event.target.value; });
             }
-            manualScanBtnText.innerText = 'Trigger Sonarr Import'; // Set static text
+
+            function updateSonarrButtonText() {
+                manualScanBtnText.innerText = sendToQueueSwitch.checked ? 'Scan for Rename Jobs' : 'Trigger Sonarr Import';
+            }
+            sendToQueueSwitch.addEventListener('change', updateSonarrButtonText);
+            updateSonarrButtonText(); // Set initial text
 
             manualSonarrScanBtn.addEventListener('click', async () => {
                 manualSonarrScanBtn.disabled = true;
