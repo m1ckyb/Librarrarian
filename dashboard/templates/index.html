@@ -1440,6 +1440,7 @@
 
             // --- Sonarr Rename Scan Logic ---
             const renameScanBtn = document.getElementById('rename-scan-btn');
+            const scanStatusDiv = document.getElementById('scan-status');
             renameScanBtn.addEventListener('click', async () => {
                 renameScanBtn.disabled = true;
                 renameScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;

@@ -418,7 +418,7 @@ def main_loop(db):
 
         job = request_job_from_dashboard()
         if job:
-            settings = get_dashboard_settings() # Refresh settings before each job
+            settings, _ = get_dashboard_settings() # Refresh settings before each job
             if job.get('job_type') == 'cleanup':
                 success, details = cleanup_file(job['filepath'], db, settings)
             else: # Default to 'transcode'

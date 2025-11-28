@@ -1304,7 +1304,7 @@ def run_sonarr_rename_scan():
                         'episodeTitle': item.get('episode', {}).get('title'),
                         'quality': item.get('quality', {}).get('quality', {}).get('name'),
                     }
-                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'rename', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'rename', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                     if cur.rowcount > 0:
                         new_jobs_found += 1
             
