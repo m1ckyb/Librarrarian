@@ -607,9 +607,9 @@ def logout():
 def options():
     """
     Handles the form submission for worker settings from the main dashboard.
-    This route now follows the Post-Redirect-Get pattern to prevent form resubmission warnings.
+    This route now follows the Post-Redirect-Get pattern and uses a single
+    atomic transaction to save all settings.
     """
-    # A dictionary to hold all settings from the form
     settings_to_update = {
         'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
         'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
@@ -635,72 +635,65 @@ def options():
         'plex_path_to': request.form.get('plex_path_to', ''),
         'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
     }
-
-    # Handle multi-select for Plex libraries
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
-
-    # Handle internal folder paths
     internal_paths = request.form.getlist('internal_scan_paths')
     settings_to_update['internal_scan_paths'] = ','.join(internal_paths)
 
-    errors = []
-    for key, value in settings_to_update.items():
-        success, error = update_worker_setting(key, value)
-        if not success:
-            errors.append(error)
-    
-    # --- NEW: Save the media type and hide status assignments ---
-    try:
-        db = get_db()
-        with db.cursor() as cur:
-            print("--- DEBUG: Saving Media Source Settings ---")
-            print(f"Received form data: {request.form}")
+    db = get_db()
+    if not db:
+        flash('Could not connect to the database.', 'danger')
+        return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
-            # Get a definitive list of all sources that were rendered on the page
+    try:
+        with db.cursor() as cur:
+            print("--- DEBUG: Starting to save all settings in a single transaction ---")
+            
+            # 1. Update general worker settings
+            for key, value in settings_to_update.items():
+                cur.execute("""
+                    INSERT INTO worker_settings (setting_name, setting_value) VALUES (%s, %s)
+                    ON CONFLICT (setting_name) DO UPDATE SET setting_value = EXCLUDED.setting_value;
+                """, (key, value))
+            print("DEBUG: All worker_settings queued for update.")
+
+            # 2. Update media type and hide status assignments
+            print(f"DEBUG: Received form data: {request.form}")
             all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
-            print(f"Found Plex sources: {all_plex_sources}")
-            # Process Plex sources
+            print(f"DEBUG: Found Plex sources: {all_plex_sources}")
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
                 is_hidden = (media_type == 'none')
-                print(f"  -> Processing Plex source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
-
+                print(f"  -> Queuing Plex source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'plex', %s, %s)
-                    ON CONFLICT (source_name, scanner_type)
-                    DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
-            print(f"Found Internal sources: {all_internal_sources}")
-            # Process Internal sources
+            print(f"DEBUG: Found Internal sources: {all_internal_sources}")
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
                 is_hidden = (media_type == 'none')
-                print(f"  -> Processing Internal source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
-
+                print(f"  -> Queuing Internal source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'internal', %s, %s)
-                    ON CONFLICT (source_name, scanner_type)
-                    DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
-        print("Committing media source changes to the database.")
+
+        print("--- DEBUG: Committing all changes to the database. ---")
         db.commit()
-        print("Media source changes committed.")
-    except Exception as e:
-        errors.append(f"Could not save media type assignments: {e}")
-        print(f"--- DEBUG: ERROR saving media source settings: {e}")
-
-    if not errors:
+        print("--- DEBUG: Commit successful. ---")
         flash('Worker settings have been updated successfully!', 'success')
-    else:
-        flash(f'Failed to update some settings: {", ".join(errors)}', 'danger')
 
-    # Redirect back to the main page, anchoring to the options tab
+    except Exception as e:
+        print(f"--- DEBUG: An error occurred. Rolling back transaction. Error: {e} ---")
+        db.rollback()
+        flash(f'Failed to update settings due to a database error: {e}', 'danger')
+
     return redirect(url_for('dashboard', _anchor='options-tab-pane'))
 
 @app.route('/api/settings', methods=['GET'])
