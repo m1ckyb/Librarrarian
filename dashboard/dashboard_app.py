@@ -999,7 +999,7 @@ def plex_logout():
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
-    """Fetches a list of video libraries from the configured Plex server."""
+    """Fetches a list of libraries from the configured Plex server, merged with saved settings."""
     settings, db_error = get_worker_settings()
     if db_error: return jsonify(libraries=[], error=db_error), 500
 
@@ -1011,23 +1011,42 @@ def plex_get_libraries():
 
     try:
         plex = PlexServer(plex_url, plex_token)
-
         db = get_db()
+
+        # 1. Fetch saved types from the database into a dictionary
+        saved_types = {}
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            # This query now correctly joins and handles NULLs, ensuring every library has a defined is_hidden status.
-            cur.execute("""
-                SELECT s.title, COALESCE(mst.media_type, s.type) as type, COALESCE(mst.is_hidden, false) as is_hidden, s.type as plex_type, s.key
-                FROM (SELECT unnest(array[%s]) as title, unnest(array[%s]) as type, unnest(array[%s]) as key) s
-                LEFT JOIN media_source_types mst ON s.title = mst.source_name AND mst.scanner_type = 'plex'
-            """, ([section.title for section in plex.library.sections()], [section.type for section in plex.library.sections()], [section.key for section in plex.library.sections()]))
-            libraries = cur.fetchall()
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
+            for row in cur.fetchall():
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
 
-        # Filter to only include valid library types after fetching from DB
-        filtered_libraries = [lib for lib in libraries if lib['plex_type'] in ['movie', 'show', 'artist', 'photo']]
+        # 2. Fetch libraries from Plex and merge with saved settings
+        result_libraries = []
+        plex_sections = [s for s in plex.library.sections() if s.type in ['movie', 'show', 'artist', 'photo']]
+        
+        for section in plex_sections:
+            saved_setting = saved_types.get(section.title)
+            if saved_setting:
+                result_libraries.append({
+                    'title': section.title,
+                    'type': saved_setting['type'],
+                    'is_hidden': saved_setting['is_hidden'],
+                    'plex_type': section.type,
+                    'key': section.key
+                })
+            else:
+                # If not in our DB, use Plex's info and default to not hidden
+                result_libraries.append({
+                    'title': section.title,
+                    'type': section.type, # Default to the type from Plex
+                    'is_hidden': False,
+                    'plex_type': section.type,
+                    'key': section.key
+                })
 
-        return jsonify(libraries=filtered_libraries)
+        return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Plex: {e}"), 500
+        return jsonify(libraries=[], error=f"Could not connect to Plex or process libraries: {e}"), 500
 
 @app.route('/api/internal/folders', methods=['GET'])
 def api_internal_folders():
