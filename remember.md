@@ -151,3 +151,9 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 ## Technical Debt & Future Improvements
 
 *   **Database Name Consolidation**: The worker (`transcode.py`) currently defaults to the database name `transcode_cluster`, while the dashboard (`dashboard_app.py`) defaults to `codecshift`. This should be unified to `codecshift` in a future release. This change was temporarily reverted to maintain compatibility with existing setups.
+
+---
+
+## Agent Capabilities & Limitations
+
+*   **Shell Access**: I do not have direct access to the user's shell. I cannot run commands like `docker-compose`, `git`, or other command-line tools myself. I must always ask the user to run these commands and provide the output if needed.

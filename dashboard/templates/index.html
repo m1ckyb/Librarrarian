@@ -1276,12 +1276,18 @@
                 const listContainer = document.getElementById(listContainerId);
 
                 const applyVisibility = () => {
+                    console.log(`--- DEBUG: Applying visibility for ${listContainerId} ---`);
                     const showHidden = toggle.checked;
+                    console.log(`'Show Hidden' toggle is checked: ${showHidden}`);
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
+                        const itemName = item.querySelector('label').innerText; // For better logging
                         const isItemHidden = item.dataset.isHidden.toLowerCase() === 'true';
+                        console.log(`  -> Item: '${itemName}', data-is-hidden: '${item.dataset.isHidden}', Parsed as hidden: ${isItemHidden}`);
                         if (isItemHidden && !showHidden) {
+                            console.log(`     Action: HIDING item.`);
                             item.style.display = 'none';
                         } else {
+                            console.log(`     Action: SHOWING item.`);
                             item.style.display = 'flex';
                         }
                     });
