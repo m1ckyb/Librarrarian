@@ -648,7 +648,8 @@ def options():
         if request.form.get(f'{arr_type}_api_key'):
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
-    settings_to_update['sonarr_rescan_minutes'] = request.form.get('sonarr_rescan_minutes', '30')
+    # Convert hours from the form back to minutes for storage
+    settings_to_update['sonarr_rescan_minutes'] = str(int(request.form.get('sonarr_rescan_hours', '1')) * 60)
     settings_to_update['sonarr_auto_scan_enabled'] = 'true' if 'sonarr_auto_scan_enabled' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
