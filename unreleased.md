@@ -16,8 +16,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Integrations UI**: Replaced static type badges with dropdown menus, allowing users to assign a media type (Movie, TV Show, Music, etc.) to each Plex library and Internal folder. This lays the groundwork for Sonarr/Radarr/Lidarr integration.
 - **Path Mapping UI**: The Path Mapping toggle is now correctly shown for the Plex scanner and hidden for the Internal scanner (where it is always active).
 - **Path Mapping UI**: Added a tooltip to the Plex Path Mapping toggle to clarify its function.
+- **Simplified "Hide" Functionality**: Reworked the "Hide" functionality for media sources to be more intuitive and robust. The separate "Hide" checkbox has been removed. A source is now hidden by selecting the "None (Hide)" option from its media type dropdown. This simplifies the UI and fixes the underlying bug where the hidden state was not being saved correctly.
 
 ### Fixed
 - **Plex Path Mapping Logic**: Corrected the logic in the cleanup scanner to ensure path mapping is only performed when the feature is enabled *and* both the "from" and "to" paths are configured.
-- **Media Source "Hide" Functionality**: Fixed a critical bug where the "Hide" status for a media source was not saved correctly. This was most noticeable when a Plex library and an Internal folder had the same name, causing the backend to update the wrong record. The form submission process is now unambiguous, ensuring the setting is always applied to the correct source.
 - **Internal Scanner UI**: Fixed a SQL error (`COALESCE types cannot be matched`) that prevented the list of internal media folders from loading in the Options tab. This also indirectly prevented the "Hide" status for internal folders from being saved.

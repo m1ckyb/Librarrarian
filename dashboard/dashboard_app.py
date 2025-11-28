@@ -661,7 +661,7 @@ def options():
             # Process Plex sources
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
-                is_hidden = f'hide_plex_{source_name}' in request.form
+                is_hidden = (media_type == 'none')
 
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
@@ -673,7 +673,7 @@ def options():
             # Process Internal sources
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
-                is_hidden = f'hide_internal_{source_name}' in request.form
+                is_hidden = (media_type == 'none')
 
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)

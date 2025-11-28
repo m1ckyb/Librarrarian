@@ -1181,7 +1181,7 @@
                     'show': 'TV Show',
                     'music': 'Music',
                     'other': 'Other Videos',
-                    'none': 'None (Ignore)'
+                    'none': 'None (Hide)'
                 };
                 const createDropdown = (name, plexType, selectedType) => {
                     // Default to music for 'artist', other for 'photo', otherwise use the saved type.
@@ -1213,7 +1213,6 @@
                             <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
                             </div>
-                            <input class="form-check-input" type="checkbox" name="hide_plex_${lib.title}" title="Hide this library" ${lib.is_hidden ? 'checked' : ''}>
                         </div>
                     `).join('');
                 } else {
@@ -1235,7 +1234,7 @@
                     'show': 'TV Show',
                     'music': 'Music',
                     'other': 'Other Videos',
-                    'none': 'None (Ignore)'
+                    'none': 'None (Hide)'
                 };
                 const createDropdown = (name, selectedType) => {
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
@@ -1257,7 +1256,6 @@
                             <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_internal_${item.name}`, item.type)}
                             </div>
-                            <input class="form-check-input" type="checkbox" name="hide_internal_${item.name}" title="Hide this folder" ${item.is_hidden ? 'checked' : ''}>
                         </div>
                     `).join('');
                 } else {
