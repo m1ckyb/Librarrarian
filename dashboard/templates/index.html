@@ -294,13 +294,22 @@
                                             <input type="password" class="form-control" id="sonarr_api_key" name="sonarr_api_key" value="{{ settings.get('sonarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
                                     </div>
+                                    <div class="form-check form-switch mt-3">
+                                        {% set sonarr_send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_send_to_queue" name="sonarr_send_to_queue" value="true" {{ 'checked' if sonarr_send_to_queue }}>
+                                        <label class="form-check-label" for="sonarr_send_to_queue"><strong>Send Rename Jobs to Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue for a worker to process. Requires manual approval.</p>
+                                    </div>
                                     <div class="form-check form-switch my-3">
                                         {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
                                         <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Auto Scan</strong></label>
-                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically trigger a Sonarr import scan every 30 minutes.</p>
+                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically trigger the selected Sonarr action every 30 minutes.</p>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" id="manual-sonarr-scan-btn"><span class="mdi mdi-sync"></span> Trigger Manual Scan</button>
+                                    <button type="button" class="btn btn-secondary mt-3" id="manual-sonarr-scan-btn">
+                                        <span class="mdi mdi-sync"></span> 
+                                        <span id="manual-sonarr-scan-btn-text">Trigger Manual Scan</span>
+                                    </button>
                                     <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="sonarr-test-status" class="mt-2"></div>
                                 </div>
@@ -1414,7 +1423,7 @@
                 document.getElementById('plex_path_to').disabled = !isEnabled;
             });
 
-            document.addEventListener('DOMContentLoaded', handleScannerChange); // Run on page load to set initial state
+            document.addEventListener('DOMContentLoaded', handleScannerChange);
 
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');
@@ -1442,24 +1451,37 @@
                 }
             });
 
-            // --- Manual Sonarr Scan Logic (in Options tab) ---
+            // --- Sonarr Options Logic ---
             const manualSonarrScanBtn = document.getElementById('manual-sonarr-scan-btn');
+            const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
+            const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
+            const sonarrStatusDiv = document.getElementById('sonarr-test-status');
+
+            function updateSonarrButtonText() {
+                if (sendToQueueSwitch.checked) {
+                    manualScanBtnText.innerText = 'Scan for Rename Jobs';
+                } else {
+                    manualScanBtnText.innerText = 'Trigger Sonarr Import';
+                }
+            }
+            sendToQueueSwitch.addEventListener('change', updateSonarrButtonText);
+            updateSonarrButtonText(); // Set initial text on page load
+
             manualSonarrScanBtn.addEventListener('click', async () => {
-                const statusDiv = document.getElementById('sonarr-test-status');
                 manualSonarrScanBtn.disabled = true;
-                manualSonarrScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Triggering...`;
-                statusDiv.innerHTML = '';
+                manualSonarrScanBtn.querySelector('.mdi').classList.add('mdi-spin');
+                sonarrStatusDiv.innerHTML = '';
 
                 try {
                     const response = await fetch('/api/scan/rename', { method: 'POST' });
                     const data = await response.json();
                     const alertClass = data.success ? 'alert-success' : 'alert-warning';
-                    statusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    sonarrStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 } catch (error) {
-                    statusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 } finally {
                     manualSonarrScanBtn.disabled = false;
-                    manualSonarrScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Trigger Manual Scan`;
+                    manualSonarrScanBtn.querySelector('.mdi').classList.remove('mdi-spin');
                 }
             });
 
