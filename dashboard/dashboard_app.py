@@ -1475,6 +1475,8 @@ def request_job():
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
     
+    print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
+    
     # Check if the queue is paused
     settings, _ = get_worker_settings()
     if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':

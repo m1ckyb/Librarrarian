@@ -135,6 +135,7 @@
                             <div class="btn-group me-2" role="group" aria-label="Rename controls">
                                 <button class="btn btn-secondary" id="rename-scan-btn" title="Scan Sonarr for completed downloads to rename"><span class="mdi mdi-rename-box"></span> Scan Sonarr</button>
                                 <button class="btn btn-secondary" id="rename-scan-btn" title="Trigger Sonarr to scan its completed download folder and import files."><span class="mdi mdi-rename-box"></span> Trigger Sonarr Import</button>
+                                <button class="btn btn-secondary" id="rename-scan-btn" title="Trigger Sonarr to scan its completed download folder and import files."><span class="mdi mdi-rename-box"></span> Trigger Sonarr Action</button>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Main queue controls">
                                 <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
@@ -1417,7 +1418,7 @@
                 document.getElementById('plex_path_to').disabled = !isEnabled;
             });
 
-            handleScannerChange(); // Run on page load to set initial state
+            handleScannerChange(); // Run on initial script execution to set the correct state
 
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');
@@ -1447,7 +1448,7 @@
 
             // --- Sonarr Rename Scan Logic ---
             const renameScanBtn = document.getElementById('rename-scan-btn');
-            const scanStatusDiv = document.getElementById('scan-status');
+            const renameScanStatusDiv = document.getElementById('scan-status');
             renameScanBtn.addEventListener('click', async () => {
                 renameScanBtn.disabled = true;
                 renameScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
@@ -1457,15 +1458,14 @@
                     const response = await fetch('/api/scan/rename', { method: 'POST' });
                     const data = await response.json();
                     const alertClass = data.success ? 'alert-success' : 'alert-warning';
-                    scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    renameScanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                     // Refresh the job queue to show any newly added jobs
                     updateJobQueue();
                 } catch (error) {
-                    scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    renameScanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 } finally {
                     renameScanBtn.disabled = false;
-                    renameScanBtn.innerHTML = `<span class="mdi mdi-rename-box"></span> Scan Sonarr`;
-                    renameScanBtn.innerHTML = `<span class="mdi mdi-rename-box"></span> Trigger Sonarr Import`;
+                    renameScanBtn.innerHTML = `<span class="mdi mdi-rename-box"></span> Trigger Sonarr Action`;
                 }
             });
 
