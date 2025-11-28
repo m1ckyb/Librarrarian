@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    build: ./dashboard # Build from the dashboard directory
+    build:
+      context: .
+      dockerfile: ./dashboard/Dockerfile
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -12,6 +14,10 @@ services:
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
+      # --- General Settings ---
+      - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
+      # --- Authentication ---
+      - API_KEY=${API_KEY} # For worker authentication
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
       # --- Master Authentication Switch ---
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
@@ -28,23 +34,32 @@ services:
       # --- Force print() statements to appear in logs immediately ---
       - PYTHONUNBUFFERED=1
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     volumes:
       - ./media:/media
     # The command is now defined in the dashboard/Dockerfile
 
   # The transcoding worker service
   worker:
-    build: ./worker # Build from the worker directory
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
       - DB_HOST=db
       - DB_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - POSTGRES_DB=${POSTGRES_DB}
+      - API_KEY=${API_KEY} # For authenticating with the dashboard
       - DASHBOARD_URL=http://dashboard:5000
+      # --- General Settings ---
+      - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
+      # --- Worker Behavior ---
+      - AUTOSTART=${AUTOSTART:-false} # If true, worker starts processing jobs immediately
     volumes:
       - ./media:/media
     # The command is now defined in the worker/Dockerfile
@@ -54,11 +69,17 @@ services:
     image: postgres:13
     restart: unless-stopped
     volumes:
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
       - postgres_data:/var/lib/postgresql/data
     environment:
       - POSTGRES_DB=${POSTGRES_DB}
       - POSTGRES_USER=${POSTGRES_USER}
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
 volumes:
   postgres_data:

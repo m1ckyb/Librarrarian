@@ -16,11 +16,12 @@ This architecture allows for a robust, scalable, and easy-to-manage transcoding 
 
 ## Key Features
 
-*   **Automated Plex Scanning**: Integrates with Plex to automatically find and queue media for transcoding based on user-selected libraries.
+*   **Automated Media Scanning**: Integrates with Plex or uses a built-in scanner to automatically find and queue media for transcoding based on user-selected libraries or folders.
 *   **Centralized Job Management**: A web dashboard provides a real-time view of the job queue, worker status, and transcoding history.
 *   **Distributed Workers**: Scale transcoding capacity by adding more worker nodes, which request jobs from the central dashboard.
-*   **Full Queue Control**: Pause the distribution of new jobs, clear the entire queue, or manually trigger library scans directly from the UI.
+*   **Full Queue Control**: Pause the job queue, clear pending jobs, release cleanup jobs for approval, and manually trigger library scans directly from the UI.
 *   **Dynamic Configuration**: All settings, from Plex credentials to transcoding quality, are managed through the web UI.
 *   **System Cleanup**: Queue jobs for workers to find and remove stale `.lock` and `.tmp_*` files left behind by crashed processes.
 *   **Secure Access**: A production-ready, optional authentication system supporting both local user/password and OIDC providers to protect the dashboard.
 *   **Hardware Acceleration**: Automatically utilizes NVIDIA (NVENC), Intel (QSV), and Apple (VideoToolbox) for fast transcoding.
+*   **Version Mismatch Detection**: The dashboard and workers automatically detect and flag version inconsistencies to ensure cluster stability.

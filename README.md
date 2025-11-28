@@ -5,7 +5,7 @@
 ## Features
 
 *   **Distributed Transcoding:** Run worker nodes on multiple machines to process files in parallel.
-*   **Plex Integration:** Link your Plex account, select libraries, and let the dashboard automatically find and queue non-HEVC files.
+*   **Flexible Media Scanning:** Choose between a deep Plex Media Server integration or a powerful built-in scanner to find and queue files from your media directories.
 *   **Hardware Acceleration:** Automatically detects and uses NVIDIA (NVENC), Intel (QSV/VAAPI), and Apple VideoToolbox for fast transcoding, with a fallback to CPU.
 *   **Centralized Web Dashboard:** A Flask-based UI for real-time monitoring and management.
     *   **Full Remote Control**: Start, stop, and pause individual worker nodes.
@@ -52,6 +52,15 @@ This is the recommended method for running CodecShift.
     # Generate a random string for this, e.g., by running: openssl rand -hex 32
     FLASK_SECRET_KEY=your_flask_secret_key
     
+    # --- General Settings ---
+    # Set the timezone for the containers, e.g., 'Australia/Sydney', 'America/New_York'
+    TZ=UTC
+
+    # --- API Key for Worker Authentication ---
+    # This is required if AUTH_ENABLED is true. Generate a secure random string.
+    # e.g., openssl rand -hex 32
+    API_KEY=your_worker_api_key
+
     # --- Authentication Settings (Optional) ---
     # Master switch to enable authentication features.
     AUTH_ENABLED=false
@@ -69,6 +78,10 @@ This is the recommended method for running CodecShift.
     # The password must be base64 encoded. To generate, run: echo -n 'your_password' | base64
     LOCAL_PASSWORD=eW91cl9zdXBlcl9zZWNyZXRfcGFzc3dvcmQ=
     ```
+    
+    ### Worker Settings
+    
+    `AUTOSTART=true` # Optional: If true, workers will automatically start processing jobs instead of waiting for a manual "Start" command from the UI.
 
 ### 3. Running the Cluster
 1.  **Log in to GHCR:**

@@ -11,10 +11,13 @@ RUN apt-get update && apt-get install -y ffmpeg && apt-get clean
 WORKDIR /app
 
 # Copy the requirements file into the container
-COPY requirements.txt .
+COPY worker/requirements.txt .
 
 # Install the Python dependencies
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy the worker script into the container
-COPY transcode.py .
+# Copy the transcode worker script into the container
+COPY worker/transcode.py .
+
+# Copy the centralized version file
+COPY VERSION.txt .

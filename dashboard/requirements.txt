@@ -3,5 +3,4 @@ Flask
 gunicorn
 plexapi
 authlib
-authlib
-authlib
+Werkzeug

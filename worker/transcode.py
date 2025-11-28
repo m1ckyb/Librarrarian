@@ -26,9 +26,22 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
-VERSION = "0.10.6" # Updated version
+
+def get_worker_version():
+    """Reads the version from the VERSION.txt file."""
+    try:
+        # This works in Docker where VERSION.txt is in the workdir.
+        return open('VERSION.txt', 'r').read().strip()
+    except FileNotFoundError:
+        # Fallback for local development where the script is in a subdirectory.
+        try:
+            return open(os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt'), 'r').read().strip()
+        except FileNotFoundError:
+            return "standalone"
+VERSION = get_worker_version()
 HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
+API_KEY = os.environ.get('API_KEY')
 
 # --- USER CONFIGURATION SECTION ---
 # Read DB config from environment variables, with fallbacks for local testing
@@ -50,24 +63,25 @@ class DatabaseHandler:
     def _get_conn(self):
         return psycopg2.connect(**self.conn_params)
 
-    def update_heartbeat(self, status, current_file=None, progress=None, fps=None):
+    def update_heartbeat(self, status, current_file=None, progress=None, fps=None, version_mismatch=False):
         """Updates the worker's status in the central database."""
         sql = """
-        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps)
-        VALUES (%s, NOW(), %s, %s, %s, %s, %s)
+        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps, version_mismatch)
+        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s)
         ON CONFLICT (hostname) DO UPDATE SET
             last_heartbeat = EXCLUDED.last_heartbeat,
             status = EXCLUDED.status,
             version = EXCLUDED.version,
             current_file = EXCLUDED.current_file,
             progress = EXCLUDED.progress,
-            fps = EXCLUDED.fps;
+            fps = EXCLUDED.fps,
+            version_mismatch = EXCLUDED.version_mismatch;
         """
         conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps))
+                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps, version_mismatch))
                 conn.commit()
             except Exception as e:
                 print(f"[{datetime.now()}] Heartbeat Error: Could not update status. {e}")
@@ -168,23 +182,27 @@ def detect_hardware_settings(accel_mode):
 def get_dashboard_settings():
     """Fetches all worker settings from the dashboard's API."""
     try:
-        response = requests.get(f"{DASHBOARD_URL}/api/settings", timeout=10)
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        response = requests.get(f"{DASHBOARD_URL}/api/settings", headers=headers, timeout=10)
         response.raise_for_status()
-        settings_data = response.json().get('settings', {})
+        data = response.json()
+        settings_data = data.get('settings', {})
+        dashboard_version = data.get('dashboard_version')
         # Flatten the settings for easier access
-        return {key: value['setting_value'] for key, value in settings_data.items()}
+        return {key: value['setting_value'] for key, value in settings_data.items()}, dashboard_version
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not fetch settings from {DASHBOARD_URL}. {e}")
         print("    Ensure the dashboard is running and accessible from this machine.")
         if 'localhost' in DASHBOARD_URL:
             print("    If running the worker on a different machine, set the DASHBOARD_URL environment variable. Example: DASHBOARD_URL=http://<dashboard_ip>:5000 ./transcode.py")
-        return {}
+        return {}, None
 
 def request_job_from_dashboard():
     """Requests a new job from the dashboard's API."""
     try:
         print(f"[{datetime.now()}] Requesting a new job...")
-        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, timeout=10)
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, headers=headers, timeout=10)
         response.raise_for_status()
         job_data = response.json()
         if job_data and job_data.get('job_id'):
@@ -204,12 +222,28 @@ def update_job_status(job_id, status, details=None):
         payload.update(details)
     
     try:
-        response = requests.post(f"{DASHBOARD_URL}/api/update_job/{job_id}", json=payload, timeout=10)
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        response = requests.post(f"{DASHBOARD_URL}/api/update_job/{job_id}", json=payload, headers=headers, timeout=10)
         response.raise_for_status()
         print(f"[{datetime.now()}] Successfully updated job {job_id} to status '{status}'.")
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not update job {job_id}. {e}")
 
+def translate_path_for_worker(filepath, settings):
+    """
+    Translates a container-centric path from the dashboard to a path the worker can use.
+    This is crucial for non-Docker workers or complex mount setups.
+    """
+    path_from = settings.get('plex_path_from')
+    path_to = settings.get('plex_path_to')
+
+    # If mappings are defined and the incoming path starts with the container path (`path_to`),
+    # replace it with the Plex path (`path_from`). This gives us the "real" network path.
+    if path_from and path_to and filepath.startswith(path_to):
+        # This is a simple replacement for now. A more robust solution might be needed
+        # if the worker's root path isn't the project directory.
+        return filepath.replace(path_to, path_from, 1)
+    return filepath
 def process_file(filepath, db, settings):
     """Handles the full transcoding process for a given file using ffmpeg."""
     print(f"[{datetime.now()}] Starting transcode for: {filepath}")
@@ -236,7 +270,7 @@ def process_file(filepath, db, settings):
 
     # --- Prepare file paths ---
     original_path = Path(filepath)
-    temp_output_path = original_path.parent / f".tmp_{original_path.name}"
+    temp_output_path = original_path.parent / f"tmp_{original_path.name}"
     final_output_path = original_path.with_suffix('.mkv') # Always output to MKV
 
     # --- Build FFmpeg Command ---
@@ -310,60 +344,83 @@ def process_file(filepath, db, settings):
             os.remove(temp_output_path)
         return False, {"reason": f"FFmpeg failed with code {process.returncode}", "log": "".join(log_buffer)}
 
-def cleanup_file(filepath, db):
+def cleanup_file(filepath, db, settings):
     """
     Deletes a single stale file identified by the dashboard.
     Returns a tuple: (success, details_dict).
     """
     print(f"[{datetime.now()}] Starting cleanup for: {filepath}")
-    db.update_heartbeat('cleaning', current_file=os.path.basename(filepath))
+    local_filepath = translate_path_for_worker(filepath, settings)
+    
+    db.update_heartbeat('cleaning', current_file=os.path.basename(local_filepath))
     try:
-        if os.path.exists(filepath):
-            os.remove(filepath)
-            print(f"[{datetime.now()}] Successfully deleted stale file: {filepath}")
+        if os.path.exists(local_filepath):
+            os.remove(local_filepath)
+            print(f"[{datetime.now()}] Successfully deleted stale file: {local_filepath}")
             return True, {}
         else:
-            print(f"[{datetime.now()}] Stale file not found (already deleted?): {filepath}")
+            print(f"[{datetime.now()}] Stale file not found (already deleted?): {local_filepath}")
             return True, {"reason": "File not found on worker"} # Still success, as the file is gone
     except Exception as e:
-        print(f"[{datetime.now()}] FAILED cleanup for: {filepath}. Reason: {e}")
+        print(f"[{datetime.now()}] FAILED cleanup for: {local_filepath}. Reason: {e}")
         return False, {"reason": "File deletion error on worker", "log": str(e)}
 
 def main_loop(db):
     """The main worker loop."""
     print(f"[{datetime.now()}] Worker '{HOSTNAME}' starting up. Version: {VERSION}")
-    db.update_heartbeat('booting')
+    db.update_heartbeat('booting', version_mismatch=False)
     time.sleep(2) # Stagger startup
 
-    settings = get_dashboard_settings()
+    settings, dashboard_version = get_dashboard_settings()
     if not settings:
         print("❌ Could not fetch settings from dashboard on startup. Will retry.")
+    
+    version_mismatch = False
+    if dashboard_version and dashboard_version != VERSION:
+        version_mismatch = True
+        print("="*60)
+        print(f"⚠️  VERSION MISMATCH DETECTED!")
+        print(f"   Worker Version:    {VERSION}")
+        print(f"   Dashboard Version: {dashboard_version}")
+        print("   Please update the worker or dashboard to ensure compatibility.")
+        print("="*60)
 
+    # Determine initial state
+    autostart = os.environ.get('AUTOSTART', 'false').lower() == 'true'
+    current_command = 'running' if autostart else 'idle'
+    if autostart:
+        print(f"[{datetime.now()}] AUTOSTART is enabled. Worker will start processing jobs immediately.")
+
+    first_loop = True
     while not STOP_EVENT.is_set():
-        db.update_heartbeat('idle')
-        command = db.get_node_command(HOSTNAME)
+        # On the first loop with autostart, force the command to 'running'
+        # to override the default 'idle' state from the database.
+        # For subsequent loops, if the command is 'idle', an autostarted worker
+        # should treat it as 'running' unless explicitly stopped.
+        current_command = db.get_node_command(HOSTNAME)
 
-        if command == 'quit':
+        if autostart and current_command == 'idle':
+            current_command = 'running'
+
+        if current_command == 'quit':
             print(f"[{datetime.now()}] Quit command received. Shutting down.")
-            db.update_heartbeat('offline')
+            db.update_heartbeat('offline', version_mismatch=version_mismatch)
             break
-
-        if command in ['idle', 'paused', 'finishing']:
-            print(f"[{datetime.now()}] In '{command}' state. Standing by...")
-            db.update_heartbeat(command)
+        
+        if current_command in ['idle', 'paused', 'finishing']:
+            print(f"[{datetime.now()}] In '{current_command}' state. Standing by...")
+            db.update_heartbeat(current_command, version_mismatch=version_mismatch)
             time.sleep(30) # Check for new commands every 30 seconds
             continue
 
-        # If the command is 'running' (or anything else), try to get a job.
-        # The dashboard will deny the request if the queue is paused, which is the
-        # desired behavior. The worker will then just loop and ask again.
-        db.update_heartbeat('running')
+        # If we've reached here, the command is 'running'.
+        db.update_heartbeat('running', version_mismatch=version_mismatch)
 
         job = request_job_from_dashboard()
         if job:
             settings = get_dashboard_settings() # Refresh settings before each job
             if job.get('job_type') == 'cleanup':
-                success, details = cleanup_file(job['filepath'], db)
+                success, details = cleanup_file(job['filepath'], db, settings)
             else: # Default to 'transcode'
                 success, details = process_file(job['filepath'], db, settings)
             update_job_status(job['job_id'], 'completed' if success else 'failed', details)
@@ -372,6 +429,8 @@ def main_loop(db):
             poll_interval = int(settings.get('worker_poll_interval', 30))
             print(f"[{datetime.now()}] No jobs. Waiting for {poll_interval} seconds...")
             time.sleep(poll_interval)
+        
+        first_loop = False
 
 # ===========================
 # Main Execution

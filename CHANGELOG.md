@@ -1,5 +1,69 @@
 # [Unreleased]
 
+All upcoming features and bug fixes will be documented here until they are part of an official release.
+
+---
+
+## [0.10.9] - 2025-11-24 - Integrations & Internal Scanner
+
+This release refactors the media source configuration into a new "Integrations" system and introduces a built-in Internal Media Scanner as a powerful alternative to Plex.
+
+### Added
+- **Internal Media Scanner**: Implemented a built-in media scanner that can scan specified subdirectories within the `/media` volume, using `ffprobe` to detect codecs.
+- **Dynamic Folder Selection**: The "Internal Scanner" tab now dynamically lists and allows selection of subdirectories for scanning.
+
+### Changed
+- **Redesigned Integrations UI**: The "Plex Integration" section has been refactored into a new "Integrations" section with a tabbed interface (Plex, Internal, Sonarr, Radarr).
+- **Conditional UI**: The settings tab and path mapping labels now dynamically update based on the selected media scanner (Plex or Internal), disabling irrelevant options to improve clarity.
+- **Project Memory**: Updated `remember.md` to include instructions for the AI to read all high-level documentation at the start of each new session for better context.
+
+### Fixed
+- **Plex Account Linking**: Improved the Plex account linking process. The Plex Server URL is now saved automatically when linking an account, preventing the URL from being lost on page refresh.
+
+## [0.10.8] - 2025-11-24 - Changelog Viewer
+
+This release adds a user-friendly changelog viewer directly into the dashboard.
+
+### Added
+- **In-App Changelog Viewer**: A new "Changelog" link in the footer opens a modal that displays the project's changelog, rendered from Markdown.
+- **Smart Changelog Default**: The viewer intelligently detects if the running version is newer than the latest stable release and defaults to showing the `develop` branch changelog if so, ensuring users always see the most relevant information.
+
+---
+## [0.10.7b] - 2025-11-24 - Final Polish
+
+This is a minor release with small UI and logging improvements.
+
+### Changed
+- **UI Polish**: Removed the "CodecShift" text from the main dashboard header, leaving only the logo for a cleaner look.
+- **Logging**: The dashboard now prints a startup banner to the logs, clearly identifying its version when the container starts.
+
+---
+## [0.10.7] - 2025-11-24 - Cluster Stability & Management
+
+This is a major release focused on improving the stability, manageability, and deployment process of the entire cluster. It introduces critical features for version management, worker automation, and safe file cleanup, while also fixing numerous bugs related to database initialization, permissions, and state management.
+
+### Added
+- **Version Mismatch Detection**: The dashboard and workers now compare versions on startup. A prominent warning is displayed in both the worker's log and the dashboard UI if a mismatch is detected, preventing compatibility issues.
+- **Worker Autostart**: A new `AUTOSTART=true` environment variable allows workers to begin processing jobs immediately on startup, bypassing the need for manual intervention from the UI.
+- **Cleanup Job Approval Workflow**: Stale file cleanup jobs are now created with an `Awaiting Approval` status. An administrator must manually release them from the UI (individually or all at once) before a worker will process them, adding a critical layer of safety.
+- **Individual Job Deletion**: Added the ability to delete any `pending`, `failed`, or `awaiting_approval` job directly from the queue UI.
+- **Force Remove for Stuck Jobs**: A "Force Remove" button now automatically appears for any job that has been in the "Encoding" state for more than 10 minutes, allowing for manual resolution of stuck workers.
+- **Timezone Configuration**: Added a `TZ` environment variable to the `docker-compose.yml` file, allowing all container logs and timestamps to be set to a local timezone.
+- **Path Mapping for Cleanup**: The cleanup scanner now uses the path mapping settings from the UI, allowing it to correctly find and queue stale files in complex setups (e.g., non-Docker workers, NAS mounts).
+
+### Changed
+- **Database Initialization**: The database is now initialized using a standard `init.sql` script via Docker's entrypoint mechanism. This is more efficient and resolves all race conditions on a fresh deployment.
+- **Default Settings**: The `init.sql` script now populates the `worker_settings` table with a full set of default values, ensuring the dashboard starts correctly on a fresh database.
+- **CI/CD Pipeline**: The GitHub Actions workflows have been updated to use the correct build context, resolving build failures and ensuring version consistency between local and automated builds.
+- **Version Mismatch Logic**: The dashboard is now the source of truth for version mismatch detection. It periodically checks worker versions and updates their status, ensuring mismatches are caught even if the dashboard is updated while workers are running.
+
+### Fixed
+- **Critical Startup Race Condition**: Fixed a series of `relation "nodes" does not exist` and `permission denied` errors that occurred when starting the cluster with a fresh database.
+- **Worker Authentication**: Fixed a critical bug where workers could not authenticate with the dashboard after the security features were enabled.
+- **Worker State Machine**: Resolved several bugs in the worker's main loop that caused `AUTOSTART` workers to incorrectly go idle after their first job check.
+- **Job ID Reuse**: The "Clear Queue" function now uses `DELETE` instead of `TRUNCATE`, preventing the reuse of job IDs and ensuring data integrity with the history table.
+- **Stale File Detection**: Corrected the logic for detecting stale temporary files, which now correctly looks for files starting with `tmp_`.
+
 ---
 ## [0.10.6] - 2025-11-24 - Stability Fix
 
@@ -21,6 +85,7 @@ This release takes the experimental authentication features from the previous ve
 - **UI Polish**:
     - The logged-in user's name and welcome message are now displayed prominently in the main dashboard header.
     - The welcome message was moved to appear after the logout button for better visual flow.
+    - The dashboard version in the footer is now read dynamically from `VERSION.txt`, ensuring consistency.
     - The "Logout" button's styling now matches other header buttons for a consistent look.
 - **Cleaned Footer**: The user's name and login/logout buttons have been removed from the shared footer to avoid redundancy.
 
