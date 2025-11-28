@@ -1180,17 +1180,24 @@
                 const listContainer = document.getElementById(listContainerId);
 
                 const applyVisibility = () => {
+                    if (!listContainer) return;
                     const showHidden = toggle.checked;
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
                         const isItemHidden = item.dataset.isHidden === 'true';
-                        if (isItemHidden && !showHidden) {
+                        const typeSelector = item.querySelector('select');
+                        const isHiddenByType = typeSelector && typeSelector.value === 'none';
+
+                        if ((isItemHiddenBySource && !showHidden) || isHiddenByType) {
                             item.style.display = 'none';
                         } else {
                             item.style.display = 'flex';
                         }
                     });
                 };
+
                 toggle.addEventListener('change', applyVisibility);
+                listContainer.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') applyVisibility(); });
+
                 // Return the function so it can be called after loading
                 return applyVisibility;
             }
