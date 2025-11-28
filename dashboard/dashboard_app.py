@@ -654,14 +654,19 @@ def options():
     try:
         db = get_db()
         with db.cursor() as cur:
+            print("--- DEBUG: Saving Media Source Settings ---")
+            print(f"Received form data: {request.form}")
+
             # Get a definitive list of all sources that were rendered on the page
             all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
+            print(f"Found Plex sources: {all_plex_sources}")
             # Process Plex sources
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
                 is_hidden = (media_type == 'none')
+                print(f"  -> Processing Plex source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
 
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
@@ -670,10 +675,12 @@ def options():
                     DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
+            print(f"Found Internal sources: {all_internal_sources}")
             # Process Internal sources
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
                 is_hidden = (media_type == 'none')
+                print(f"  -> Processing Internal source: '{source_name}', media_type: '{media_type}', is_hidden: {is_hidden}")
 
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
@@ -681,9 +688,12 @@ def options():
                     ON CONFLICT (source_name, scanner_type)
                     DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
+        print("Committing media source changes to the database.")
         db.commit()
+        print("Media source changes committed.")
     except Exception as e:
         errors.append(f"Could not save media type assignments: {e}")
+        print(f"--- DEBUG: ERROR saving media source settings: {e}")
 
     if not errors:
         flash('Worker settings have been updated successfully!', 'success')
