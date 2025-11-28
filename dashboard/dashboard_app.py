@@ -828,7 +828,7 @@ def plex_get_libraries():
         libraries = [
             {"title": section.title, "key": section.key}
             for section in plex.library.sections()
-            if section.type in ['movie', 'show', 'artist', 'photo']
+            if section.type in ['movie', 'show']
         ]
         return jsonify(libraries=libraries)
     except Exception as e:
