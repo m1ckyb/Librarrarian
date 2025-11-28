@@ -127,19 +127,24 @@ MIGRATIONS = {
 
 ### Release Process
 
-When requested to **"Update to version <number>"**, the following steps must be performed:
+When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor`, or `Major`, the following steps must be performed based on Semantic Versioning:
 
-1.  **Update `CHANGELOG.md`**:
-    *   Create a new version heading (e.g., `## [0.10.9] - YYYY-MM-DD - Release Name`).
+1.  **Determine New Version**: Read the current version from `VERSION.txt` (e.g., `X.Y.Z`).
+    *   For a **Patch** release, the new version will be `X.Y.(Z+1)`.
+    *   For a **Minor** release, the new version will be `X.(Y+1).0`.
+    *   For a **Major** release, the new version will be `(X+1).0.0`.
+
+2.  **Update `CHANGELOG.md`**:
+    *   Create a new version heading with the new version number and current date (e.g., `## [1.0.0] - YYYY-MM-DD - Release Name`).
     *   Move all content from `UNRELEASED.md` into this new section.
     *   Ensure the formatting is correct and consistent with previous entries.
     *   **Do not** add an `[Unreleased]` section back to the top of `CHANGELOG.md`. This file should only contain released versions.
 
-2.  **Clear `UNRELEASED.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
+3.  **Clear `UNRELEASED.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
 
-3.  **Update `VERSION.txt`**: Change the content of `VERSION.txt` to the new version number (e.g., `0.10.9`).
+4.  **Update `VERSION.txt`**: Change the content of `VERSION.txt` to the new version number.
 
-4.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
+5.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
 
 ---
 
