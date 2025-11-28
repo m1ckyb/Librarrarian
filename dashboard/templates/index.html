@@ -285,13 +285,18 @@
                                 <!-- Sonarr Tab -->
                                 <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel">
                                     <div class="row">
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <label for="sonarr_host" class="form-label"><strong>Sonarr Host URL</strong></label>
                                             <input type="text" class="form-control" id="sonarr_host" name="sonarr_host" value="{{ settings.get('sonarr_host', {}).get('setting_value', '') }}" placeholder="http://sonarr:8989">
                                         </div>
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <label for="sonarr_api_key" class="form-label"><strong>API Key</strong></label>
                                             <input type="password" class="form-control" id="sonarr_api_key" name="sonarr_api_key" value="{{ settings.get('sonarr_api_key', {}).get('setting_value', '') }}">
+                                        </div>
+                                        <div class="col-md-4">
+                                            {% set rescan_minutes = settings.get('sonarr_rescan_minutes', {}).get('setting_value', '30') | int %}
+                                            <label for="sonarr_rescan_minutes" class="form-label"><strong>Rescan Time: <span id="sonarr-rescan-value">{{ rescan_minutes }}</span> min</strong></label>
+                                            <input type="range" class="form-range" id="sonarr_rescan_minutes" name="sonarr_rescan_minutes" min="30" max="1440" step="15" value="{{ rescan_minutes }}">
                                         </div>
                                     </div>
                                     <div class="form-check form-switch mt-3">
@@ -303,7 +308,7 @@
                                     <div class="form-check form-switch my-3">
                                         {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
-                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Auto Scan</strong></label>
+                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Automatic Scan</strong></label>
                                         <p class="form-text text-body-secondary">If enabled, the dashboard will automatically trigger the selected Sonarr action every 30 minutes.</p>
                                     </div>
                                     <button type="button" class="btn btn-secondary mt-3" id="manual-sonarr-scan-btn">
@@ -1423,7 +1428,7 @@
                 document.getElementById('plex_path_to').disabled = !isEnabled;
             });
 
-            document.addEventListener('DOMContentLoaded', handleScannerChange);
+            handleScannerChange(); // Run on initial script execution to set the correct state
 
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');
@@ -1456,6 +1461,12 @@
             const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
             const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
             const sonarrStatusDiv = document.getElementById('sonarr-test-status');
+            const rescanSlider = document.getElementById('sonarr_rescan_minutes');
+            const rescanValueSpan = document.getElementById('sonarr-rescan-value');
+
+            rescanSlider.addEventListener('input', (event) => {
+                rescanValueSpan.textContent = event.target.value;
+            });
 
             function updateSonarrButtonText() {
                 if (sendToQueueSwitch.checked) {

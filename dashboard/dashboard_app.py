@@ -648,6 +648,7 @@ def options():
         if request.form.get(f'{arr_type}_api_key'):
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
+    settings_to_update['sonarr_rescan_minutes'] = request.form.get('sonarr_rescan_minutes', '30')
     settings_to_update['sonarr_auto_scan_enabled'] = 'true' if 'sonarr_auto_scan_enabled' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
@@ -1119,9 +1120,10 @@ def sonarr_scanner_thread():
                 auto_scan_enabled = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value') == 'true'
                 
                 if auto_scan_enabled:
-                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Waiting for next 30 minute cycle...")
-                    time.sleep(1800) # 30 minutes
-                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Triggering automatic scan.")
+                    rescan_minutes = int(settings.get('sonarr_rescan_minutes', {}).get('setting_value', '30'))
+                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Waiting for next {rescan_minutes} minute cycle...")
+                    time.sleep(rescan_minutes * 60)
+                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Triggering automatic scan based on {rescan_minutes} minute interval.")
                     
                     # Check if we should add to queue or trigger API
                     send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
