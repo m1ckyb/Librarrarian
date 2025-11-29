@@ -9,12 +9,15 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Sonarr Rename Jobs**: Added a new "rename" job type. A "Scan Sonarr" button on the Job Queue page will find completed downloads from the Sonarr API and add them to the queue to be renamed.
 
 ### Changed
-- **Sonarr Rename Strategy**: The rename scanner has been refactored to perform a deep analysis of the entire library by default. This correctly finds older, non-conformant files for renaming, which is the primary goal of this feature. The inefficient "fast scan" has been removed.
+- **UI Reorganization**: Renamed the "Cleanup" tab to "Tools" and moved the Sonarr scanning buttons into it, creating a dedicated space for manual actions and improving the overall UI structure.
+- **Sonarr Rename Strategy**: The rename scanner has been refactored to perform a deep analysis of the entire library. This correctly finds older, non-conformant files for renaming, which is the primary goal of this feature. The inefficient "fast scan" has been removed.
 - **Database Initialization**: The database schema is now created and configured by the dashboard application on its first startup. This removes the dependency on the `init.sql` file and makes the initial setup more user-friendly, as users no longer need the file present when running `docker-compose up`.
 
 ### Fixed
+- **Sonarr Scanner Reliability**: Fixed a series of critical bugs in the Sonarr rename scanner that prevented it from finding or creating jobs. This includes correcting the API usage pattern to properly rescan series before checking for renames.
+- **Sonarr Scanner Timeout**: Fixed a Gunicorn worker timeout that occurred when running long Sonarr scans by moving the logic to an asynchronous background thread.
+- **UI Scan Feedback**: Fixed a race condition in the UI that caused the scan progress bar to not appear or to disappear prematurely.
 - **Database Name Consistency**: Resolved a technical debt where the worker and dashboard services used different environment variables and default names for the database. Both services now consistently use `DB_NAME` (defaulting to `codecshift`), `DB_USER`, and `DB_PASSWORD`, simplifying configuration.
-- **Sonarr Rename Scanner**: Fixed a bug where the rename scanner would not find any files because it was only looking at the last 10 history items. It now correctly scans a larger history, reliably finding all recently imported files.
 - **Application Startup**: Fixed a critical bug that caused the application to re-initialize the database on every startup, leading to long boot times. The initialization now correctly runs only once on a fresh database.
 
 ### Removed
