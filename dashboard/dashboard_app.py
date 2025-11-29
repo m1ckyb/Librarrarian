@@ -1274,7 +1274,7 @@ def run_sonarr_rename_scan():
 
                 for i, series in enumerate(all_series):
                     series_title = series.get('title', 'Unknown Series')
-                    print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
+                    # print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
                     scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
                     
                     if scan_cancel_event.is_set():
@@ -1299,7 +1299,9 @@ def run_sonarr_rename_scan():
             except Exception as e:
                 return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
             finally:
-                scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+                # Only reset progress if it wasn't a cancellation
+                if not scan_cancel_event.is_set(): scan_progress_state.update({"current_step": "", "progress": 0})
+                scan_progress_state["is_running"] = False
                 if scanner_lock.locked(): scanner_lock.release()
         else:
             return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
@@ -1410,7 +1412,7 @@ def run_sonarr_quality_scan():
 
             for i, series in enumerate(all_series):
                 series_title = series.get('title', 'Unknown Series')
-                print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
+                # print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
                 scan_progress_state.update({"current_step": series_title, "progress": i + 1})
 
                 if scan_cancel_event.is_set():
@@ -1440,8 +1442,9 @@ def run_sonarr_quality_scan():
         except requests.RequestException as e:
             return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
         finally:
-            # Reset progress state when done
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            # Only reset progress if it wasn't a cancellation
+            if not scan_cancel_event.is_set(): scan_progress_state.update({"current_step": "", "progress": 0})
+            scan_progress_state["is_running"] = False
             if scanner_lock.locked(): scanner_lock.release()
 
 def run_internal_scan(force_scan=False):
