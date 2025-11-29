@@ -1253,84 +1253,48 @@ def run_sonarr_rename_scan():
             return {"success": False, "message": "Sonarr is not configured."}
 
         if not send_to_queue:
-            # --- Mode 1: Trigger Sonarr API Directly ---
-            print(f"[{datetime.now()}] Triggering Sonarr 'DownloadedEpisodesScan' command for rename/import...")
-            command_url = f"{host.rstrip('/')}/api/v3/command"
-            headers = {'X-Api-Key': api_key}
-            payload = {'name': 'DownloadedEpisodesScan'}
+            return {"success": False, "message": "Rename scan was triggered, but 'Send Rename Jobs to Queue' is disabled in Options."}
+
+        if scanner_lock.acquire(blocking=False):
             try:
-                response = requests.post(command_url, headers=headers, json=payload, timeout=10, verify=False)
-                response.raise_for_status()
-                return {"success": True, "message": "Sonarr rename/import scan triggered successfully."}
-            except requests.RequestException as e:
-                return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
-        else:
-            # --- Mode 2: Add to Job Queue ---
-            print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting scan to add jobs to queue...")
-            if not scanner_lock.acquire(blocking=False):
-                return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
-            try:
+                print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan to find files to rename...")
                 headers = {'X-Api-Key': api_key}
                 base_url = host.rstrip('/')
-                scan_progress_state.update({"is_running": True, "current_step": "Querying Sonarr's history for imported files...", "progress": 50, "total_steps": 100})
-
-                # 1. Get all series from Sonarr
                 series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
                 series_res.raise_for_status()
                 all_series = series_res.json()
-                # Query Sonarr's history for recently imported files. This is the most reliable method.
-                # We ask for a large page size to ensure we don't miss anything.
-                history_url = f"{base_url}/api/v3/history?eventType=downloadFolderImported&pageSize=1000"
-                response = requests.get(history_url, headers=headers, timeout=20, verify=False)
-                response.raise_for_status()
-                history_data = response.json()
 
-                # --- Progress Tracking ---
-                total_series = len(all_series)
-                scan_progress_state.update({"is_running": True, "total_steps": total_series, "progress": 0})
-
+                scan_progress_state.update({"is_running": True, "total_steps": len(all_series), "progress": 0})
                 conn = get_db()
                 cur = conn.cursor()
                 new_jobs_found = 0
 
-                # 2. For each series, check if there are files to be renamed
                 for i, series in enumerate(all_series):
                     series_title = series.get('title', 'Unknown Series')
-                    print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
-                    scan_progress_state.update({"current_step": series_title, "progress": i + 1})
-
-                    # 1. Trigger a rescan for the series first. This is crucial.
-                    # The /rename endpoint only shows files Sonarr *already* knows need renaming.
-                    command_payload = {'name': 'RescanSeries', 'seriesId': series['id']}
-                    requests.post(f"{base_url}/api/v3/command", headers=headers, json=command_payload, timeout=10, verify=False)
-
-                    rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
-                    rename_res.raise_for_status()
-                    episodes_to_rename = rename_res.json()
-
-                    for episode in episodes_to_rename:
+                    print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
+                    scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
+                    
+                    requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10)
+                    time.sleep(2) # Give Sonarr a moment to process before we query
+                    rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10)
+                    for episode in rename_res.json():
                         filepath = episode.get('existingPath')
-                        metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
-                for item in history_data.get('records', []):
-                    # The 'data' object contains the path of the file *after* Sonarr imported it.
-                    filepath = item.get('data', {}).get('importedPath')
-                    if filepath:
-                        print(f"  -> Found imported file: {filepath}")
-                        metadata = {'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'), 'seasonNumber': item.get('episode', {}).get('seasonNumber'), 'episodeNumber': item.get('episode', {}).get('episodeNumber'), 'episodeTitle': item.get('episode', {}).get('title'), 'quality': item.get('quality', {}).get('quality', {}).get('name')}
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                        if cur.rowcount > 0: new_jobs_found += 1
-
+                        if filepath:
+                            metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                
                 conn.commit()
-                message = f"Sonarr rename scan complete. Found {new_jobs_found} new files to rename."
-                scan_progress_state["current_step"] = message # Set final message
+                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+                scan_progress_state["current_step"] = message
                 return {"success": True, "message": message}
-            except requests.RequestException as e:
-                return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+            except Exception as e:
+                return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
             finally:
-                # Reset progress state when done
                 scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
-                if scanner_lock.locked():
-                    scanner_lock.release()
+                if scanner_lock.locked(): scanner_lock.release()
+        else:
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
 
 def run_sonarr_deep_scan():
     """
