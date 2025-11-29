@@ -590,6 +590,26 @@
         </div>
     </div>
     <script>
+        // --- Global variables for scan progress tracking ---
+        // These need to be accessible across multiple script blocks and event handlers
+        let isPollingForScan = false;
+        let scanStartTime = null;
+        let activeButton = null; // The currently active scan button
+
+        // Global function to revert the active scan button to its original state
+        function revertActiveButton() {
+            if (activeButton) {
+                activeButton.classList.remove('btn-danger');
+                activeButton.classList.add('btn-secondary');
+                const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
+                const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
+                activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
+                activeButton.dataset.action = 'scan';
+                activeButton.disabled = false; // Ensure it's re-enabled
+                activeButton = null;
+            }
+        }
+
         // Function to create an HTML element for a single node
         function createNodeCard(node) {
             const isIdle = node.status === 'idle' || node.percent === 0;
@@ -802,12 +822,14 @@
             if (isPollingForScan) {
                 const progressResponse = await fetch('/api/scan/progress');
                 const progressData = await progressResponse.json();
+                // Get the status div at runtime since it might not exist when mainUpdateLoop is defined
+                const scanStatusDiv = document.getElementById('sonarr-scan-status');
 
                 if (progressData.is_running && progressData.total_steps > 0) {
                     const percent = Math.round((progressData.progress / progressData.total_steps) * 100);
                     const elapsedTime = scanStartTime ? Math.floor((Date.now() - scanStartTime) / 1000) : 0;
                     const elapsedStr = `${String(Math.floor(elapsedTime / 60)).padStart(2, '0')}:${String(elapsedTime % 60).padStart(2, '0')}`;
-                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) - ${elapsedStr} <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`;
+                    if (scanStatusDiv) scanStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) - ${elapsedStr} <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`;
                 } else {
                     // Only stop polling if the start time has been set (i.e., a scan was actually running)
                     if (scanStartTime) {
@@ -815,7 +837,7 @@
                         scanStartTime = null;
                         const finalMessage = progressData.current_step || 'Scan complete.';
                         const alertClass = finalMessage.toLowerCase().includes('cancel') ? 'alert-warning' : 'alert-success';
-                        sonarrScanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${finalMessage}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
+                        if (scanStatusDiv) scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${finalMessage}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
                         revertActiveButton();
                     }
                 }
@@ -1544,9 +1566,7 @@
             updateSonarrButtonText(); // Set initial text
 
             // --- Unified Sonarr Scanner Function ---
-            let activeButton = null; // Keep track of which button is active
-            let isPollingForScan = false; // Global flag to indicate if we should poll
-            let scanStartTime = null; // To track elapsed time
+            // Note: activeButton, isPollingForScan, scanStartTime, and revertActiveButton are defined globally
 
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
@@ -1574,19 +1594,6 @@
                 } finally {
                     button.disabled = false;
                     button.querySelector('.mdi').classList.remove('mdi-spin');
-                }
-            }
-
-            function revertActiveButton() {
-                if (activeButton) {
-                    activeButton.classList.remove('btn-danger');
-                    activeButton.classList.add('btn-secondary');
-                    const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
-                    const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
-                    activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
-                    activeButton.dataset.action = 'scan';
-                    activeButton.disabled = false; // Ensure it's re-enabled
-                    activeButton = null;
                 }
             }
 
