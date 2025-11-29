@@ -1308,16 +1308,18 @@
                 const applyVisibility = () => {
                     if (!listContainer) return;
                     const showHidden = toggle.checked;
-                    listContainer.querySelectorAll('.media-source-item').forEach(item => {                        
-                        const typeSelector = item.querySelector('select');
-                        const isHiddenByType = typeSelector && typeSelector.value === 'none';
-                        const shouldHide = isHiddenByType && !showHidden;
+                    listContainer.querySelectorAll('.media-source-item').forEach(item => {
+                        // Check if the "Hide" checkbox is checked
+                        const hideCheckbox = item.querySelector('.hide-checkbox');
+                        const isHidden = hideCheckbox && hideCheckbox.checked;
+                        const shouldHide = isHidden && !showHidden;
                         item.style.display = shouldHide ? 'none' : 'flex';
                     });
                 };
 
                 toggle.addEventListener('change', applyVisibility);
-                listContainer.addEventListener('change', (e) => { if (e.target.tagName === 'SELECT') applyVisibility(); });
+                // Listen for changes on hide checkboxes
+                listContainer.addEventListener('change', (e) => { if (e.target.classList.contains('hide-checkbox')) applyVisibility(); });
 
                 // Return the function so it can be called after loading
                 return applyVisibility;
@@ -1333,13 +1335,13 @@
                     'show': 'TV Show',
                     'music': 'Music',
                     'other': 'Other Videos',
-                    'none': 'None (Hide)'
+                    'none': 'None (Ignore)'
                 };
                 const createDropdown = (name, plexType, selectedType) => {
                     // Default to music for 'artist', other for 'photo', otherwise use the saved type.
                     const finalSelectedType = selectedType || (plexType === 'artist' ? 'music' : (plexType === 'photo' ? 'other' : plexType));
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${finalSelectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
+                    return `<select class="form-select form-select-sm" name="${name}" style="width: 140px;">${options}</select>`;
                 };
 
                 // Use the settings rendered directly into the page by the server.
@@ -1362,8 +1364,12 @@
                                 <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                                 <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
                             </div>
-                            <div class="ms-auto d-flex align-items-center me-2">
+                            <div class="ms-auto d-flex align-items-center">
                                 ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
+                                <div class="form-check ms-2" title="Hide this source from the list">
+                                    <input class="form-check-input hide-checkbox" type="checkbox" name="hide_plex_${lib.title}" id="hide-lib-${lib.key}" ${lib.is_hidden ? 'checked' : ''}>
+                                    <label class="form-check-label small text-muted" for="hide-lib-${lib.key}">Hide</label>
+                                </div>
                             </div>
                         </div>
                     `).join('');
@@ -1388,11 +1394,11 @@
                     'show': 'TV Show',
                     'music': 'Music',
                     'other': 'Other Videos',
-                    'none': 'None (Hide)'
+                    'none': 'None (Ignore)'
                 };
                 const createDropdown = (name, selectedType) => {
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
+                    return `<select class="form-select form-select-sm" name="${name}" style="width: 140px;">${options}</select>`;
                 };
                 container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading folders...';
 
@@ -1407,8 +1413,12 @@
                                 <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
                                 <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
                             </div>
-                            <div class="ms-auto d-flex align-items-center me-2">
+                            <div class="ms-auto d-flex align-items-center">
                                 ${createDropdown(`type_internal_${item.name}`, item.type)}
+                                <div class="form-check ms-2" title="Hide this source from the list">
+                                    <input class="form-check-input hide-checkbox" type="checkbox" name="hide_internal_${item.name}" id="hide-folder-${item.name}" ${item.is_hidden ? 'checked' : ''}>
+                                    <label class="form-check-label small text-muted" for="hide-folder-${item.name}">Hide</label>
+                                </div>
                             </div>
                         </div>
                     `).join('');

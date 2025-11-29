@@ -11,6 +11,10 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Arr Integration Setup**: Added UI in the "Options" tab to configure connection settings (Host and API Key) for Sonarr, Radarr, and Lidarr.
 - **Arr Connection Testing**: Implemented a "Test Connection" button for each Arr service that validates the provided credentials and provides immediate feedback.
 - **Sonarr Rename Jobs**: Added a new "rename" job type. A "Scan Sonarr" button on the Job Queue page will find completed downloads from the Sonarr API and add them to the queue to be renamed.
+- **Media Source Management**: Added advanced controls for media sources in the Integrations tab.
+  - **Ignore Option**: A "None" option was added to the media type dropdown, which causes the scanner to ignore that library or folder.
+  - **Hide Option**: A "Hide" checkbox was added to each media source, allowing users to hide it from the list.
+  - **Show Hidden Toggle**: A "Show Hidden" toggle was added to reveal and edit hidden media sources.
 
 ### Changed
 - **Cleaner Logs**: Suppressed noisy and repetitive log messages from the Docker container, including the per-series scan progress and the frequent `/api/scan/progress` polling messages, making logs easier to read.
@@ -28,13 +32,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Sonarr Scanner Timeout**: Fixed a Gunicorn worker timeout that occurred when running long Sonarr scans by moving the logic to an asynchronous background thread.
 - **Database Name Consistency**: Resolved a technical debt where the worker and dashboard services used different environment variables and default names for the database. Both services now consistently use `DB_NAME` (defaulting to `codecshift`), `DB_USER`, and `DB_PASSWORD`, simplifying configuration.
 - **Application Startup**: Fixed a critical bug that caused the application to re-initialize the database on every startup, leading to long boot times. The initialization now correctly runs only once on a fresh database.
+- **Media Source Hide/Show**: Fixed the "Hide" functionality for media sources. The hide option is now a separate checkbox instead of being tied to the "None" media type option. This allows users to independently set a source to be ignored ("None" type) while still keeping it visible in the list.
 
 ### Removed
 - The `init.sql` file has been removed from the project root as it is no longer needed.
-
-
-### Bugs / Buggy Features
-- **Media Source Management**: Added advanced controls for media sources in the Integrations tab.
-  - **Ignore Option**: A "None" option was added to the media type dropdown, which causes the scanner to ignore that library or folder.
-  - **Hide Option**: A "Hide" checkbox was added to each media source, allowing users to hide it from the list.
-  - **Show Hidden Toggle**: A "Show Hidden" toggle was added to reveal and edit hidden media sources.
