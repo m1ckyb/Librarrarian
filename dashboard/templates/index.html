@@ -1614,15 +1614,18 @@
                         button.classList.remove('btn-secondary');
                         button.classList.add('btn-danger');
                         button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
-                        button.dataset.action = 'cancel'; // Set the button's state to 'cancel'
+                        button.dataset.action = 'cancel';
+                        button.disabled = false; // Re-enable as a cancel button
+                        button.querySelector('.mdi').classList.remove('mdi-spin');
                         scanStartTime = Date.now();
-                        isPollingForScan = true; // Tell the main update loop to start polling
+                        isPollingForScan = true; 
                     } else {
                         sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
+                        button.disabled = false;
+                        button.querySelector('.mdi').classList.remove('mdi-spin');
                     }
                 } catch (error) {
                     sonarrScanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-                } finally {
                     button.disabled = false;
                     button.querySelector('.mdi').classList.remove('mdi-spin');
                 }
