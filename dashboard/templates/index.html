@@ -651,16 +651,6 @@
                 const failCountBadge = document.getElementById('fail-count-badge');
                 const viewErrorsBtn = document.getElementById('view-errors-btn');
                 failCountBadge.innerText = failCount;
-                failCountBadge.classList.remove('text-bg-light', 'text-bg-dark'); // Reset badge color
-                
-                // Update clock
-                const clockContainer = document.getElementById('clock-container');
-                if (clockContainer) {
-                    const use24HourTime = localStorage.getItem('time_format_24hr') === 'true';
-                    const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: !use24HourTime };
-                    const timeString = new Date().toLocaleTimeString([], timeOptions);
-                    clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
-                }
                 
                 // Update View Errors button color
                 // Remove all potential color classes first
@@ -820,28 +810,30 @@
             }
         }
 
-        // Main update loop that runs every 5 seconds
-        // Main UI update loop. This is the main heartbeat of the UI and should never be blocked.
+        // Main data update loop. Fetches node status and other data.
         async function mainUpdateLoop() {
-            // This is the main heartbeat of the UI. It should never be blocked.
             await updateStatus();
 
             // Check which tab is active and update its content if needed
             if (document.querySelector('#history-stats-tab.active')) {
                 await updateHistoryAndStats();
             }
-
             if (document.querySelector('#jobs-tab.active')) {
                 await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
             }
         }
 
-        // Separate, independent loop for polling scan progress so it doesn't block the main UI updates.
-        setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Poll every second
+        // --- Independent, Non-Blocking Timers ---
+        // This is the correct pattern to prevent UI freezes.
 
-        // Separate, independent loops for slower-updating tabs.
-        setInterval(() => { if (document.querySelector('#history-stats-tab.active')) updateHistoryAndStats(); }, 10000); // every 10s
-        setInterval(() => { if (document.querySelector('#jobs-tab.active')) updateJobQueue(jobQueueCurrentPage); }, 5000); // every 5s
+        // 1. A dedicated, lightweight timer for the clock. It does nothing else.
+        setInterval(() => {
+            const clockContainer = document.getElementById('clock-container');
+            const use24HourTime = localStorage.getItem('time_format_24hr') === 'true';
+            const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: !use24HourTime };
+            const timeString = new Date().toLocaleTimeString([], timeOptions);
+            if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
+        }, 1000); // Runs every second.
 
         // Run initial update on page load
         updateStatus();

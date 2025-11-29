@@ -10,6 +10,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **24-Hour Time Format**: Fixed the "Use 24-Hour Time Format" toggle by adding the toggle switch to the UI and implementing the necessary JavaScript logic.
 - **UI Freezing and Feedback During Scans**: Fixed a major bug where the UI would freeze and not provide feedback during Sonarr scans. A new polling mechanism now shows real-time progress and prevents the UI from locking up.
 - **UI Scan Cancellation**: Fixed a bug where clicking the "Cancel Scan" button would not work correctly. The cancellation now functions as expected, and the button state is correctly reverted after a scan is finished or cancelled.
+- **UI Clock and Responsiveness**: Fixed a critical, persistent bug where the entire UI, including the "Updated" clock, would freeze. The clock update logic was decoupled from all network requests and moved into its own independent, non-blocking timer, guaranteeing a responsive UI at all times.
 
 ### Added
 - **Elapsed Time for Scans**: The UI now displays an elapsed time counter next to the progress bar during Sonarr scans.
