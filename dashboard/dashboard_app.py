@@ -1284,7 +1284,7 @@ def run_sonarr_rename_scan():
                     episodes_to_rename = rename_res.json()
 
                     for episode in episodes_to_rename:
-                        filepath = episode.get('path')
+                        filepath = episode.get('existingPath')
                         metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
                         cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
