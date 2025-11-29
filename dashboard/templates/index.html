@@ -510,6 +510,7 @@
                                 <span>Scan for Quality Mismatches</span>
                             </button>
                         </div>
+                        <div id="sonarr-scan-status" class="mt-3"></div>
                     </div>
 
                     <!-- System Cleanup Section -->
@@ -1477,12 +1478,15 @@
             const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
             const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
             const sonarrStatusDiv = document.getElementById('sonarr-test-status');
-            const rescanSlider = document.getElementById('sonarr_rescan_hours');
+            const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status'); // The new status div in the Tools tab
             const rescanValueSpan = document.getElementById('sonarr-rescan-value');
 
-            if (rescanSlider) {
-                rescanSlider.addEventListener('input', (event) => { rescanValueSpan.textContent = event.target.value; });
+            // This element might not exist if the user has old settings, so check for it.
+            const sonarrRescanSlider = document.getElementById('sonarr_rescan_hours');
+            if (sonarrRescanSlider) {
+                sonarrRescanSlider.addEventListener('input', (event) => { rescanValueSpan.textContent = event.target.value; });
             }
+
 
             function updateSonarrButtonText() {
                 manualScanBtnText.innerText = sendToQueueSwitch.checked ? 'Scan for Rename Jobs' : 'Trigger Sonarr Import';
@@ -1492,16 +1496,28 @@
 
             // --- Unified Sonarr Scanner Function ---
             let progressIntervalId = null;
+            let activeButton = null; // Keep track of which button is active
+
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
                 button.querySelector('.mdi').classList.add('mdi-spin');
-                sonarrStatusDiv.innerHTML = '';
+                sonarrScanStatusDiv.innerHTML = ''; // Use the new status div
 
                 try {
                     const response = await fetch(endpoint, { method: 'POST' });
                     const data = await response.json();
 
                     if (data.success) {
+                        // --- Change to Cancel Button ---
+                        activeButton = button;
+                        button.classList.remove('btn-secondary');
+                        button.classList.add('btn-danger');
+                        button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
+                        button.onclick = async () => {
+                            await fetch('/api/scan/cancel', { method: 'POST' });
+                            // The button will be reset by the polling logic once the backend confirms cancellation.
+                        };
+
                         // Start polling if not already polling
                         if (progressIntervalId === null) {
                             // Add a small delay before the first poll to allow the backend to update its state
@@ -1514,17 +1530,28 @@
                                         } else { 
                                             clearInterval(progressIntervalId); 
                                             progressIntervalId = null; 
-                                            sonarrStatusDiv.innerHTML = `<div class="alert alert-success">${progressData.current_step || 'Scan complete.'}</div>`; 
+                                            sonarrScanStatusDiv.innerHTML = `<div class="alert alert-success">${progressData.current_step || 'Scan complete.'}</div>`; 
+
+                                            // --- Revert Button ---
+                                            if (activeButton) {
+                                                activeButton.classList.remove('btn-danger');
+                                                activeButton.classList.add('btn-secondary');
+                                                // Restore original content and event listener
+                                                const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
+                                                activeButton.innerHTML = `<span class="mdi ${activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high'}"></span> <span>${originalText}</span>`;
+                                                activeButton.onclick = () => triggerSonarrScan(activeButton, endpoint);
+                                                activeButton = null;
+                                            }
                                         } 
                                     }); 
                                 }, 2000); 
                             }, 500); // 500ms delay to prevent race condition
                         }
                     } else {
-                        sonarrStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
+                        sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
                     }
                 } catch (error) {
-                    sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 } finally {
                     button.disabled = false;
                     button.querySelector('.mdi').classList.remove('mdi-spin');

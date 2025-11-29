@@ -1210,6 +1210,7 @@ scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
 sonarr_rename_scan_event = threading.Event()
 sonarr_quality_scan_event = threading.Event()
+scan_cancel_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
 
@@ -1224,12 +1225,14 @@ def sonarr_background_thread():
         # Wait for either event to be set. This is a simple polling mechanism.
         if sonarr_rename_scan_event.wait(timeout=1):
             print(f"[{datetime.now()}] Sonarr rename scan trigger received.")
+            scan_cancel_event.clear() # Ensure cancel flag is down before starting
             with app.app_context():
                 run_sonarr_rename_scan()
             sonarr_rename_scan_event.clear()
 
         if sonarr_quality_scan_event.wait(timeout=1):
             print(f"[{datetime.now()}] Sonarr quality scan trigger received.")
+            scan_cancel_event.clear() # Ensure cancel flag is down before starting
             with app.app_context():
                 run_sonarr_quality_scan()
             sonarr_quality_scan_event.clear()
@@ -1274,6 +1277,11 @@ def run_sonarr_rename_scan():
                     print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
                     scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
                     
+                    if scan_cancel_event.is_set():
+                        print("Rename scan cancelled by user.")
+                        scan_progress_state["current_step"] = "Scan cancelled by user."
+                        return {"success": False, "message": "Scan cancelled."}
+
                     requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10)
                     time.sleep(2) # Give Sonarr a moment to process before we query
                     rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10)
@@ -1404,6 +1412,11 @@ def run_sonarr_quality_scan():
                 series_title = series.get('title', 'Unknown Series')
                 print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
                 scan_progress_state.update({"current_step": series_title, "progress": i + 1})
+
+                if scan_cancel_event.is_set():
+                    print("Quality scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return {"success": False, "message": "Scan cancelled."}
 
                 profile = quality_profiles.get(series['qualityProfileId'])
                 if not profile or not profile.get('cutoff'):
@@ -1595,6 +1608,13 @@ def api_trigger_quality_scan():
         return jsonify({"success": False, "message": "Another scan is already in progress."})
     sonarr_quality_scan_event.set()
     return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
+
+@app.route('/api/scan/cancel', methods=['POST'])
+def api_cancel_scan():
+    """API endpoint to signal cancellation of any active Sonarr scan."""
+    print(f"[{datetime.now()}] Scan cancellation requested via API.")
+    scan_cancel_event.set()
+    return jsonify(success=True, message="Scan cancellation signal sent.")
 
 @app.route('/api/scan/progress')
 def api_scan_progress():
