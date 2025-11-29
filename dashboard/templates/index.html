@@ -1527,7 +1527,7 @@
                                             progressIntervalId = null; 
                                             const finalMessage = progressData.current_step || 'Scan complete.';
                                             const alertClass = finalMessage.toLowerCase().includes('cancel') ? 'alert-warning' : 'alert-success';
-                                            sonarrScanStatusDiv.innerHTML = `<div class="alert ${alertClass}">${finalMessage}</div>`; 
+                                            sonarrScanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${finalMessage}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`; 
 
                                             // --- Revert Button ---
                                             if (activeButton) {

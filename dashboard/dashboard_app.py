@@ -6,6 +6,7 @@ import uuid
 import base64
 import json
 from datetime import datetime
+import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
@@ -28,6 +29,18 @@ app = Flask(__name__)
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
+
+# --- Custom Logging Filter ---
+# This filter will suppress the noisy GET /api/scan/progress logs from appearing.
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        # The log message for an access log is in record.args
+        if record.args and len(record.args) >= 3 and isinstance(record.args[2], str):
+            return '/api/scan/progress' not in record.args[2]
+        return True
+
+# Apply the filter to Werkzeug's logger (used by Flask's dev server and Gunicorn)
+logging.getLogger('werkzeug').addFilter(HealthCheckFilter())
 
 # If running behind a reverse proxy, this is crucial for url_for() to generate correct
 # external URLs (e.g., for OIDC redirects).
