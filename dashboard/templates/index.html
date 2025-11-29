@@ -1566,7 +1566,8 @@
             updateSonarrButtonText(); // Set initial text
 
             // --- Unified Sonarr Scanner Function ---
-            // Note: activeButton, isPollingForScan, scanStartTime, and revertActiveButton are defined globally
+            // Note: activeButton, isPollingForScan, scanStartTime, and revertActiveButton() 
+            // are defined globally at the top of the first <script> block (line ~592)
 
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
