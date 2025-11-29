@@ -48,8 +48,8 @@ API_KEY = os.environ.get('API_KEY')
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
-    "password": os.environ.get("POSTGRES_PASSWORD", "password"),
-    "dbname": os.environ.get("POSTGRES_DB", "transcode_cluster")
+    "password": os.environ.get("DB_PASSWORD"),
+    "dbname": os.environ.get("DB_NAME", "codecshift")
 }
 
 # ===========================

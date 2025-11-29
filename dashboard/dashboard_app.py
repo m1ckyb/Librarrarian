@@ -256,18 +256,19 @@ def close_db(error):
 def init_db():
     """Initializes the database and creates all necessary tables if they don't exist."""
     conn = get_db()
+    print("Running database initialisation...")
     if not conn:
         print("DB Init Error: Could not connect to database.")
         return
 
     with conn.cursor() as cur:
-        # Renamed from active_nodes to nodes for clarity
         cur.execute("""
             CREATE TABLE IF NOT EXISTS nodes (
                 id SERIAL PRIMARY KEY,
                 hostname VARCHAR(255) UNIQUE NOT NULL,
                 status VARCHAR(50),
                 last_heartbeat TIMESTAMP,
+                connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 version VARCHAR(50),
                 version_mismatch BOOLEAN DEFAULT false,
                 command VARCHAR(50) DEFAULT 'idle',
@@ -276,7 +277,10 @@ def init_db():
                 current_file TEXT
             );
         """)
-        # New table for the job queue
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE nodes TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE nodes_id_seq TO transcode;")
+        cur.execute("ALTER TABLE nodes OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id SERIAL PRIMARY KEY,
@@ -285,9 +289,14 @@ def init_db():
                 status VARCHAR(20) NOT NULL DEFAULT 'pending',
                 assigned_to VARCHAR(255),
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                metadata JSONB
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE jobs TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE jobs_id_seq TO transcode;")
+        cur.execute("ALTER TABLE jobs OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS worker_settings (
                 id SERIAL PRIMARY KEY,
@@ -295,6 +304,10 @@ def init_db():
                 setting_value TEXT
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE worker_settings TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE worker_settings_id_seq TO transcode;")
+        cur.execute("ALTER TABLE worker_settings OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS encoded_files (
                 id SERIAL PRIMARY KEY,
@@ -307,6 +320,10 @@ def init_db():
                 status VARCHAR(20)
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE encoded_files TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE encoded_files_id_seq TO transcode;")
+        cur.execute("ALTER TABLE encoded_files OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS failed_files (
                 id SERIAL PRIMARY KEY,
@@ -316,6 +333,63 @@ def init_db():
                 failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE failed_files TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE failed_files_id_seq TO transcode;")
+        cur.execute("ALTER TABLE failed_files OWNER TO transcode;")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS media_source_types (
+                id SERIAL PRIMARY KEY,
+                source_name VARCHAR(255) NOT NULL,
+                scanner_type VARCHAR(50) NOT NULL,
+                media_type VARCHAR(50) NOT NULL,
+                is_hidden BOOLEAN DEFAULT false,
+                UNIQUE(source_name, scanner_type)
+            );
+        """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE media_source_types TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO transcode;")
+        cur.execute("ALTER TABLE media_source_types OWNER TO transcode;")
+
+        cur.execute("""
+            INSERT INTO worker_settings (setting_name, setting_value) VALUES
+                ('rescan_delay_minutes', '0'),
+                ('worker_poll_interval', '30'),
+                ('min_length', '0.5'),
+                ('backup_directory', ''),
+                ('hardware_acceleration', 'auto'),
+                ('keep_original', 'false'),
+                ('allow_hevc', 'false'),
+                ('allow_av1', 'false'),
+                ('auto_update', 'false'),
+                ('clean_failures', 'false'),
+                ('debug', 'false'),
+                ('plex_url', ''),
+                ('plex_token', ''),
+                ('plex_libraries', ''),
+                ('nvenc_cq_hd', '32'),
+                ('nvenc_cq_sd', '28'),
+                ('vaapi_cq_hd', '28'),
+                ('vaapi_cq_sd', '24'),
+                ('cpu_cq_hd', '28'),
+                ('cpu_cq_sd', '24'),
+                ('cq_width_threshold', '1900'),
+                ('plex_path_from', ''),
+                ('plex_path_to', ''),
+                ('pause_job_distribution', 'false'),
+                ('plex_path_mapping_enabled', 'true'),
+                ('media_scanner_type', 'plex'),
+                ('internal_scan_paths', '')
+            ON CONFLICT (setting_name) DO NOTHING;
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INT PRIMARY KEY
+            );
+        """)
+        cur.execute("ALTER TABLE schema_version OWNER TO transcode;")
+
     conn.commit()
 
 def get_cluster_status():
@@ -1125,7 +1199,7 @@ def sonarr_scanner_thread():
                     print(f"[{datetime.now()}] Sonarr Auto-Scanner: Waiting for next {rescan_minutes} minute cycle...")
                     time.sleep(rescan_minutes * 60)
                     print(f"[{datetime.now()}] Sonarr Auto-Scanner: Triggering automatic scan based on {rescan_minutes} minute interval.")
-                    run_sonarr_rename_scan()
+                    run_comprehensive_sonarr_scan()
                 else:
                     time.sleep(60) # If disabled, check again in 1 minute
         except Exception as e:
@@ -1338,6 +1412,103 @@ def run_sonarr_rename_scan():
                 if scanner_lock.locked():
                     scanner_lock.release()
 
+def run_comprehensive_sonarr_scan():
+    """
+    Performs a comprehensive scan of Sonarr, combining two functions:
+    1. Rename Scan: Checks the Sonarr queue for completed downloads and creates 'Rename Job' entries.
+    2. Quality Scan: Scans the library for episodes whose file quality does not meet the series' quality profile cutoff, creating 'quality_mismatch' jobs.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error: return {"success": False, "message": "Database not available."}
+
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+        send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
+
+        if not host or not api_key:
+            return {"success": False, "message": "Sonarr is not configured."}
+
+        print(f"[{datetime.now()}] Comprehensive Sonarr Scanner: Starting scan...")
+        if not scanner_lock.acquire(blocking=False):
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+
+        try:
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            conn = get_db()
+            cur = conn.cursor()
+            rename_jobs_found = 0
+            quality_jobs_found = 0
+
+            # --- Part 1: Rename Scan (from queue) ---
+            if send_to_queue:
+                print(f"[{datetime.now()}] Sonarr Scanner: Checking queue for completed downloads...")
+                queue_url = f"{base_url}/api/v3/queue"
+                response = requests.get(queue_url, headers=headers, timeout=10, verify=False)
+                response.raise_for_status()
+                queue_data = response.json()
+
+                for item in queue_data.get('records', []):
+                    if item.get('status') == 'completed' and 'outputPath' in item:
+                        filepath = item['outputPath']
+                        metadata = {'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'), 'seasonNumber': item.get('episode', {}).get('seasonNumber'), 'episodeNumber': item.get('episode', {}).get('episodeNumber'), 'episodeTitle': item.get('episode', {}).get('title'), 'quality': item.get('quality', {}).get('quality', {}).get('name')}
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: rename_jobs_found += 1
+            else:
+                # If not sending to queue, just trigger Sonarr's internal scan.
+                print(f"[{datetime.now()}] Triggering Sonarr 'DownloadedEpisodesScan' command for rename/import...")
+                command_url = f"{base_url}/api/v3/command"
+                payload = {'name': 'DownloadedEpisodesScan'}
+                requests.post(command_url, headers=headers, json=payload, timeout=10, verify=False).raise_for_status()
+
+            # --- Part 2: Quality Mismatch Scan (from library) ---
+            print(f"[{datetime.now()}] Sonarr Scanner: Checking library for quality mismatches...")
+            try:
+                # Get all quality profiles to map IDs to names and cutoffs
+                profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
+                profiles_res.raise_for_status()
+                quality_profiles = {p['id']: p for p in profiles_res.json()}
+
+                # Get all series
+                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+                series_res.raise_for_status()
+                all_series = series_res.json()
+
+                for series in all_series:
+                    profile = quality_profiles.get(series['qualityProfileId'])
+                    if not profile or not profile.get('cutoff'):
+                        continue # Skip series without a valid quality profile or cutoff
+
+                    # Get all episodes for the series
+                    episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                    episodes_res.raise_for_status()
+                    
+                    for episode in episodes_res.json():
+                        if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
+                            filepath = episode['episodeFile']['path']
+                            metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'quality_mismatch', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                            if cur.rowcount > 0: quality_jobs_found += 1
+            except requests.RequestException as e:
+                # Don't let a failure in the quality scan stop the rename scan results.
+                print(f"[{datetime.now()}] Sonarr Quality Scan failed: {e}. Rename scan may have still succeeded.")
+            
+            conn.commit()
+            
+            messages = []
+            if send_to_queue:
+                messages.append(f"Found {rename_jobs_found} new files to rename.")
+            else:
+                messages.append("Triggered Sonarr's internal rename/import scan.")
+            messages.append(f"Found {quality_jobs_found} potential quality mismatches.")
+            
+            return {"success": True, "message": f"Sonarr scan complete. " + " ".join(messages)}
+        except requests.RequestException as e:
+            return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+        finally:
+            if scanner_lock.locked(): scanner_lock.release()
+
 def run_cleanup_scan():
     """
     The core logic for scanning the media directory for stale files.
@@ -1435,8 +1606,14 @@ def release_cleanup_jobs():
 
 @app.route('/api/scan/rename', methods=['POST'])
 def api_trigger_rename_scan():
-    """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
-    result = run_sonarr_rename_scan()
+    """API endpoint to manually trigger the comprehensive Sonarr scan."""
+    result = run_comprehensive_sonarr_scan()
+    return jsonify(result)
+
+@app.route('/api/scan/quality', methods=['POST'])
+def api_trigger_quality_scan():
+    """API endpoint to manually trigger the comprehensive Sonarr scan."""
+    result = run_comprehensive_sonarr_scan()
     return jsonify(result)
 
 @app.route('/api/arr/test', methods=['POST'])
@@ -1635,9 +1812,13 @@ cleanup_thread.start()
 
 if __name__ == '__main__':
     # Run migrations before starting the Flask app for local development
+    with app.app_context():
+        init_db()
     run_migrations()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
 else:
     # When run by Gunicorn in production, run migrations first
+    with app.app_context():
+        init_db()
     run_migrations()

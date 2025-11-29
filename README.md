@@ -44,9 +44,9 @@ This is the recommended method for running CodecShift.
     ```env
     # .env
     # --- Database Settings ---
-    POSTGRES_DB=codecshift
-    POSTGRES_USER=transcode
-    POSTGRES_PASSWORD=your_super_secret_password
+    DB_NAME=codecshift
+    DB_USER=transcode
+    DB_PASSWORD=your_super_secret_password
 
     # --- Web Application Secret ---
     # Generate a random string for this, e.g., by running: openssl rand -hex 32
