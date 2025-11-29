@@ -1208,28 +1208,28 @@ def api_internal_folders():
 
 scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
+sonarr_rename_scan_event = threading.Event()
+sonarr_quality_scan_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
 
-def sonarr_scanner_thread():
-    """Periodically triggers the Sonarr import scan if enabled."""
+def sonarr_background_thread():
+    """Waits for triggers to run Sonarr scans (rename, quality, etc.)."""
     while True:
-        try:
+        # Wait for either event to be set. This is a simple polling mechanism.
+        if sonarr_rename_scan_event.wait(timeout=1):
+            print(f"[{datetime.now()}] Sonarr rename scan trigger received.")
             with app.app_context():
-                settings, _ = get_worker_settings()
-                auto_scan_enabled = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value') == 'true'
-                
-                if auto_scan_enabled:
-                    rescan_minutes = int(settings.get('sonarr_rescan_minutes', {}).get('setting_value', '30'))
-                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Waiting for next {rescan_minutes} minute cycle...")
-                    # time.sleep(rescan_minutes * 60) # Temporarily disabled for testing
-                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Triggering automatic rename scan based on {rescan_minutes} minute interval.")
-                    run_sonarr_rename_scan()
-                else:
-                    time.sleep(60) # If disabled, check again in 1 minute
-        except Exception as e:
-            print(f"[{datetime.now()}] Error in Sonarr scanner thread: {e}")
-            time.sleep(60) # Wait a minute before retrying on error
+                run_sonarr_rename_scan()
+            sonarr_rename_scan_event.clear()
+
+        if sonarr_quality_scan_event.wait(timeout=1):
+            print(f"[{datetime.now()}] Sonarr quality scan trigger received.")
+            with app.app_context():
+                run_sonarr_quality_scan()
+            sonarr_quality_scan_event.clear()
+
+        time.sleep(1) # Prevent a tight loop
 
 def run_sonarr_rename_scan():
     """
@@ -1510,14 +1510,18 @@ def api_trigger_scan():
 @app.route('/api/scan/rename', methods=['POST'])
 def api_trigger_rename_scan():
     """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
-    result = run_sonarr_rename_scan()
-    return jsonify(result)
+    if scanner_lock.locked():
+        return jsonify({"success": False, "message": "Another scan is already in progress."})
+    sonarr_rename_scan_event.set()
+    return jsonify(success=True, message="Sonarr rename scan has been triggered.")
 
 @app.route('/api/scan/quality', methods=['POST'])
 def api_trigger_quality_scan():
     """API endpoint to manually trigger a Sonarr quality mismatch scan."""
-    result = run_sonarr_quality_scan()
-    return jsonify(result)
+    if scanner_lock.locked():
+        return jsonify({"success": False, "message": "Another scan is already in progress."})
+    sonarr_quality_scan_event.set()
+    return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
 
 def run_cleanup_scan():
     """
@@ -1803,8 +1807,8 @@ def cleanup_scanner_thread():
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
-sonarr_thread = threading.Thread(target=sonarr_scanner_thread, daemon=True)
-sonarr_thread.start()
+sonarr_background_scanner = threading.Thread(target=sonarr_background_thread, daemon=True)
+sonarr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
 
