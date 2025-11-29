@@ -1478,7 +1478,7 @@
             const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
             const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
             const sonarrStatusDiv = document.getElementById('sonarr-test-status');
-            const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status'); // The new status div in the Tools tab
+            const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
             const rescanValueSpan = document.getElementById('sonarr-rescan-value');
 
             // This element might not exist if the user has old settings, so check for it.
@@ -1501,7 +1501,7 @@
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
                 button.querySelector('.mdi').classList.add('mdi-spin');
-                sonarrScanStatusDiv.innerHTML = ''; // Use the new status div
+                sonarrScanStatusDiv.innerHTML = '';
 
                 try {
                     const response = await fetch(endpoint, { method: 'POST' });
@@ -1513,9 +1513,10 @@
                         button.classList.remove('btn-secondary');
                         button.classList.add('btn-danger');
                         button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
-                        button.onclick = async () => {
+                        // Rebind the onclick to the cancel function
+                        button.onclick = async (e) => {
+                            e.preventDefault(); // Prevent any default form submission behavior
                             await fetch('/api/scan/cancel', { method: 'POST' });
-                            // The button will be reset by the polling logic once the backend confirms cancellation.
                         };
 
                         // Start polling if not already polling
@@ -1526,7 +1527,7 @@
                                     fetch('/api/scan/progress').then(res => res.json()).then(progressData => { 
                                         if (progressData.is_running) { 
                                             const percent = progressData.total_steps > 0 ? Math.round((progressData.progress / progressData.total_steps) * 100) : 0; 
-                                            sonarrStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`; 
+                                            sonarrScanStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`; 
                                         } else { 
                                             clearInterval(progressIntervalId); 
                                             progressIntervalId = null; 
