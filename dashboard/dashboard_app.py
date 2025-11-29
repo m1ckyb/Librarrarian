@@ -392,6 +392,31 @@ def init_db():
 
     conn.commit()
 
+def initialize_database_if_needed():
+    """
+    Checks if the database is initialized. If not, runs the full init_db() process.
+    This prevents re-running all CREATE TABLE statements on every startup.
+    """
+    conn = None
+    try:
+        # Use a direct connection to check for initialization before the app context is fully ready.
+        conn = psycopg2.connect(**DB_CONFIG)
+        with conn.cursor() as cur:
+            # Check if a key table (like schema_version) exists.
+            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
+            table_exists = cur.fetchone()[0]
+            
+            if not table_exists:
+                print("First run detected: Database not initialized. Running initial setup...")
+                # We need an app context to call init_db()
+                with app.app_context():
+                    init_db()
+            else:
+                print("Database already initialized. Skipping initial setup.")
+    except Exception as e:
+        print(f"❌ CRITICAL: Could not connect to or initialize the database: {e}")
+        sys.exit(1)
+
 def get_cluster_status():
     """Fetches node and failure data from the database."""
     db = get_db()
@@ -1197,14 +1222,132 @@ def sonarr_scanner_thread():
                 if auto_scan_enabled:
                     rescan_minutes = int(settings.get('sonarr_rescan_minutes', {}).get('setting_value', '30'))
                     print(f"[{datetime.now()}] Sonarr Auto-Scanner: Waiting for next {rescan_minutes} minute cycle...")
-                    time.sleep(rescan_minutes * 60)
-                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Triggering automatic scan based on {rescan_minutes} minute interval.")
+                    # time.sleep(rescan_minutes * 60) # Temporarily disabled for testing
+                    print(f"[{datetime.now()}] Sonarr Auto-Scanner: Triggering automatic rename scan based on {rescan_minutes} minute interval.")
                     run_sonarr_rename_scan()
                 else:
                     time.sleep(60) # If disabled, check again in 1 minute
         except Exception as e:
             print(f"[{datetime.now()}] Error in Sonarr scanner thread: {e}")
             time.sleep(60) # Wait a minute before retrying on error
+
+def run_sonarr_rename_scan():
+    """
+    Handles Sonarr integration. Can either trigger Sonarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error: return {"success": False, "message": "Database not available."}
+
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+        send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
+
+        if not host or not api_key:
+            return {"success": False, "message": "Sonarr is not configured."}
+
+        if not send_to_queue:
+            # --- Mode 1: Trigger Sonarr API Directly ---
+            print(f"[{datetime.now()}] Triggering Sonarr 'DownloadedEpisodesScan' command for rename/import...")
+            command_url = f"{host.rstrip('/')}/api/v3/command"
+            headers = {'X-Api-Key': api_key}
+            payload = {'name': 'DownloadedEpisodesScan'}
+            try:
+                response = requests.post(command_url, headers=headers, json=payload, timeout=10, verify=False)
+                response.raise_for_status()
+                return {"success": True, "message": "Sonarr rename/import scan triggered successfully."}
+            except requests.RequestException as e:
+                return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+        else:
+            # --- Mode 2: Add to Job Queue ---
+            print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting scan to add jobs to queue...")
+            if not scanner_lock.acquire(blocking=False):
+                return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+            try:
+                queue_url = f"{host.rstrip('/')}/api/v3/queue"
+                headers = {'X-Api-Key': api_key}
+                response = requests.get(queue_url, headers=headers, timeout=10, verify=False)
+                response.raise_for_status()
+                queue_data = response.json()
+
+                conn = get_db()
+                cur = conn.cursor()
+                new_jobs_found = 0
+                for item in queue_data.get('records', []):
+                    if item.get('status') == 'completed' and 'outputPath' in item:
+                        filepath = item['outputPath']
+                        metadata = {'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'), 'seasonNumber': item.get('episode', {}).get('seasonNumber'), 'episodeNumber': item.get('episode', {}).get('episodeNumber'), 'episodeTitle': item.get('episode', {}).get('title'), 'quality': item.get('quality', {}).get('quality', {}).get('name')}
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
+                conn.commit()
+                return {"success": True, "message": f"Sonarr scan complete. Found {new_jobs_found} new files to rename. They are awaiting approval in the job queue."}
+            except requests.RequestException as e:
+                return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+            finally:
+                if scanner_lock.locked():
+                    scanner_lock.release()
+
+def run_sonarr_quality_scan():
+    """
+    Scans Sonarr for quality mismatches. If a series has a quality profile
+    with a cutoff higher than the quality of an individual episode file,
+    a 'quality_mismatch' job is created for investigation.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error: return {"success": False, "message": "Database not available."}
+
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+
+        if not host or not api_key:
+            return {"success": False, "message": "Sonarr is not configured."}
+
+        print(f"[{datetime.now()}] Sonarr Quality Scanner: Starting scan...")
+        if not scanner_lock.acquire(blocking=False):
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+
+        try:
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+
+            # 1. Get all quality profiles to map IDs to names and cutoffs
+            profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
+            profiles_res.raise_for_status()
+            quality_profiles = {p['id']: p for p in profiles_res.json()}
+
+            # 2. Get all series
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res.raise_for_status()
+            all_series = series_res.json()
+
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0
+
+            for series in all_series:
+                profile = quality_profiles.get(series['qualityProfileId'])
+                if not profile or not profile.get('cutoff'):
+                    continue # Skip series without a valid quality profile or cutoff
+
+                # 3. Get all episodes for the series
+                episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                episodes_res.raise_for_status()
+                
+                for episode in episodes_res.json():
+                    if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
+                        filepath = episode['episodeFile']['path']
+                        metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'quality_mismatch', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
+            
+            conn.commit()
+            return {"success": True, "message": f"Sonarr quality scan complete. Found {new_jobs_found} potential quality mismatches for review."}
+        except requests.RequestException as e:
+            return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+        finally:
+            if scanner_lock.locked(): scanner_lock.release()
 
 def run_internal_scan(force_scan=False):
     """
@@ -1354,6 +1497,18 @@ def api_trigger_scan():
     # Trigger the background thread to run the scan with the correct force flag
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
+
+@app.route('/api/scan/rename', methods=['POST'])
+def api_trigger_rename_scan():
+    """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
+    result = run_sonarr_rename_scan()
+    return jsonify(result)
+
+@app.route('/api/scan/quality', methods=['POST'])
+def api_trigger_quality_scan():
+    """API endpoint to manually trigger a Sonarr quality mismatch scan."""
+    result = run_sonarr_quality_scan()
+    return jsonify(result)
 
 def run_cleanup_scan():
     """
@@ -1646,13 +1801,11 @@ cleanup_thread.start()
 
 if __name__ == '__main__':
     # Run migrations before starting the Flask app for local development
-    with app.app_context():
-        init_db()
+    initialize_database_if_needed()
     run_migrations()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
 else:
     # When run by Gunicorn in production, run migrations first
-    with app.app_context():
-        init_db()
+    initialize_database_if_needed()
     run_migrations()
