@@ -1272,11 +1272,18 @@ def run_sonarr_rename_scan():
             try:
                 headers = {'X-Api-Key': api_key}
                 base_url = host.rstrip('/')
+                scan_progress_state.update({"is_running": True, "current_step": "Querying Sonarr's history for imported files...", "progress": 50, "total_steps": 100})
 
                 # 1. Get all series from Sonarr
                 series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
                 series_res.raise_for_status()
                 all_series = series_res.json()
+                # Query Sonarr's history for recently imported files. This is the most reliable method.
+                # We ask for a large page size to ensure we don't miss anything.
+                history_url = f"{base_url}/api/v3/history?eventType=downloadFolderImported&pageSize=1000"
+                response = requests.get(history_url, headers=headers, timeout=20, verify=False)
+                response.raise_for_status()
+                history_data = response.json()
 
                 # --- Progress Tracking ---
                 total_series = len(all_series)
@@ -1304,6 +1311,12 @@ def run_sonarr_rename_scan():
                     for episode in episodes_to_rename:
                         filepath = episode.get('existingPath')
                         metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
+                for item in history_data.get('records', []):
+                    # The 'data' object contains the path of the file *after* Sonarr imported it.
+                    filepath = item.get('data', {}).get('importedPath')
+                    if filepath:
+                        print(f"  -> Found imported file: {filepath}")
+                        metadata = {'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'), 'seasonNumber': item.get('episode', {}).get('seasonNumber'), 'episodeNumber': item.get('episode', {}).get('episodeNumber'), 'episodeTitle': item.get('episode', {}).get('title'), 'quality': item.get('quality', {}).get('quality', {}).get('name')}
                         cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
 
@@ -1318,6 +1331,63 @@ def run_sonarr_rename_scan():
                 scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
                 if scanner_lock.locked():
                     scanner_lock.release()
+
+def run_sonarr_deep_scan():
+    """
+    Performs a deep, slow scan of the entire Sonarr library. For each series,
+    it triggers a rescan and then checks for files that need renaming.
+    This is resource-intensive and should be used sparingly.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error: return {"success": False, "message": "Database not available."}
+
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+
+        if not host or not api_key:
+            return {"success": False, "message": "Sonarr is not configured."}
+
+        if not scanner_lock.acquire(blocking=False):
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+        
+        try:
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res.raise_for_status()
+            all_series = series_res.json()
+
+            scan_progress_state.update({"is_running": True, "total_steps": len(all_series), "progress": 0})
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0
+
+            for i, series in enumerate(all_series):
+                series_title = series.get('title', 'Unknown Series')
+                print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
+                scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
+                
+                # This is the correct pattern: trigger a scan, then check for results.
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10)
+                time.sleep(2) # Give Sonarr a moment to process before we query
+                rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10)
+                for episode in rename_res.json():
+                    filepath = episode.get('existingPath')
+                    if filepath:
+                        metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
+            
+            conn.commit()
+            message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+            scan_progress_state["current_step"] = message
+            return {"success": True, "message": message}
+        except Exception as e:
+            return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
+        finally:
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            if scanner_lock.locked(): scanner_lock.release()
 
 def run_sonarr_quality_scan():
     """

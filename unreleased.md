@@ -9,7 +9,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Sonarr Rename Jobs**: Added a new "rename" job type. A "Scan Sonarr" button on the Job Queue page will find completed downloads from the Sonarr API and add them to the queue to be renamed.
 
 ### Changed
-- **Consolidated Sonarr Scanner**: The "Rename" and "Quality Mismatch" Sonarr scanners have been merged into a single, comprehensive function. This improves efficiency and makes the scanning process more robust.
+- **Sonarr Rename Strategy**: The rename scanner has been refactored to perform a deep analysis of the entire library by default. This correctly finds older, non-conformant files for renaming, which is the primary goal of this feature. The inefficient "fast scan" has been removed.
 - **Database Initialization**: The database schema is now created and configured by the dashboard application on its first startup. This removes the dependency on the `init.sql` file and makes the initial setup more user-friendly, as users no longer need the file present when running `docker-compose up`.
 
 ### Fixed
