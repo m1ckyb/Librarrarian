@@ -1524,6 +1524,30 @@
                 }
             });
 
+            // --- Sonarr Quality Scan ---
+            const manualQualityScanBtn = document.getElementById('manual-quality-scan-btn');
+            manualQualityScanBtn.addEventListener('click', async () => {
+                manualQualityScanBtn.disabled = true;
+                manualQualityScanBtn.querySelector('.mdi').classList.add('mdi-spin');
+                sonarrStatusDiv.innerHTML = '';
+
+                try {
+                    const response = await fetch('/api/scan/quality', { method: 'POST' });
+                    const data = await response.json();
+                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
+                    sonarrStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    // Refresh job queue in case new jobs were added
+                    if (document.querySelector('#jobs-tab.active')) {
+                        updateJobQueue();
+                    }
+                } catch (error) {
+                    sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                } finally {
+                    manualQualityScanBtn.disabled = false;
+                    manualQualityScanBtn.querySelector('.mdi').classList.remove('mdi-spin');
+                }
+            });
+
 
             // --- Release Cleanup Jobs Logic ---
             const releaseSelectedBtn = document.getElementById('release-selected-btn');

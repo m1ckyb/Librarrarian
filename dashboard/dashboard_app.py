@@ -1265,21 +1265,30 @@ def run_sonarr_rename_scan():
             if not scanner_lock.acquire(blocking=False):
                 return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
             try:
-                history_url = f"{host.rstrip('/')}/api/v3/history?eventType=downloadFolderImported&pageSize=100"
                 headers = {'X-Api-Key': api_key}
-                response = requests.get(history_url, headers=headers, timeout=10, verify=False)
-                response.raise_for_status()
-                history_data = response.json()
+                base_url = host.rstrip('/')
+
+                # 1. Get all series from Sonarr
+                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+                series_res.raise_for_status()
+                all_series = series_res.json()
 
                 conn = get_db()
                 cur = conn.cursor()
                 new_jobs_found = 0
-                for item in history_data.get('records', []):
-                    filepath = item.get('data', {}).get('importedPath')
-                    if filepath:
-                        metadata = {'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'), 'seasonNumber': item.get('episode', {}).get('seasonNumber'), 'episodeNumber': item.get('episode', {}).get('episodeNumber'), 'episodeTitle': item.get('episode', {}).get('title'), 'quality': item.get('quality', {}).get('quality', {}).get('name')}
+
+                # 2. For each series, check if there are files to be renamed
+                for series in all_series:
+                    rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                    rename_res.raise_for_status()
+                    episodes_to_rename = rename_res.json()
+
+                    for episode in episodes_to_rename:
+                        filepath = episode.get('path')
+                        metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
                         cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
+
                 conn.commit()
                 return {"success": True, "message": f"Sonarr scan complete. Found {new_jobs_found} new files to rename. They are awaiting approval in the job queue."}
             except requests.RequestException as e:
