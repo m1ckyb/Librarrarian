@@ -1244,18 +1244,18 @@ def sonarr_background_thread():
     while True:
         # Wait for either event to be set. This is a simple polling mechanism.
         if sonarr_rename_scan_event.wait(timeout=1):
-            print(f"[{datetime.now()}] Sonarr rename scan trigger received.")
-            scan_cancel_event.clear() # Ensure cancel flag is down before starting
-            with app.app_context():
-                run_sonarr_rename_scan()
-            sonarr_rename_scan_event.clear()
+            sonarr_rename_scan_event.clear() # Clear the event immediately
+            print(f"[{datetime.now()}] Triggering Sonarr rename scan in background thread.")
+            # Run the actual scan in a separate, non-blocking thread
+            scan_thread = threading.Thread(target=run_sonarr_rename_scan)
+            scan_thread.start()
 
         if sonarr_quality_scan_event.wait(timeout=1):
-            print(f"[{datetime.now()}] Sonarr quality scan trigger received.")
-            scan_cancel_event.clear() # Ensure cancel flag is down before starting
-            with app.app_context():
-                run_sonarr_quality_scan()
-            sonarr_quality_scan_event.clear()
+            sonarr_quality_scan_event.clear() # Clear the event immediately
+            print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
+            # Run the actual scan in a separate, non-blocking thread
+            scan_thread = threading.Thread(target=run_sonarr_quality_scan)
+            scan_thread.start()
 
         time.sleep(1) # Prevent a tight loop
 
@@ -1265,134 +1265,83 @@ def run_sonarr_rename_scan():
     or add 'rename' jobs to the local queue for a worker to process.
     """
     with app.app_context():
-        settings, db_error = get_worker_settings()
-        if db_error: return {"success": False, "message": "Database not available."}
+        # This function is now fully self-contained and runs in its own thread.
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
+            return
 
-        if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
-            return {"success": False, "message": "Sonarr integration is disabled in Options."}
+        scan_cancel_event.clear() # Ensure cancel flag is down before starting
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
 
-        host = settings.get('sonarr_host', {}).get('setting_value')
-        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
-        send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
 
-        if not host or not api_key:
-            return {"success": False, "message": "Sonarr is not configured."}
+            if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
+                scan_progress_state["current_step"] = "Error: Sonarr integration is disabled."
+                return
 
-        if not send_to_queue:
-            return {"success": False, "message": "Rename scan was triggered, but 'Send Rename Jobs to Queue' is disabled in Options."}
+            host = settings.get('sonarr_host', {}).get('setting_value')
+            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+            send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
 
-        if scanner_lock.acquire(blocking=False):
-            try:
-                print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan to find files to rename...")
-                headers = {'X-Api-Key': api_key}
-                base_url = host.rstrip('/')
-                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
-                series_res.raise_for_status()
-                all_series = series_res.json()
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Sonarr is not configured."
+                return
 
-                scan_progress_state.update({"is_running": True, "total_steps": len(all_series), "progress": 0})
-                conn = get_db()
-                cur = conn.cursor()
-                new_jobs_found = 0
+            if not send_to_queue:
+                scan_progress_state["current_step"] = "Scan aborted: 'Send Rename Jobs to Queue' is disabled."
+                return
 
-                for i, series in enumerate(all_series):
-                    series_title = series.get('title', 'Unknown Series')
-                    # print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
-                    scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
-                    
-                    if scan_cancel_event.is_set():
-                        print("Rename scan cancelled by user.")
-                        scan_progress_state["current_step"] = "Scan cancelled by user."
-                        return {"success": False, "message": "Scan cancelled."}
+            print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res.raise_for_status()
+            all_series = series_res.json()
 
-                    requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10)
-                    time.sleep(2) # Give Sonarr a moment to process before we query
-                    rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10)
-                    for episode in rename_res.json():
-                        filepath = episode.get('existingPath')
-                        if filepath:
-                            metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                            if cur.rowcount > 0: new_jobs_found += 1
-                
-                conn.commit()
-                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
-                scan_progress_state["current_step"] = message
-                return {"success": True, "message": message}
-            except Exception as e:
-                return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
-            finally:
-                # Only reset progress if it wasn't a cancellation
-                if not scan_cancel_event.is_set(): scan_progress_state.update({"current_step": "", "progress": 0})
-                scan_progress_state["is_running"] = False
-                if scanner_lock.locked(): scanner_lock.release()
-        else:
-            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+            scan_progress_state["total_steps"] = len(all_series)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0
 
-def run_sonarr_deep_scan():
-    """
-    Performs a deep, slow scan of the entire Sonarr library. For each series,
-    it triggers a rescan and then checks for files that need renaming.
-    This is resource-intensive and should be used sparingly.
-    """
-    with app.app_context():
-        settings, db_error = get_worker_settings()
-        if db_error: return {"success": False, "message": "Database not available."}
+            for i, series in enumerate(all_series):
+                if scan_cancel_event.is_set():
+                    print("Rename scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
 
-        if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
-            return {"success": False, "message": "Sonarr integration is disabled in Options."}
+                series_title = series.get('title', 'Unknown Series')
+                scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
 
-        host = settings.get('sonarr_host', {}).get('setting_value')
-        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+                # This is the correct pattern: trigger a scan, then check for results.
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
+                time.sleep(2) # Give Sonarr a moment to process before we query
+                rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                for episode in rename_res.json():
+                    filepath = episode.get('existingPath')
+                    if filepath:
+                        metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
 
-        if not host or not api_key:
-            return {"success": False, "message": "Sonarr is not configured."}
+            conn.commit()
+            message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
 
-        send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
-        if not send_to_queue:
-            return {"success": False, "message": "Rename scan was triggered, but 'Send Rename Jobs to Queue' is disabled in Options."}
-
-        if scanner_lock.acquire(blocking=False):
-            try:
-                headers = {'X-Api-Key': api_key}
-                base_url = host.rstrip('/')
-                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
-                series_res.raise_for_status()
-                all_series = series_res.json()
-
-                scan_progress_state.update({"is_running": True, "total_steps": len(all_series), "progress": 0})
-                conn = get_db()
-                cur = conn.cursor()
-                new_jobs_found = 0
-
-                for i, series in enumerate(all_series):
-                    series_title = series.get('title', 'Unknown Series')
-                    print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
-                    scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
-                    
-                    # This is the correct pattern: trigger a scan, then check for results.
-                    requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
-                    time.sleep(2) # Give Sonarr a moment to process before we query
-                    rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
-                    for episode in rename_res.json():
-                        filepath = episode.get('existingPath')
-                        if filepath:
-                            metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                            if cur.rowcount > 0: new_jobs_found += 1
-                
-                conn.commit()
-                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
-                scan_progress_state["current_step"] = message
-                return {"success": True, "message": message}
-            except Exception as e:
-                return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
-            finally:
-                scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
-                if scanner_lock.locked(): scanner_lock.release()
-        else:
-            # This case handles when the lock is already held.
-            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+        except Exception as e:
+            error_message = f"An error occurred during the deep scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            # Wait a moment before clearing the "finished" message from the UI
+            time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            if scanner_lock.locked():
+                scanner_lock.release()
 
 def run_sonarr_quality_scan():
     """
@@ -1401,81 +1350,79 @@ def run_sonarr_quality_scan():
     a 'quality_mismatch' job is created for investigation.
     """
     with app.app_context():
-        settings, db_error = get_worker_settings()
-        if db_error: return {"success": False, "message": "Database not available."}
-
-        host = settings.get('sonarr_host', {}).get('setting_value')
-        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
-
-        if not host or not api_key:
-            return {"success": False, "message": "Sonarr is not configured."}
-
-        print(f"[{datetime.now()}] Sonarr Quality Scanner: Starting scan...")
         if not scanner_lock.acquire(blocking=False):
-            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+            print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
+            return
 
+        scan_cancel_event.clear()
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
+        
         try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+
+            host = settings.get('sonarr_host', {}).get('setting_value')
+            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Sonarr is not configured."
+                return
+
+            print(f"[{datetime.now()}] Sonarr Quality Scanner: Starting scan...")
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
 
-            # 1. Get all quality profiles to map IDs to names and cutoffs
             profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
             profiles_res.raise_for_status()
             quality_profiles = {p['id']: p for p in profiles_res.json()}
 
-            # 2. Get all series
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
             series_res.raise_for_status()
             all_series = series_res.json()
 
-            # --- Progress Tracking ---
-            total_series = len(all_series)
-            scan_progress_state.update({"is_running": True, "total_steps": total_series, "progress": 0})
-
+            scan_progress_state["total_steps"] = len(all_series)
             conn = get_db()
             cur = conn.cursor()
             new_jobs_found = 0
 
             for i, series in enumerate(all_series):
-                series_title = series.get('title', 'Unknown Series')
-                # print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
-                scan_progress_state.update({"current_step": series_title, "progress": i + 1})
-
                 if scan_cancel_event.is_set():
-                    # This is the correct pattern: trigger a scan, then check for results.
-                    # We add a small delay to give Sonarr time to update its internal state after the rescan command.
-                    requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
-                    time.sleep(2) # Give Sonarr a moment to process before we query
                     print("Quality scan cancelled by user.")
                     scan_progress_state["current_step"] = "Scan cancelled by user."
-                    return {"success": False, "message": "Scan cancelled."}
+                    return
+
+                series_title = series.get('title', 'Unknown Series')
+                scan_progress_state.update({"current_step": f"Checking: {series_title}", "progress": i + 1})
 
                 profile = quality_profiles.get(series['qualityProfileId'])
                 if not profile or not profile.get('cutoff'):
                     continue # Skip series without a valid quality profile or cutoff
 
-                # 3. Get all episodes for the series
                 episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=20, verify=False)
                 episodes_res.raise_for_status()
-                
+
                 for episode in episodes_res.json():
                     if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
                         filepath = episode['episodeFile']['path']
                         metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
                         cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
-            
+
             conn.commit()
             message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches."
-            scan_progress_state["current_step"] = message # Set final message
-            return {"success": True, "message": message}
-        except requests.RequestException as e:
-            return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+        except Exception as e:
+            error_message = f"An error occurred during the quality scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            # Only reset progress if it wasn't a cancellation
-            if not scan_cancel_event.is_set(): scan_progress_state.update({"current_step": "", "progress": 0})
+            time.sleep(10)
             scan_progress_state["is_running"] = False
-            if scanner_lock.locked(): scanner_lock.release()
+            if scanner_lock.locked():
+                scanner_lock.release()
 
 def run_internal_scan(force_scan=False):
     """
@@ -1629,10 +1576,10 @@ def api_trigger_scan():
 @app.route('/api/scan/rename', methods=['POST'])
 def api_trigger_rename_scan():
     """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
-    if scanner_lock.locked():
-        return jsonify({"success": False, "message": "Another scan is already in progress."})
-    sonarr_rename_scan_event.set()
-    return jsonify(success=True, message="Sonarr rename scan has been triggered.")
+    if not scanner_lock.locked():
+        sonarr_rename_scan_event.set()
+        return jsonify(success=True, message="Sonarr rename scan has been triggered.")
+    return jsonify(success=False, message="Another scan is already in progress."), 409
 
 @app.route('/api/scan/quality', methods=['POST'])
 def api_trigger_quality_scan():
