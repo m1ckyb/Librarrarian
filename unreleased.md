@@ -20,6 +20,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Database Initialization**: The database schema is now created and configured by the dashboard application on its first startup. This removes the dependency on the `init.sql` file and makes the initial setup more user-friendly, as users no longer need the file present when running `docker-compose up`.
 
 ### Fixed
+- **24-Hour Time Format**: Fixed the "Use 24-Hour Time Format" toggle not working correctly in some browsers by properly specifying time component options.
 - **UI Freezing During Scans**: Fixed a major bug where the main UI (including the "Updated" clock) would freeze while a Sonarr scan was in progress. All UI elements now update correctly during a scan.
 - **UI Scan Feedback**: Fixed a race condition that often prevented the scan progress bar from appearing. The UI now reliably shows scan progress in the correct "Tools" tab.
 - **UI Scan Cancellation**: Fixed a bug where clicking the "Cancel Scan" button would incorrectly display a "scan in progress" error. The cancellation feedback message is now also correctly styled and dismissible.

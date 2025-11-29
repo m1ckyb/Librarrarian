@@ -657,7 +657,7 @@
                 const clockContainer = document.getElementById('clock-container');
                 if (clockContainer) {
                     const use24HourTime = localStorage.getItem('time_format_24hr') === 'true';
-                    const timeOptions = { hour12: !use24HourTime };
+                    const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: !use24HourTime };
                     const timeString = new Date().toLocaleTimeString([], timeOptions);
                     clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
                 }
