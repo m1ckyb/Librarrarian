@@ -33,18 +33,14 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev"
 # --- Custom Logging Filter ---
 # This filter will suppress the noisy GET /api/scan/progress logs from appearing.
 class HealthCheckFilter(logging.Filter):
-    def filter(self, record: logging.LogRecord) -> bool:
-        # Gunicorn's access log message is in record.args, which is a dictionary.
-        # The request line is in the 'r' key, e.g., "GET /api/scan/progress HTTP/1.1"
-        if isinstance(record.args, dict) and '/api/scan/progress' in record.args.get('r', ''):
-            return False
+    def filter(self, record):
+        # The log message for an access log is in record.args
+        if record.args and len(record.args) >= 3 and isinstance(record.args[2], str):
+            return '/api/scan/progress' not in record.args[2]
         return True
 
-# When running under Gunicorn, the access logs are handled by the 'gunicorn.access' logger.
-# We apply the filter here to suppress the health check logs in production.
-gunicorn_access_logger = logging.getLogger('gunicorn.access')
-gunicorn_access_logger.addFilter(HealthCheckFilter())
-
+# Apply the filter to Werkzeug's logger (used by Flask's dev server and Gunicorn)
+logging.getLogger('werkzeug').addFilter(HealthCheckFilter())
 
 # If running behind a reverse proxy, this is crucial for url_for() to generate correct
 # external URLs (e.g., for OIDC redirects).
@@ -1332,6 +1328,71 @@ def run_sonarr_rename_scan():
         else:
             return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
 
+def run_sonarr_deep_scan():
+    """
+    Performs a deep, slow scan of the entire Sonarr library. For each series,
+    it triggers a rescan and then checks for files that need renaming.
+    This is resource-intensive and should be used sparingly.
+    """
+    with app.app_context():
+        settings, db_error = get_worker_settings()
+        if db_error: return {"success": False, "message": "Database not available."}
+
+        if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
+            return {"success": False, "message": "Sonarr integration is disabled in Options."}
+
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+
+        if not host or not api_key:
+            return {"success": False, "message": "Sonarr is not configured."}
+
+        send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
+        if not send_to_queue:
+            return {"success": False, "message": "Rename scan was triggered, but 'Send Rename Jobs to Queue' is disabled in Options."}
+
+        if scanner_lock.acquire(blocking=False):
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+                series_res.raise_for_status()
+                all_series = series_res.json()
+
+                scan_progress_state.update({"is_running": True, "total_steps": len(all_series), "progress": 0})
+                conn = get_db()
+                cur = conn.cursor()
+                new_jobs_found = 0
+
+                for i, series in enumerate(all_series):
+                    series_title = series.get('title', 'Unknown Series')
+                    print(f"  -> Rename Scan ({i+1}/{len(all_series)}): Analyzing {series_title}")
+                    scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
+                    
+                    # This is the correct pattern: trigger a scan, then check for results.
+                    requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
+                    time.sleep(2) # Give Sonarr a moment to process before we query
+                    rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                    for episode in rename_res.json():
+                        filepath = episode.get('existingPath')
+                        if filepath:
+                            metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                
+                conn.commit()
+                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+                scan_progress_state["current_step"] = message
+                return {"success": True, "message": message}
+            except Exception as e:
+                return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
+            finally:
+                scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+                if scanner_lock.locked(): scanner_lock.release()
+        else:
+            # This case handles when the lock is already held.
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
+
 def run_sonarr_quality_scan():
     """
     Scans Sonarr for quality mismatches. If a series has a quality profile
@@ -1341,9 +1402,6 @@ def run_sonarr_quality_scan():
     with app.app_context():
         settings, db_error = get_worker_settings()
         if db_error: return {"success": False, "message": "Database not available."}
-
-        if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
-            return {"success": False, "message": "Sonarr integration is disabled in Options."}
 
         host = settings.get('sonarr_host', {}).get('setting_value')
         api_key = settings.get('sonarr_api_key', {}).get('setting_value')
@@ -1383,6 +1441,10 @@ def run_sonarr_quality_scan():
                 scan_progress_state.update({"current_step": series_title, "progress": i + 1})
 
                 if scan_cancel_event.is_set():
+                    # This is the correct pattern: trigger a scan, then check for results.
+                    # We add a small delay to give Sonarr time to update its internal state after the rescan command.
+                    requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
+                    time.sleep(2) # Give Sonarr a moment to process before we query
                     print("Quality scan cancelled by user.")
                     scan_progress_state["current_step"] = "Scan cancelled by user."
                     return {"success": False, "message": "Scan cancelled."}

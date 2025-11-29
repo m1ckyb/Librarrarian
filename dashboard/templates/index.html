@@ -1540,6 +1540,7 @@
                         button.classList.add('btn-danger');
                         button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
                         button.dataset.action = 'cancel'; // Set the button's state to 'cancel'
+                        scanStartTime = Date.now();
                         isPollingForScan = true; // Tell the main loop to start polling
                     } else {
                         sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
