@@ -284,6 +284,11 @@
                                 </div>
                                 <!-- Sonarr Tab -->
                                 <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel">
+                                    <div class="form-check form-switch mb-3">
+                                        {% set sonarr_enabled = settings.get('sonarr_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_enabled" name="sonarr_enabled" value="true" {{ 'checked' if sonarr_enabled }}>
+                                        <label class="form-check-label" for="sonarr_enabled"><strong>Enable Sonarr Integration</strong></label>
+                                    </div>
                                     <div class="row">
                                         <div class="col-md-4">
                                             <label for="sonarr_host" class="form-label"><strong>Sonarr Host URL</strong></label>
@@ -318,6 +323,11 @@
                                 </div>
                                 <!-- Radarr Tab -->
                                 <div class="tab-pane fade" id="radarr-integration-pane" role="tabpanel">
+                                    <div class="form-check form-switch mb-3">
+                                        {% set radarr_enabled = settings.get('radarr_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="radarr_enabled" name="radarr_enabled" value="true" {{ 'checked' if radarr_enabled }}>
+                                        <label class="form-check-label" for="radarr_enabled"><strong>Enable Radarr Integration</strong></label>
+                                    </div>
                                     <div class="row">
                                         <div class="col-md-6">
                                             <label for="radarr_host" class="form-label"><strong>Radarr Host URL</strong></label>
@@ -333,6 +343,11 @@
                                 </div>
                                 <!-- Lidarr Tab -->
                                 <div class="tab-pane fade" id="lidarr-integration-pane" role="tabpanel">
+                                    <div class="form-check form-switch mb-3">
+                                        {% set lidarr_enabled = settings.get('lidarr_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="lidarr_enabled" name="lidarr_enabled" value="true" {{ 'checked' if lidarr_enabled }}>
+                                        <label class="form-check-label" for="lidarr_enabled"><strong>Enable Lidarr Integration</strong></label>
+                                    </div>
                                     <div class="row">
                                         <div class="col-md-6">
                                             <label for="lidarr_host" class="form-label"><strong>Lidarr Host URL</strong></label>
@@ -446,6 +461,14 @@
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="debug">Enable Debug Logging</label>
+                                    </div>
+                                </div>
+                                <div class="mb-3 p-3 border rounded">
+                                    <label class="form-label"><strong>UI Settings</strong></label>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="time_format_24hr">
+                                        <label class="form-check-label" for="time_format_24hr">Use 24-Hour Time Format</label>
+                                        <p class="form-text text-body-secondary">Display the "Updated" clock in 24-hour format.</p>
                                     </div>
                                 </div>
                             </div>
@@ -633,7 +656,10 @@
                 // Update clock
                 const clockContainer = document.getElementById('clock-container');
                 if (clockContainer) {
-                    clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${new Date().toLocaleTimeString()}</span>`;
+                    const use24HourTime = localStorage.getItem('time_format_24hr') === 'true';
+                    const timeOptions = { hour12: !use24HourTime };
+                    const timeString = new Date().toLocaleTimeString([], timeOptions);
+                    clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
                 }
                 
                 // Update View Errors button color
@@ -1495,8 +1521,8 @@
             updateSonarrButtonText(); // Set initial text
 
             // --- Unified Sonarr Scanner Function ---
-            let progressIntervalId = null;
             let activeButton = null; // Keep track of which button is active
+            let isPollingForScan = false; // Global flag to indicate if we should poll
 
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
@@ -1514,36 +1540,7 @@
                         button.classList.add('btn-danger');
                         button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
                         button.dataset.action = 'cancel'; // Set the button's state to 'cancel'
-
-                        if (progressIntervalId === null) {
-                            setTimeout(() => {
-                                progressIntervalId = setInterval(() => { 
-                                    fetch('/api/scan/progress').then(res => res.json()).then(progressData => { 
-                                        if (progressData.is_running) { 
-                                            const percent = progressData.total_steps > 0 ? Math.round((progressData.progress / progressData.total_steps) * 100) : 0; 
-                                            sonarrScanStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`; 
-                                        } else { 
-                                            clearInterval(progressIntervalId); 
-                                            progressIntervalId = null; 
-                                            const finalMessage = progressData.current_step || 'Scan complete.';
-                                            const alertClass = finalMessage.toLowerCase().includes('cancel') ? 'alert-warning' : 'alert-success';
-                                            sonarrScanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${finalMessage}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`; 
-
-                                            // --- Revert Button ---
-                                            if (activeButton) {
-                                                activeButton.classList.remove('btn-danger');
-                                                activeButton.classList.add('btn-secondary');
-                                                // Restore original content and event listener
-                                                const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
-                                                activeButton.innerHTML = `<span class="mdi ${activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high'}"></span> <span>${originalText}</span>`;
-                                                activeButton.dataset.action = 'scan'; // Reset state
-                                                activeButton = null;
-                                            }
-                                        } 
-                                    }); 
-                                }, 2000); 
-                            }, 500); // 500ms delay to prevent race condition
-                        }
+                        isPollingForScan = true; // Tell the main loop to start polling
                     } else {
                         sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
                     }
@@ -1552,6 +1549,19 @@
                 } finally {
                     button.disabled = false;
                     button.querySelector('.mdi').classList.remove('mdi-spin');
+                }
+            }
+
+            function revertActiveButton() {
+                if (activeButton) {
+                    activeButton.classList.remove('btn-danger');
+                    activeButton.classList.add('btn-secondary');
+                    const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
+                    const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
+                    activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
+                    activeButton.dataset.action = 'scan';
+                    activeButton.disabled = false; // Ensure it's re-enabled
+                    activeButton = null;
                 }
             }
 
@@ -1572,6 +1582,30 @@
             document.getElementById('manual-quality-scan-btn').addEventListener('click', handleSonarrButtonClick);
 
             // --- Release Cleanup Jobs Logic ---
+            // --- *Arr Integration Enable/Disable Logic ---
+            function setupArrToggle(arrType) {
+                const enableToggle = document.getElementById(`${arrType}_enabled`);
+                const integrationPane = document.getElementById(`${arrType}-integration-pane`);
+                if (!enableToggle || !integrationPane) return;
+
+                const inputs = integrationPane.querySelectorAll('input:not([type=checkbox]), select, button, input[type=range]');
+
+                function updateInputsState() {
+                    inputs.forEach(input => {
+                        if (input.id !== `${arrType}_enabled`) input.disabled = !enableToggle.checked;
+                    });
+                    // Special handling for Sonarr tools
+                    if (arrType === 'sonarr') {
+                        const renameBtn = document.getElementById('manual-sonarr-scan-btn');
+                        const qualityBtn = document.getElementById('manual-quality-scan-btn');
+                        if (renameBtn && qualityBtn) [renameBtn, qualityBtn].forEach(btn => btn.disabled = !enableToggle.checked);
+                    }
+                }
+                enableToggle.addEventListener('change', updateInputsState);
+                updateInputsState(); // Set initial state on page load
+            }
+            ['sonarr', 'radarr', 'lidarr'].forEach(setupArrToggle);
+
             const releaseSelectedBtn = document.getElementById('release-selected-btn');
             const releaseAllBtn = document.getElementById('release-all-btn');
 
@@ -1705,6 +1739,21 @@
                     setTheme(theme);
                 });
             });
+        })();
+
+        // --- Time Format Switcher Logic ---
+        (function() {
+            const timeFormatToggle = document.getElementById('time_format_24hr');
+            if (!timeFormatToggle) return;
+
+            const getStoredTimeFormat = () => localStorage.getItem('time_format_24hr') === 'true';
+            const setStoredTimeFormat = is24Hour => localStorage.setItem('time_format_24hr', is24Hour);
+
+            // Set initial state of the toggle
+            timeFormatToggle.checked = getStoredTimeFormat();
+
+            // Save preference on change
+            timeFormatToggle.addEventListener('change', () => setStoredTimeFormat(timeFormatToggle.checked));
         })();
     </script>
     <!-- Plex Login Modal -->
