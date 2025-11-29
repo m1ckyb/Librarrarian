@@ -14,6 +14,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Fixed
 - **Database Name Consistency**: Resolved a technical debt where the worker and dashboard services used different environment variables and default names for the database. Both services now consistently use `DB_NAME` (defaulting to `codecshift`), `DB_USER`, and `DB_PASSWORD`, simplifying configuration.
+- **Sonarr Rename Scanner**: Fixed a bug where the rename scanner would not find any files because it was only looking at the last 10 history items. It now correctly scans a larger history, reliably finding all recently imported files.
+- **Application Startup**: Fixed a critical bug that caused the application to re-initialize the database on every startup, leading to long boot times. The initialization now correctly runs only once on a fresh database.
 
 ### Removed
 - The `init.sql` file has been removed from the project root as it is no longer needed.

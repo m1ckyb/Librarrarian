@@ -1265,18 +1265,18 @@ def run_sonarr_rename_scan():
             if not scanner_lock.acquire(blocking=False):
                 return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
             try:
-                queue_url = f"{host.rstrip('/')}/api/v3/queue"
+                history_url = f"{host.rstrip('/')}/api/v3/history?eventType=downloadFolderImported&pageSize=100"
                 headers = {'X-Api-Key': api_key}
-                response = requests.get(queue_url, headers=headers, timeout=10, verify=False)
+                response = requests.get(history_url, headers=headers, timeout=10, verify=False)
                 response.raise_for_status()
-                queue_data = response.json()
+                history_data = response.json()
 
                 conn = get_db()
                 cur = conn.cursor()
                 new_jobs_found = 0
-                for item in queue_data.get('records', []):
-                    if item.get('status') == 'completed' and 'outputPath' in item:
-                        filepath = item['outputPath']
+                for item in history_data.get('records', []):
+                    filepath = item.get('data', {}).get('importedPath')
+                    if filepath:
                         metadata = {'source': 'sonarr', 'seriesTitle': item.get('series', {}).get('title'), 'seasonNumber': item.get('episode', {}).get('seasonNumber'), 'episodeNumber': item.get('episode', {}).get('episodeNumber'), 'episodeTitle': item.get('episode', {}).get('title'), 'quality': item.get('quality', {}).get('quality', {}).get('name')}
                         cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1

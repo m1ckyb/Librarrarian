@@ -311,11 +311,18 @@
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
                                         <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Auto Scan</strong></label>
                                         <p class="form-text text-body-secondary">If enabled, the dashboard will automatically trigger Sonarr to scan for and import completed downloads at the specified interval.</p>
+                                    </div>                                    
+                                    <div class="btn-group mt-3" role="group">
+                                        <button type="button" class="btn btn-secondary" id="manual-sonarr-scan-btn">
+                                            <span class="mdi mdi-sync"></span> 
+                                            <span id="manual-sonarr-scan-btn-text">Trigger Rename Scan</span>
+                                        </button>
+                                        <button type="button" class="btn btn-secondary" id="manual-quality-scan-btn">
+                                            <span class="mdi mdi-quality-high"></span>
+                                            <span>Scan for Quality Mismatches</span>
+                                        </button>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" id="manual-sonarr-scan-btn">
-                                        <span class="mdi mdi-sync"></span> 
-                                        <span id="manual-sonarr-scan-btn-text">Trigger Rename Scan</span>
-                                    </button>
+
                                     <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="sonarr-test-status" class="mt-2"></div>
                                 </div>
@@ -1490,6 +1497,30 @@
                 } finally {
                     manualSonarrScanBtn.disabled = false;
                     manualSonarrScanBtn.querySelector('.mdi').classList.remove('mdi-spin');
+                }
+            });
+
+            // --- Sonarr Quality Scan ---
+            const manualQualityScanBtn = document.getElementById('manual-quality-scan-btn');
+            manualQualityScanBtn.addEventListener('click', async () => {
+                manualQualityScanBtn.disabled = true;
+                manualQualityScanBtn.querySelector('.mdi').classList.add('mdi-spin');
+                sonarrStatusDiv.innerHTML = '';
+
+                try {
+                    const response = await fetch('/api/scan/quality', { method: 'POST' });
+                    const data = await response.json();
+                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
+                    sonarrStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    // Refresh job queue in case new jobs were added
+                    if (document.querySelector('#jobs-tab.active')) {
+                        updateJobQueue();
+                    }
+                } catch (error) {
+                    sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                } finally {
+                    manualQualityScanBtn.disabled = false;
+                    manualQualityScanBtn.querySelector('.mdi').classList.remove('mdi-spin');
                 }
             });
 
