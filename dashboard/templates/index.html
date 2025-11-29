@@ -822,24 +822,21 @@
 
         // Main update loop that runs every 5 seconds
         async function mainUpdateLoop() {
-            // Always update the main status (nodes, failures, clock)
+            // This is the main heartbeat of the UI. It should never be blocked.
             await updateStatus();
-
-            // Poll for scan progress if a scan is active
-            if (isPollingForScan) {
-                await pollScanProgress();
-            }
 
             // Check which tab is active and update its content if needed
             if (document.querySelector('#history-stats-tab.active')) {
                 await updateHistoryAndStats();
             }
 
-            // Update job queue if its tab is active
             if (document.querySelector('#jobs-tab.active')) {
                 await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
             }
         }
+
+        // Separate, independent loop for polling scan progress so it doesn't block the main UI updates.
+        setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Poll every second
 
         // Run initial update on page load
         updateStatus();
