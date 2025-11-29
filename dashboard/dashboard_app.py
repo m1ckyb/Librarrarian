@@ -1348,10 +1348,12 @@ def run_sonarr_deep_scan():
         if not host or not api_key:
             return {"success": False, "message": "Sonarr is not configured."}
 
-        if not scanner_lock.acquire(blocking=False):
-            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
-        
-        try:
+        # This check was moved from the parent function to here, to ensure it's respected.
+        if not send_to_queue:
+            return {"success": False, "message": "Rename scan was triggered, but 'Send Rename Jobs to Queue' is disabled in Options."}
+
+        if scanner_lock.acquire(blocking=False):
+            try:
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
@@ -1383,11 +1385,14 @@ def run_sonarr_deep_scan():
             message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
             scan_progress_state["current_step"] = message
             return {"success": True, "message": message}
-        except Exception as e:
-            return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
-        finally:
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
-            if scanner_lock.locked(): scanner_lock.release()
+            except Exception as e:
+                return {"success": False, "message": f"An error occurred during the deep scan: {e}"}
+            finally:
+                scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+                if scanner_lock.locked(): scanner_lock.release()
+        else:
+            # This case handles when the lock is already held.
+            return {"success": False, "message": "Scan trigger ignored: Another scan is already in progress."}
 
 def run_sonarr_quality_scan():
     """

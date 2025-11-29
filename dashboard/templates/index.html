@@ -1496,21 +1496,21 @@
                     if (data.success) {
                         // Start polling if not already polling
                         if (progressIntervalId === null) {
-                            // Add a small delay before the first poll to allow the backend to update its state.
-                            setTimeout(() => {
-                                progressIntervalId = setInterval(() => {
-                                    fetch('/api/scan/progress').then(res => res.json()).then(progressData => {
-                                        if (progressData.is_running) {
-                                            const percent = progressData.total_steps > 0 ? Math.round((progressData.progress / progressData.total_steps) * 100) : 0;
-                                            sonarrStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`;
-                                        } else {
-                                            clearInterval(progressIntervalId);
-                                            progressIntervalId = null;
-                                            sonarrStatusDiv.innerHTML = `<div class="alert alert-success">${progressData.current_step || 'Scan complete.'}</div>`;
-                                        }
-                                    });
-                                }, 2000);
-                            }, 500); // 500ms delay
+                            // Add a small delay before the first poll to allow the backend to update its state
+                            setTimeout(() => { 
+                                progressIntervalId = setInterval(() => { 
+                                    fetch('/api/scan/progress').then(res => res.json()).then(progressData => { 
+                                        if (progressData.is_running) { 
+                                            const percent = progressData.total_steps > 0 ? Math.round((progressData.progress / progressData.total_steps) * 100) : 0; 
+                                            sonarrStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`; 
+                                        } else { 
+                                            clearInterval(progressIntervalId); 
+                                            progressIntervalId = null; 
+                                            sonarrStatusDiv.innerHTML = `<div class="alert alert-success">${progressData.current_step || 'Scan complete.'}</div>`; 
+                                        } 
+                                    }); 
+                                }, 2000); 
+                            }, 500); // 500ms delay to prevent race condition
                         }
                     } else {
                         sonarrStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
