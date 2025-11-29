@@ -1292,6 +1292,11 @@ def run_sonarr_rename_scan():
                     print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
                     scan_progress_state.update({"current_step": series_title, "progress": i + 1})
 
+                    # 1. Trigger a rescan for the series first. This is crucial.
+                    # The /rename endpoint only shows files Sonarr *already* knows need renaming.
+                    command_payload = {'name': 'RescanSeries', 'seriesId': series['id']}
+                    requests.post(f"{base_url}/api/v3/command", headers=headers, json=command_payload, timeout=10, verify=False)
+
                     rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
                     rename_res.raise_for_status()
                     episodes_to_rename = rename_res.json()
@@ -1303,7 +1308,9 @@ def run_sonarr_rename_scan():
                         if cur.rowcount > 0: new_jobs_found += 1
 
                 conn.commit()
-                return {"success": True, "message": f"Sonarr scan complete. Found {new_jobs_found} new files to rename. They are awaiting approval in the job queue."}
+                message = f"Sonarr rename scan complete. Found {new_jobs_found} new files to rename."
+                scan_progress_state["current_step"] = message # Set final message
+                return {"success": True, "message": message}
             except requests.RequestException as e:
                 return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
             finally:
@@ -1346,31 +1353,43 @@ def run_sonarr_quality_scan():
             series_res.raise_for_status()
             all_series = series_res.json()
 
+            # --- Progress Tracking ---
+            total_series = len(all_series)
+            scan_progress_state.update({"is_running": True, "total_steps": total_series, "progress": 0})
+
             conn = get_db()
             cur = conn.cursor()
             new_jobs_found = 0
 
-            for series in all_series:
+            for i, series in enumerate(all_series):
+                series_title = series.get('title', 'Unknown Series')
+                print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
+                scan_progress_state.update({"current_step": series_title, "progress": i + 1})
+
                 profile = quality_profiles.get(series['qualityProfileId'])
                 if not profile or not profile.get('cutoff'):
                     continue # Skip series without a valid quality profile or cutoff
 
                 # 3. Get all episodes for the series
-                episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=20, verify=False)
                 episodes_res.raise_for_status()
                 
                 for episode in episodes_res.json():
                     if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
                         filepath = episode['episodeFile']['path']
                         metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'quality_mismatch', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
             
             conn.commit()
-            return {"success": True, "message": f"Sonarr quality scan complete. Found {new_jobs_found} potential quality mismatches for review."}
+            message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches."
+            scan_progress_state["current_step"] = message # Set final message
+            return {"success": True, "message": message}
         except requests.RequestException as e:
             return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
         finally:
+            # Reset progress state when done
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
             if scanner_lock.locked(): scanner_lock.release()
 
 def run_internal_scan(force_scan=False):

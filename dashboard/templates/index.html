@@ -1482,39 +1482,33 @@
             sendToQueueSwitch.addEventListener('change', updateSonarrButtonText);
             updateSonarrButtonText(); // Set initial text
 
-            let progressInterval = null;
-
-            function pollScanProgress() {
-                fetch('/api/scan/progress')
-                    .then(response => response.json())
-                    .then(data => {
-                        if (data.is_running) {
-                            const percent = data.total_steps > 0 ? Math.round((data.progress / data.total_steps) * 100) : 0;
-                            sonarrStatusDiv.innerHTML = `
-                                <div class="alert alert-info">
-                                    <div class="spinner-border spinner-border-sm me-2"></div>
-                                    Scanning... (${percent}%)
-                                    <p class="mb-0 mt-1 small text-muted">Current: ${data.current_step}</p>
-                                </div>`;
-                        } else {
-                            clearInterval(progressInterval);
-                            progressInterval = null;
-                            // The final message will be shown by the button's own logic
-                        }
-                    });
-            }
-
-            manualSonarrScanBtn.addEventListener('click', async () => {
-                manualSonarrScanBtn.disabled = true;
+            // --- Unified Sonarr Scanner Function ---
+            let progressIntervalId = null;
+            async function triggerSonarrScan(button, endpoint) {
+                button.disabled = true;
+                button.querySelector('.mdi').classList.add('mdi-spin');
                 sonarrStatusDiv.innerHTML = '';
 
                 try {
-                    const response = await fetch('/api/scan/rename', { method: 'POST' });
+                    const response = await fetch(endpoint, { method: 'POST' });
                     const data = await response.json();
+
                     if (data.success) {
-                        // Start polling for progress
-                        if (!progressInterval) {
-                            progressInterval = setInterval(pollScanProgress, 2000);
+                        // Start polling if not already polling
+                        if (progressIntervalId === null) {
+                            progressIntervalId = setInterval(() => {
+                                fetch('/api/scan/progress').then(res => res.json()).then(progressData => {
+                                    if (progressData.is_running) {
+                                        const percent = progressData.total_steps > 0 ? Math.round((progressData.progress / progressData.total_steps) * 100) : 0;
+                                        sonarrStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`;
+                                    } else {
+                                        // Scan finished, stop polling and show final message
+                                        clearInterval(progressIntervalId);
+                                        progressIntervalId = null;
+                                        sonarrStatusDiv.innerHTML = `<div class="alert alert-success">${progressData.current_step || 'Scan complete.'}</div>`;
+                                    }
+                                });
+                            }, 2000);
                         }
                     } else {
                         sonarrStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
@@ -1522,34 +1516,12 @@
                 } catch (error) {
                     sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 } finally {
-                    manualSonarrScanBtn.disabled = false;
+                    button.disabled = false;
+                    button.querySelector('.mdi').classList.remove('mdi-spin');
                 }
-            });
-
-            // --- Sonarr Quality Scan ---
-            const manualQualityScanBtn = document.getElementById('manual-quality-scan-btn');
-            manualQualityScanBtn.addEventListener('click', async () => {
-                manualQualityScanBtn.disabled = true;
-                manualQualityScanBtn.querySelector('.mdi').classList.add('mdi-spin');
-                sonarrStatusDiv.innerHTML = '';
-
-                try {
-                    const response = await fetch('/api/scan/quality', { method: 'POST' });
-                    const data = await response.json();
-                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
-                    sonarrStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-                    // Refresh job queue in case new jobs were added
-                    if (document.querySelector('#jobs-tab.active')) {
-                        updateJobQueue();
-                    }
-                } catch (error) {
-                    sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-                } finally {
-                    manualQualityScanBtn.disabled = false;
-                    manualQualityScanBtn.querySelector('.mdi').classList.remove('mdi-spin');
-                }
-            });
-
+            }
+            manualSonarrScanBtn.addEventListener('click', () => triggerSonarrScan(manualSonarrScanBtn, '/api/scan/rename'));
+            document.getElementById('manual-quality-scan-btn').addEventListener('click', (e) => triggerSonarrScan(e.currentTarget, '/api/scan/quality'));
 
             // --- Release Cleanup Jobs Logic ---
             const releaseSelectedBtn = document.getElementById('release-selected-btn');
