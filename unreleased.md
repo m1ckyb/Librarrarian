@@ -8,9 +8,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Fixed
 - **Media Source Hide/Show**: Correctly implemented the "Hide" functionality for media sources. The hide option is now a separate checkbox and works independently from the "None" media type.
 - **24-Hour Time Format**: Fixed the "Use 24-Hour Time Format" toggle by adding the toggle switch to the UI and implementing the necessary JavaScript logic.
-- **UI Freezing and Feedback During Scans**: Fixed a major bug where the UI would freeze and not provide feedback during Sonarr scans. A new polling mechanism now shows real-time progress and prevents the UI from locking up.
-- **UI Scan Cancellation**: Fixed a bug where clicking the "Cancel Scan" button would not work correctly. The cancellation now functions as expected, and the button state is correctly reverted after a scan is finished or cancelled.
-- **UI Clock and Responsiveness**: Fixed a critical, persistent bug where the entire UI, including the "Updated" clock, would freeze. The clock update logic was decoupled from all network requests and moved into its own independent, non-blocking timer, guaranteeing a responsive UI at all times.
+- **UI Responsiveness and Scan Feedback**: Resolved a series of critical, cascading bugs that caused the entire UI to freeze during background scans. The backend scan logic was moved into non-blocking background threads, and the frontend JavaScript was refactored to separate long-polling tasks (like scan progress) from the main UI update loop. This fixed the "Updated" clock, ensured scan progress bars appear correctly, and made the "Cancel Scan" button responsive.
 
 ### Added
 - **Elapsed Time for Scans**: The UI now displays an elapsed time counter next to the progress bar during Sonarr scans.

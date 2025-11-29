@@ -835,6 +835,9 @@
             if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
         }, 1000); // Runs every second.
 
+        // 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
+        setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls every second
+
         // Run initial update on page load
         updateStatus();
 
