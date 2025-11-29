@@ -303,14 +303,14 @@
                                     <div class="form-check form-switch mt-3">
                                         {% set sonarr_send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_send_to_queue" name="sonarr_send_to_queue" value="true" {{ 'checked' if sonarr_send_to_queue }}>
-                                        <label class="form-check-label" for="sonarr_send_to_queue"><strong>Send Rename Jobs to Queue</strong></label>
-                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue for a worker to process. If disabled, directly triggers Sonarr's API to handle the import and rename.</p>
+                                        <label class="form-check-label" for="sonarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue. When processed, the dashboard makes the necessary API calls to Sonarr to perform the rename. If disabled, this feature does nothing.</p>
                                     </div>
                                     <div class="form-check form-switch my-3">
                                         {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
-                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Auto Scan</strong></label>
-                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically trigger Sonarr to scan for and import completed downloads at the specified interval.</p>
+                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Automatic Scanning</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically run the 'Scan for Renames' and 'Scan for Quality Mismatches' functions at the specified interval.</p>
                                     </div>
 
                                     <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
@@ -1513,16 +1513,10 @@
                         button.classList.remove('btn-secondary');
                         button.classList.add('btn-danger');
                         button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
-                        // Rebind the onclick to the cancel function
-                        button.onclick = async (e) => {
-                            e.preventDefault(); // Prevent any default form submission behavior
-                            await fetch('/api/scan/cancel', { method: 'POST' });
-                        };
+                        button.dataset.action = 'cancel'; // Set the button's state to 'cancel'
 
-                        // Start polling if not already polling
                         if (progressIntervalId === null) {
-                            // Add a small delay before the first poll to allow the backend to update its state
-                            setTimeout(() => { 
+                            setTimeout(() => {
                                 progressIntervalId = setInterval(() => { 
                                     fetch('/api/scan/progress').then(res => res.json()).then(progressData => { 
                                         if (progressData.is_running) { 
@@ -1540,7 +1534,7 @@
                                                 // Restore original content and event listener
                                                 const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
                                                 activeButton.innerHTML = `<span class="mdi ${activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high'}"></span> <span>${originalText}</span>`;
-                                                activeButton.onclick = () => triggerSonarrScan(activeButton, endpoint);
+                                                activeButton.dataset.action = 'scan'; // Reset state
                                                 activeButton = null;
                                             }
                                         } 
@@ -1558,8 +1552,22 @@
                     button.querySelector('.mdi').classList.remove('mdi-spin');
                 }
             }
-            manualSonarrScanBtn.addEventListener('click', () => triggerSonarrScan(manualSonarrScanBtn, '/api/scan/rename'));
-            document.getElementById('manual-quality-scan-btn').addEventListener('click', (e) => triggerSonarrScan(e.currentTarget, '/api/scan/quality'));
+
+            // A single handler for all Sonarr scan buttons
+            function handleSonarrButtonClick(event) {
+                const button = event.currentTarget;
+                const action = button.dataset.action || 'scan';
+
+                if (action === 'scan') {
+                    const endpoint = button.id === 'manual-sonarr-scan-btn' ? '/api/scan/rename' : '/api/scan/quality';
+                    triggerSonarrScan(button, endpoint);
+                } else if (action === 'cancel') {
+                    fetch('/api/scan/cancel', { method: 'POST' });
+                }
+            }
+
+            manualSonarrScanBtn.addEventListener('click', handleSonarrButtonClick);
+            document.getElementById('manual-quality-scan-btn').addEventListener('click', handleSonarrButtonClick);
 
             // --- Release Cleanup Jobs Logic ---
             const releaseSelectedBtn = document.getElementById('release-selected-btn');
