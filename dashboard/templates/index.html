@@ -1482,21 +1482,47 @@
             sendToQueueSwitch.addEventListener('change', updateSonarrButtonText);
             updateSonarrButtonText(); // Set initial text
 
+            let progressInterval = null;
+
+            function pollScanProgress() {
+                fetch('/api/scan/progress')
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.is_running) {
+                            const percent = data.total_steps > 0 ? Math.round((data.progress / data.total_steps) * 100) : 0;
+                            sonarrStatusDiv.innerHTML = `
+                                <div class="alert alert-info">
+                                    <div class="spinner-border spinner-border-sm me-2"></div>
+                                    Scanning... (${percent}%)
+                                    <p class="mb-0 mt-1 small text-muted">Current: ${data.current_step}</p>
+                                </div>`;
+                        } else {
+                            clearInterval(progressInterval);
+                            progressInterval = null;
+                            // The final message will be shown by the button's own logic
+                        }
+                    });
+            }
+
             manualSonarrScanBtn.addEventListener('click', async () => {
                 manualSonarrScanBtn.disabled = true;
-                manualSonarrScanBtn.querySelector('.mdi').classList.add('mdi-spin');
                 sonarrStatusDiv.innerHTML = '';
 
                 try {
                     const response = await fetch('/api/scan/rename', { method: 'POST' });
                     const data = await response.json();
-                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
-                    sonarrStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    if (data.success) {
+                        // Start polling for progress
+                        if (!progressInterval) {
+                            progressInterval = setInterval(pollScanProgress, 2000);
+                        }
+                    } else {
+                        sonarrStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
+                    }
                 } catch (error) {
                     sonarrStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 } finally {
                     manualSonarrScanBtn.disabled = false;
-                    manualSonarrScanBtn.querySelector('.mdi').classList.remove('mdi-spin');
                 }
             });
 

@@ -1213,6 +1213,11 @@ sonarr_quality_scan_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
 
+# --- Global state for scan progress ---
+scan_progress_state = {
+    "is_running": False, "current_step": "", "total_steps": 0, "progress": 0
+}
+
 def sonarr_background_thread():
     """Waits for triggers to run Sonarr scans (rename, quality, etc.)."""
     while True:
@@ -1273,12 +1278,20 @@ def run_sonarr_rename_scan():
                 series_res.raise_for_status()
                 all_series = series_res.json()
 
+                # --- Progress Tracking ---
+                total_series = len(all_series)
+                scan_progress_state.update({"is_running": True, "total_steps": total_series, "progress": 0})
+
                 conn = get_db()
                 cur = conn.cursor()
                 new_jobs_found = 0
 
                 # 2. For each series, check if there are files to be renamed
-                for series in all_series:
+                for i, series in enumerate(all_series):
+                    series_title = series.get('title', 'Unknown Series')
+                    print(f"  -> ({i+1}/{total_series}) Checking series: {series_title}")
+                    scan_progress_state.update({"current_step": series_title, "progress": i + 1})
+
                     rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
                     rename_res.raise_for_status()
                     episodes_to_rename = rename_res.json()
@@ -1294,6 +1307,8 @@ def run_sonarr_rename_scan():
             except requests.RequestException as e:
                 return {"success": False, "message": f"Could not connect to Sonarr: {e}"}
             finally:
+                # Reset progress state when done
+                scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
                 if scanner_lock.locked():
                     scanner_lock.release()
 
@@ -1522,6 +1537,11 @@ def api_trigger_quality_scan():
         return jsonify({"success": False, "message": "Another scan is already in progress."})
     sonarr_quality_scan_event.set()
     return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
+
+@app.route('/api/scan/progress')
+def api_scan_progress():
+    """Returns the current progress of any active background scan."""
+    return jsonify(scan_progress_state)
 
 def run_cleanup_scan():
     """
