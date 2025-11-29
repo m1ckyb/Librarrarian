@@ -794,7 +794,7 @@ def options():
 
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
-                # The is_hidden flag is now determined by the separate "Hide" checkbox
+                # A checked checkbox will be in the form, an unchecked one will not.
                 is_hidden = f'hide_plex_{source_name}' in request.form
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
@@ -804,7 +804,6 @@ def options():
 
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
-                # The is_hidden flag is now determined by the separate "Hide" checkbox
                 is_hidden = f'hide_internal_{source_name}' in request.form
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
@@ -1313,7 +1312,7 @@ def run_sonarr_rename_scan():
                         filepath = episode.get('existingPath')
                         if filepath:
                             metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                             if cur.rowcount > 0: new_jobs_found += 1
                 
                 conn.commit()
@@ -1379,7 +1378,7 @@ def run_sonarr_deep_scan():
                         filepath = episode.get('existingPath')
                         if filepath:
                             metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                             if cur.rowcount > 0: new_jobs_found += 1
                 
                 conn.commit()
@@ -1463,7 +1462,7 @@ def run_sonarr_quality_scan():
                     if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
                         filepath = episode['episodeFile']['path']
                         metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
             
             conn.commit()

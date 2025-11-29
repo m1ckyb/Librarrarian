@@ -394,6 +394,14 @@
                                 </div>
                             </div>
                         </div>
+                        <!-- UI Settings -->
+                        <div class="p-3 border rounded mb-4">
+                            <h5>UI Settings</h5>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" role="switch" id="time_format_24hr_toggle">
+                                <label class="form-check-label" for="time_format_24hr_toggle">Use 24-Hour Time Format</label>
+                            </div>
+                        </div>
                         <!-- Rescan Delay Setting -->
                         <div class="row">
                             <!-- Left Column -->
@@ -461,14 +469,6 @@
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="debug">Enable Debug Logging</label>
-                                    </div>
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label class="form-label"><strong>UI Settings</strong></label>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="time_format_24hr">
-                                        <label class="form-check-label" for="time_format_24hr">Use 24-Hour Time Format</label>
-                                        <p class="form-text text-body-secondary">Display the "Updated" clock in 24-hour format.</p>
                                     </div>
                                 </div>
                             </div>
@@ -590,26 +590,6 @@
         </div>
     </div>
     <script>
-        // --- Global variables for scan progress tracking ---
-        // These need to be accessible across multiple script blocks and event handlers
-        let isPollingForScan = false;
-        let scanStartTime = null;
-        let activeButton = null; // The currently active scan button
-
-        // Global function to revert the active scan button to its original state
-        function revertActiveButton() {
-            if (activeButton) {
-                activeButton.classList.remove('btn-danger');
-                activeButton.classList.add('btn-secondary');
-                const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
-                const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
-                activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
-                activeButton.dataset.action = 'scan';
-                activeButton.disabled = false; // Ensure it's re-enabled
-                activeButton = null;
-            }
-        }
-
         // Function to create an HTML element for a single node
         function createNodeCard(node) {
             const isIdle = node.status === 'idle' || node.percent === 0;
@@ -803,10 +783,52 @@
             }
         });
 
+        async function pollScanProgress() {
+            if (!isPollingForScan) return;
+
+            try {
+                const response = await fetch('/api/scan/progress');
+                const data = await response.json();
+                const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
+
+                if (data.is_running) {
+                    const elapsed = Math.round((Date.now() - scanStartTime) / 1000);
+                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+                    sonarrScanStatusDiv.innerHTML = `
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
+                        </div>
+                        <div class="mt-1">
+                            <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
+                        </div>
+                    `;
+                } else {
+                    // Scan is finished
+                    isPollingForScan = false;
+                    const finalMessage = data.current_step || "Scan finished.";
+                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-success">${finalMessage}</div>`;
+                    revertActiveButton();
+                    // Refresh job queue to see results of scan
+                    if (document.querySelector('#jobs-tab.active')) {
+                        updateJobQueue();
+                    }
+                }
+            } catch (error) {
+                console.error("Error polling for scan progress:", error);
+                isPollingForScan = false;
+                revertActiveButton();
+            }
+        }
+
         // Main update loop that runs every 5 seconds
         async function mainUpdateLoop() {
             // Always update the main status (nodes, failures, clock)
             await updateStatus();
+
+            // Poll for scan progress if a scan is active
+            if (isPollingForScan) {
+                await pollScanProgress();
+            }
 
             // Check which tab is active and update its content if needed
             if (document.querySelector('#history-stats-tab.active')) {
@@ -816,31 +838,6 @@
             // Update job queue if its tab is active
             if (document.querySelector('#jobs-tab.active')) {
                 await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
-            }
-
-            // Check for scan progress during the main loop. This is now the ONLY place polling happens.
-            if (isPollingForScan) {
-                const progressResponse = await fetch('/api/scan/progress');
-                const progressData = await progressResponse.json();
-                // Get the status div at runtime since it might not exist when mainUpdateLoop is defined
-                const scanStatusDiv = document.getElementById('sonarr-scan-status');
-
-                if (progressData.is_running && progressData.total_steps > 0) {
-                    const percent = Math.round((progressData.progress / progressData.total_steps) * 100);
-                    const elapsedTime = scanStartTime ? Math.floor((Date.now() - scanStartTime) / 1000) : 0;
-                    const elapsedStr = `${String(Math.floor(elapsedTime / 60)).padStart(2, '0')}:${String(elapsedTime % 60).padStart(2, '0')}`;
-                    if (scanStatusDiv) scanStatusDiv.innerHTML = `<div class="alert alert-info"><div class="spinner-border spinner-border-sm me-2"></div> Scanning... (${percent}%) - ${elapsedStr} <p class="mb-0 mt-1 small text-muted">Current: ${progressData.current_step}</p></div>`;
-                } else {
-                    // Only stop polling if the start time has been set (i.e., a scan was actually running)
-                    if (scanStartTime) {
-                        isPollingForScan = false;
-                        scanStartTime = null;
-                        const finalMessage = progressData.current_step || 'Scan complete.';
-                        const alertClass = finalMessage.toLowerCase().includes('cancel') ? 'alert-warning' : 'alert-success';
-                        if (scanStatusDiv) scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${finalMessage}<button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button></div>`;
-                        revertActiveButton();
-                    }
-                }
             }
         }
 
@@ -1245,6 +1242,19 @@
                 }
             }
 
+            // --- 24-Hour Time Format Toggle ---
+            const timeFormatToggle = document.getElementById('time_format_24hr_toggle');
+            if (timeFormatToggle) {
+                // Set initial state from localStorage
+                timeFormatToggle.checked = localStorage.getItem('time_format_24hr') === 'true';
+
+                timeFormatToggle.addEventListener('change', () => {
+                    localStorage.setItem('time_format_24hr', timeFormatToggle.checked);
+                    // Immediately update the clock to reflect the change
+                    updateStatus();
+                });
+            }
+
             // Slider logic
             const delaySlider = document.getElementById('rescan_delay_minutes');
             if (delaySlider) {
@@ -1331,19 +1341,28 @@
                     if (!listContainer) return;
                     const showHidden = toggle.checked;
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        // Check if the "Hide" checkbox is checked
-                        const hideCheckbox = item.querySelector('.hide-checkbox');
-                        const isHidden = hideCheckbox && hideCheckbox.checked;
-                        const shouldHide = isHidden && !showHidden;
-                        item.style.display = shouldHide ? 'none' : 'flex';
+                        // Check the state of the "Hide" switch inside the item
+                        const hideSwitch = item.querySelector('input[type="checkbox"][role="switch"]');
+                        const isHidden = hideSwitch ? hideSwitch.checked : (item.dataset.isHidden === 'true');
+                        
+                        if (isHidden && !showHidden) {
+                            item.style.display = 'none';
+                        } else {
+                            item.style.display = 'flex';
+                        }
                     });
                 };
 
                 toggle.addEventListener('change', applyVisibility);
-                // Listen for changes on hide checkboxes
-                listContainer.addEventListener('change', (e) => { if (e.target.classList.contains('hide-checkbox')) applyVisibility(); });
 
-                // Return the function so it can be called after loading
+                // Also listen for changes on any of the hide switches within the list
+                listContainer.addEventListener('change', (e) => {
+                    if (e.target.matches('input[type="checkbox"][role="switch"]')) {
+                        applyVisibility();
+                    }
+                });
+
+                // Return the function so it can be called after loading to set the initial state
                 return applyVisibility;
             }
             const applyPlexVisibility = setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
@@ -1363,7 +1382,7 @@
                     // Default to music for 'artist', other for 'photo', otherwise use the saved type.
                     const finalSelectedType = selectedType || (plexType === 'artist' ? 'music' : (plexType === 'photo' ? 'other' : plexType));
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${finalSelectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm" name="${name}" style="width: 140px;">${options}</select>`;
+                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
                 };
 
                 // Use the settings rendered directly into the page by the server.
@@ -1386,11 +1405,11 @@
                                 <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                                 <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
                             </div>
-                            <div class="ms-auto d-flex align-items-center">
+                            <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
-                                <div class="form-check ms-2" title="Hide this source from the list">
-                                    <input class="form-check-input hide-checkbox" type="checkbox" name="hide_plex_${lib.title}" id="hide-lib-${lib.key}" ${lib.is_hidden ? 'checked' : ''}>
-                                    <label class="form-check-label small text-muted" for="hide-lib-${lib.key}">Hide</label>
+                                <div class="form-check form-switch ms-3">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="hide_plex_${lib.title}" ${lib.is_hidden ? 'checked' : ''}>
+                                    <label class="form-check-label">Hide</label>
                                 </div>
                             </div>
                         </div>
@@ -1420,7 +1439,7 @@
                 };
                 const createDropdown = (name, selectedType) => {
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm" name="${name}" style="width: 140px;">${options}</select>`;
+                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
                 };
                 container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading folders...';
 
@@ -1435,11 +1454,11 @@
                                 <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
                                 <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
                             </div>
-                            <div class="ms-auto d-flex align-items-center">
+                            <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_internal_${item.name}`, item.type)}
-                                <div class="form-check ms-2" title="Hide this source from the list">
-                                    <input class="form-check-input hide-checkbox" type="checkbox" name="hide_internal_${item.name}" id="hide-folder-${item.name}" ${item.is_hidden ? 'checked' : ''}>
-                                    <label class="form-check-label small text-muted" for="hide-folder-${item.name}">Hide</label>
+                                <div class="form-check form-switch ms-3">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="hide_internal_${item.name}" ${item.is_hidden ? 'checked' : ''}>
+                                    <label class="form-check-label">Hide</label>
                                 </div>
                             </div>
                         </div>
@@ -1576,8 +1595,9 @@
             updateSonarrButtonText(); // Set initial text
 
             // --- Unified Sonarr Scanner Function ---
-            // Note: activeButton, isPollingForScan, scanStartTime, and revertActiveButton() 
-            // are defined globally at the top of the first <script> block (line ~592)
+            let activeButton = null; // Keep track of which button is active
+            let isPollingForScan = false; // Global flag to indicate if we should poll
+            let scanStartTime = null; // To track elapsed time
 
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
@@ -1605,6 +1625,19 @@
                 } finally {
                     button.disabled = false;
                     button.querySelector('.mdi').classList.remove('mdi-spin');
+                }
+            }
+
+            function revertActiveButton() {
+                if (activeButton) {
+                    activeButton.classList.remove('btn-danger');
+                    activeButton.classList.add('btn-secondary');
+                    const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
+                    const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
+                    activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
+                    activeButton.dataset.action = 'scan';
+                    activeButton.disabled = false; // Ensure it's re-enabled
+                    activeButton = null;
                 }
             }
 
@@ -1783,24 +1816,6 @@
                     setStoredTheme(theme);
                     setTheme(theme);
                 });
-            });
-        })();
-
-        // --- Time Format Switcher Logic ---
-        (function() {
-            const timeFormatToggle = document.getElementById('time_format_24hr');
-            if (!timeFormatToggle) return;
-
-            const getStoredTimeFormat = () => localStorage.getItem('time_format_24hr') === 'true';
-            const setStoredTimeFormat = is24Hour => localStorage.setItem('time_format_24hr', is24Hour);
-
-            // Set initial state of the toggle
-            timeFormatToggle.checked = getStoredTimeFormat();
-
-            // Save preference on change
-            timeFormatToggle.addEventListener('change', () => {
-                setStoredTimeFormat(timeFormatToggle.checked);
-                updateStatus(); // Immediately update the clock
             });
         })();
     </script>

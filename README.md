@@ -3,13 +3,17 @@
 **CodecShift** is a distributed video transcoding cluster that uses a central dashboard to manage a fleet of worker nodes. It integrates with your Plex Media Server to automatically find, queue, and transcode your video library to the efficient HEVC (H.265) codec. The entire system is containerized and managed with Docker Compose for easy deployment.
 
 ## Features
-
 *   **Distributed Transcoding:** Run worker nodes on multiple machines to process files in parallel.
 *   **Flexible Media Scanning:** Choose between a deep Plex Media Server integration or a powerful built-in scanner to find and queue files from your media directories.
+*   **Sonarr Integration:** Perform manual or automatic scans to find and fix media files in your library.
+    *   **Rename Scans**: Identify files that do not conform to Sonarr's naming standards and create jobs to rename them.
+    *   **Quality Mismatch Scans**: Find episodes that do not meet their series' quality profile and create jobs for investigation.
 *   **Hardware Acceleration:** Automatically detects and uses NVIDIA (NVENC), Intel (QSV/VAAPI), and Apple VideoToolbox for fast transcoding, with a fallback to CPU.
 *   **Centralized Web Dashboard:** A Flask-based UI for real-time monitoring and management.
     *   **Full Remote Control**: Start, stop, and pause individual worker nodes.
     *   **Job Queue Management**: View the status of all pending, in-progress, and failed jobs.
+    *   **Manual Tools**: A dedicated "Tools" tab for running manual Sonarr scans and system cleanup tasks.
+    *   **Cancellable Scans**: Long-running scans can be cancelled directly from the UI.
     *   **Live Stats & History**: View aggregate statistics and a searchable history of all transcodes.
     *   **Error Management**: View detailed logs for failed transcodes.
 *   **Database-Driven Coordination:** A central PostgreSQL database manages the job queue, node status, historical data, and all system configurations.
@@ -22,7 +26,7 @@ The system consists of three core services, all managed by Docker Compose:
 
 1.  **`db`**: A PostgreSQL database that acts as the single source of truth for the entire cluster.
 2.  **`dashboard`**: The central brain. It connects to Plex, scans for files, builds a job queue, assigns jobs to workers, and provides the web UI for management.
-3.  **`worker`**: A "dumb" but powerful transcoding engine. It connects to the dashboard, requests a job, performs the transcode using FFmpeg, reports the result, and repeats.
+3.  **`worker`**: A powerful transcoding engine. It connects to the dashboard, requests a job, performs the transcode using FFmpeg, reports the result, and repeats.
 
 ## Deployment with Docker Compose
 
@@ -98,7 +102,8 @@ This is the recommended method for running CodecShift.
 
 3.  **Access the Dashboard:**
     Open a web browser and navigate to `http://localhost:5000`. You should see the CodecShift dashboard. From here, you can go to the "Options" tab to configure settings and then start your worker nodes.
-    - **Configure Plex**: In the "Options" tab, enter your Plex server URL and link your account. Once linked, you can select which libraries to monitor for transcoding.
+    - **Configure Integrations**: In the "Options" tab, you can enable and configure integrations for Plex, Sonarr, Radarr, and Lidarr.
+    - **Run Manual Scans**: Use the "Tools" tab to manually trigger Sonarr scans or system cleanup tasks.
 
 ### Scaling the Cluster
 To add more processing power, you can scale the number of worker services. For example, to run 3 workers:
