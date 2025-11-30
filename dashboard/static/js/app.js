@@ -29,6 +29,15 @@ let activeScanType = null;
 let progressInterval = null;
 let scanStartTime = null;
 
+function stopProgressPolling() {
+    if (progressInterval) {
+        clearInterval(progressInterval);
+        progressInterval = null;
+    }
+    isPollingForScan = false;
+    activeScanType = null;
+}
+
 function showSonarrFeedback(message, type, scanType) {
     const feedbackEl = scanType === 'rename' ? sonarrRenameScanFeedback : sonarrQualityScanFeedback;
     const containerEl = scanType === 'rename' ? sonarrRenameScanContainer : sonarrQualityScanContainer;
@@ -493,8 +502,8 @@ async function updateJobQueue(page = 1) {
         const rowsHtml = data.jobs.map(job => `
             <tr>
                 <td>
-                    ${job.job_type === 'cleanup' && job.status === 'awaiting_approval' ? 
-                        `<input type="checkbox" class="form-check-input cleanup-checkbox" data-job-id="${job.id}">` : 
+                    ${(job.job_type === 'cleanup' || job.job_type === 'Rename Job') && job.status === 'awaiting_approval' ? 
+                        `<input type="checkbox" class="form-check-input approval-checkbox" data-job-id="${job.id}">` : 
                         job.id 
                     }
                 </td>
@@ -509,6 +518,8 @@ async function updateJobQueue(page = 1) {
                         `<span class="badge text-bg-secondary">Pending</span>` :
                     job.status === 'failed' ?
                         `<span class="badge text-bg-danger">Failed</span>` :
+                    job.status === 'completed' ?
+                        `<span class="badge text-bg-success">Completed</span>` :
                         `<span class="badge text-bg-warning">${job.status}</span>`
                     }
                 </td>
@@ -533,12 +544,12 @@ async function updateJobQueue(page = 1) {
         // Add event listener for the new "select all" checkbox
         const selectAllCheckbox = document.getElementById('select-all-cleanup');
         selectAllCheckbox.addEventListener('change', (e) => {
-            document.querySelectorAll('.cleanup-checkbox').forEach(checkbox => {
+            document.querySelectorAll('.approval-checkbox').forEach(checkbox => {
                 checkbox.checked = e.target.checked;
             });
         });
         // Uncheck "select all" if any individual box is unchecked
-        document.querySelectorAll('.cleanup-checkbox').forEach(checkbox => checkbox.addEventListener('change', () => { if (!checkbox.checked) selectAllCheckbox.checked = false; }));
+        document.querySelectorAll('.approval-checkbox').forEach(checkbox => checkbox.addEventListener('change', () => { if (!checkbox.checked) selectAllCheckbox.checked = false; }));
 
     } catch (error) {
         console.error('Error fetching job queue:', error);
@@ -1246,22 +1257,30 @@ document.addEventListener('DOMContentLoaded', () => {
     ['sonarr', 'radarr', 'lidarr'].forEach(setupArrToggle);
 
     const releaseSelectedBtn = document.getElementById('release-selected-btn');
-    const releaseAllBtn = document.getElementById('release-all-btn');
+    const releaseAllCleanupBtn = document.getElementById('release-all-cleanup-btn');
+    const releaseAllRenameBtn = document.getElementById('release-all-rename-btn');
 
     releaseSelectedBtn.addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.cleanup-checkbox:checked')).map(cb => cb.dataset.jobId);
+        const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
         if (selectedIds.length === 0) {
-            alert('No cleanup jobs selected.');
+            alert('No jobs selected. Select jobs awaiting approval to release them.');
             return;
         }
-        if (confirm(`Are you sure you want to release ${selectedIds.length} cleanup job(s) to the queue?`)) {
-            await releaseJobs({ job_ids: selectedIds });
+        if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
+            // Release all job types when selected
+            await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
         }
     });
 
-    releaseAllBtn.addEventListener('click', async () => {
+    releaseAllCleanupBtn.addEventListener('click', async () => {
         if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
-            await releaseJobs({ release_all: true });
+            await releaseJobs({ release_all: true, job_type: 'cleanup' });
+        }
+    });
+
+    releaseAllRenameBtn.addEventListener('click', async () => {
+        if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
+            await releaseJobs({ release_all: true, job_type: 'Rename Job' });
         }
     });
 
@@ -1276,7 +1295,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateJobQueue(jobQueueCurrentPage); // Refresh the queue
             }
         } catch (error) {
-            alert('An error occurred while trying to release cleanup jobs.');
+            alert('An error occurred while trying to release jobs.');
         }
     }
 
