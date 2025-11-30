@@ -13,10 +13,29 @@
             display: flex;
             flex-direction: column;
         }
+        /* Dev Mode Banner */
+        .dev-mode-banner {
+            position: fixed;
+            top: 25px;
+            left: -50px;
+            background-color: #ffc107; /* Bootstrap 'warning' yellow */
+            color: #000;
+            padding: 5px 50px;
+            transform: rotate(-45deg);
+            font-weight: bold;
+            font-size: 0.8rem;
+            text-align: center;
+            z-index: 1056; /* Higher than modals */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border: 1px solid rgba(0,0,0,0.2);
+        }
     </style>
 {% endblock %}
 
 {% block page_title %}
+    {% if devmode %}
+        <div class="dev-mode-banner">DEV MODE</div>
+    {% endif %}
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center">
             <img src="{{ url_for('static', filename='logo.png') }}" alt="CodecShift Logo" style="height: 40px;" class="me-3">
@@ -41,7 +60,7 @@
                     &times;
                 </button>
             </div>
-            {% if auth_enabled and user_name %}
+            {% if auth_enabled and user_name and not devmode %}
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-3">Logout</a>
                 <span class="navbar-text">{{ greeting }}, <strong>{{ user_name }}</strong></span>
             {% endif %}
@@ -67,6 +86,12 @@
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="options-tab" data-bs-toggle="tab" data-bs-target="#options-tab-pane" type="button" role="tab">Options</button>
+            </li>
+            <li class="nav-item ms-auto d-flex align-items-center d-none" id="advanced-switch-container">
+                 <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="show-advanced-transcoding">
+                    <label class="form-check-label" for="show-advanced-transcoding">Show Advanced Options</label>
+                </div>
             </li>
         </ul>
 
@@ -394,18 +419,18 @@
                                 </div>
                             </div>
                         </div>
-                        <!-- UI Settings -->
-                        <div class="p-3 border rounded mb-4">
-                            <h5>UI Settings</h5>
-                            <div class="form-check form-switch">
-                                <input class="form-check-input" type="checkbox" role="switch" id="time_format_24hr_toggle">
-                                <label class="form-check-label" for="time_format_24hr_toggle">Use 24-Hour Time Format</label>
-                            </div>
-                        </div>
+
                         <!-- Rescan Delay Setting -->
                         <div class="row">
                             <!-- Left Column -->
                             <div class="col-md-6">
+                                <div class="mb-3 p-3 border rounded">
+                                    <h5>UI Options</h5>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="clock-24hr" name="clock_24hr" value="true" {{ 'checked' if settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true' }}>
+                                        <label class="form-check-label" for="clock-24hr">Use 24-Hour Clock</label>
+                                    </div>
+                                </div>
                                 <h5>File Handling</h5>
                                 <div class="mb-3 p-3 border rounded">
                                     <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
@@ -474,37 +499,39 @@
                             </div>
                         </div>
                         <hr class="my-4">
-                        <h5>Advanced Transcoding Settings</h5>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3 p-3 border rounded">
-                                    <label class="form-label"><strong>Constant Quality (CQ / CRF)</strong></label>
-                                    <p class="form-text text-body-secondary">Lower is higher quality. NVENC: 0-51. VAAPI/CPU: 0-63.</p>
-                                    <div class="input-group input-group-sm mb-2">
-                                        <span class="input-group-text" style="width: 120px;">NVIDIA (HD)</span>
-                                        <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('setting_value', 32) }}">
-                                        <span class="input-group-text" style="width: 120px;">NVIDIA (SD)</span>
-                                        <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('setting_value', 28) }}">
-                                    </div>
-                                    <div class="input-group input-group-sm mb-2">
-                                        <span class="input-group-text" style="width: 120px;">Intel/AMD (HD)</span>
-                                        <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('setting_value', 28) }}">
-                                        <span class="input-group-text" style="width: 120px;">Intel/AMD (SD)</span>
-                                        <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('setting_value', 24) }}">
-                                    </div>
-                                    <div class="input-group input-group-sm">
-                                        <span class="input-group-text" style="width: 120px;">CPU (HD)</span>
-                                        <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('setting_value', 28) }}">
-                                        <span class="input-group-text" style="width: 120px;">CPU (SD)</span>
-                                        <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('setting_value', 24) }}">
+                        <div id="advanced-transcoding-section" class="d-none">
+                            <h5>Advanced Transcoding Settings</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3 p-3 border rounded">
+                                        <label class="form-label"><strong>Constant Quality (CQ / CRF)</strong></label>
+                                        <p class="form-text text-body-secondary">Lower is higher quality. NVENC: 0-51. VAAPI/CPU: 0-63.</p>
+                                        <div class="input-group input-group-sm mb-2">
+                                            <span class="input-group-text" style="width: 120px;">NVIDIA (HD)</span>
+                                            <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('setting_value', 32) }}">
+                                            <span class="input-group-text" style="width: 120px;">NVIDIA (SD)</span>
+                                            <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('setting_value', 28) }}">
+                                        </div>
+                                        <div class="input-group input-group-sm mb-2">
+                                            <span class="input-group-text" style="width: 120px;">Intel/AMD (HD)</span>
+                                            <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('setting_value', 28) }}">
+                                            <span class="input-group-text" style="width: 120px;">Intel/AMD (SD)</span>
+                                            <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('setting_value', 24) }}">
+                                        </div>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text" style="width: 120px;">CPU (HD)</span>
+                                            <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('setting_value', 28) }}">
+                                            <span class="input-group-text" style="width: 120px;">CPU (SD)</span>
+                                            <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('setting_value', 24) }}">
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="mb-3 p-3 border rounded">
-                                    <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
-                                    <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
-                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('setting_value', 1900) }}">                                    
+                                <div class="col-md-6">
+                                    <div class="mb-3 p-3 border rounded">
+                                        <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
+                                        <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
+                                        <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('setting_value', 1900) }}">                                    
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -826,11 +853,20 @@
         // --- Independent, Non-Blocking Timers ---
         // This is the correct pattern to prevent UI freezes.
 
+        // --- Clock Settings (Global) ---
+        window.AppSettings = {
+            use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }}
+        };
+
         // 1. A dedicated, lightweight timer for the clock. It does nothing else.
         setInterval(() => {
             const clockContainer = document.getElementById('clock-container');
-            const use24HourTime = localStorage.getItem('time_format_24hr') === 'true';
-            const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: !use24HourTime };
+            const timeOptions = {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: !window.AppSettings.use24HourClock
+            };
             const timeString = new Date().toLocaleTimeString([], timeOptions);
             if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
         }, 1000); // Runs every second.
@@ -1219,6 +1255,39 @@
     </script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const mainTabs = document.querySelector('#mainTabs');
+            const advancedSwitchContainer = document.querySelector('#advanced-switch-container');
+
+            if (mainTabs && advancedSwitchContainer) {
+                mainTabs.addEventListener('shown.bs.tab', function (event) {
+                    if (event.target.id === 'options-tab') {
+                        advancedSwitchContainer.classList.remove('d-none');
+                    } else {
+                        advancedSwitchContainer.classList.add('d-none');
+                    }
+                });
+            }
+
+            const showAdvancedSwitch = document.getElementById('show-advanced-transcoding');
+            const advancedSection = document.getElementById('advanced-transcoding-section');
+
+            if (showAdvancedSwitch && advancedSection) {
+                showAdvancedSwitch.addEventListener('change', (event) => {
+                    if (event.target.checked) {
+                        advancedSection.classList.remove('d-none');
+                    } else {
+                        advancedSection.classList.add('d-none');
+                    }
+                });
+            }
+
+            const clockToggle = document.getElementById('clock-24hr');
+            if (clockToggle) {
+                clockToggle.addEventListener('change', (event) => {
+                    window.AppSettings.use24HourClock = event.target.checked;
+                });
+            }
+
             // Function to send the 'quit' command to a node
             window.quitNode = async function(hostname) {
                 if (!confirm(`Are you sure you want to QUIT the worker on '${hostname}'? This will stop the process immediately. The container will likely restart based on Docker policy.`)) {
@@ -1239,18 +1308,7 @@
                 }
             }
 
-            // --- 24-Hour Time Format Toggle ---
-            const timeFormatToggle = document.getElementById('time_format_24hr_toggle');
-            if (timeFormatToggle) {
-                // Set initial state from localStorage
-                timeFormatToggle.checked = localStorage.getItem('time_format_24hr') === 'true';
 
-                timeFormatToggle.addEventListener('change', () => {
-                    localStorage.setItem('time_format_24hr', timeFormatToggle.checked);
-                    // Immediately update the clock to reflect the change
-                    updateStatus();
-                });
-            }
 
             // Slider logic
             const delaySlider = document.getElementById('rescan_delay_minutes');

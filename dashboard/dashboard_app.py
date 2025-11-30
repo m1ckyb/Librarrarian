@@ -61,6 +61,7 @@ def setup_auth(app):
     app.config['OIDC_ENABLED'] = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
     app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
     app.config['OIDC_PROVIDER_NAME'] = os.environ.get('OIDC_PROVIDER_NAME')
+    app.config['DEVMODE'] = os.environ.get('DEVMODE', 'false').lower() == 'true'
 
     if not app.config['AUTH_ENABLED']:
         return # Do nothing if auth is disabled
@@ -96,6 +97,15 @@ def setup_auth(app):
     @app.before_request
     def require_login():
         """Protects all routes by requiring login if authentication is enabled."""
+        # --- Dev Mode Bypass ---
+        # If dev mode is on, bypass authentication for local network requests.
+        if app.config.get('DEVMODE'):
+            remote_ip = request.remote_addr
+            if remote_ip and (remote_ip == '127.0.0.1' or remote_ip.startswith('192.168.') or remote_ip.startswith('172.')):
+                # In dev mode, we can create a dummy session for a better UI experience
+                if 'user' not in session:
+                    session['user'] = {'name': 'Dev User'}
+                return # Bypass further auth checks
         if not app.config.get('AUTH_ENABLED'):
             return
 
@@ -137,7 +147,8 @@ def setup_auth(app):
             user_name=user_name, 
             greeting=greeting,
             oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'),
-            version=get_project_version()
+            version=get_project_version(),
+            devmode=app.config.get('DEVMODE', False)
         )
 
 # Initialize authentication
@@ -721,7 +732,9 @@ def logout():
     """Logs the user out."""
     session.pop('user', None)
     if app.config.get('OIDC_ENABLED') and hasattr(app, 'oauth'):
-        return redirect(app.oauth.oidc_provider.server_metadata.get('end_session_endpoint'))
+        logout_url = app.oauth.oidc_provider.server_metadata.get('end_session_endpoint')
+        if logout_url:
+            return redirect(logout_url)
     return redirect(url_for('login'))
 
 @app.route('/options', methods=['POST'])

@@ -23,6 +23,8 @@ All upcoming features and bug fixes will be documented here until they are part 
   - **Ignore Option**: A "None" option was added to the media type dropdown, which causes the scanner to ignore that library or folder.
   - **Hide Option**: A "Hide" checkbox was added to each media source, allowing users to hide it from the list.
   - **Show Hidden Toggle**: A "Show Hidden" toggle was added to reveal and edit hidden media sources.
+- **Development Mode**: Introduced a `DEVMODE` environment variable. When set to `on`, it bypasses all authentication requirements for requests originating from local IP addresses (`127.0.0.1`, `192.168.*`).
+- **Dev Mode UI Indicator**: A prominent "DEV MODE" banner is now displayed in the top-left corner of the dashboard when development mode is active, providing a clear visual cue.
 
 ### Changed
 - **Cleaner Logs**: Suppressed noisy and repetitive log messages from the Docker container, including the per-series scan progress and the frequent `/api/scan/progress` polling messages, making logs easier to read.
