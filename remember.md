@@ -137,15 +137,17 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 
 2.  **Update `CHANGELOG.md`**:
     *   Create a new version heading with the new version number and current date (e.g., `## [1.0.0] - YYYY-MM-DD - Release Name`).
-    *   Move all content from `UNRELEASED.md` into this new section.
+    *   Move all content from `unreleased.md` into this new section.
     *   Ensure the formatting is correct and consistent with previous entries.
     *   **Do not** add an `[Unreleased]` section back to the top of `CHANGELOG.md`. This file should only contain released versions.
 
-3.  **Clear `UNRELEASED.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
+3.  **Clear `unreleased.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
 
 4.  **Update `VERSION.txt`**: Change the content of `VERSION.txt` to the new version number.
 
-5.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
+5.  **Update `docker-compose.yml`**: Update the `image` tags for the `dashboard` and `worker` services to the new version number.
+
+6.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
 
 ---
 

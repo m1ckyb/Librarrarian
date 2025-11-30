@@ -5,9 +5,9 @@
 ## Features
 *   **Distributed Transcoding:** Run worker nodes on multiple machines to process files in parallel.
 *   **Flexible Media Scanning:** Choose between a deep Plex Media Server integration or a powerful built-in scanner to find and queue files from your media directories.
-*   **Sonarr Integration:** Perform manual or automatic scans to find and fix media files in your library.
-    *   **Rename Scans**: Identify files that do not conform to Sonarr's naming standards and create jobs to rename them.
-    *   **Quality Mismatch Scans**: Find episodes that do not meet their series' quality profile and create jobs for investigation.
+*   **Sonarr, Radarr, and Lidarr Integration**: Connect to the Arrs to enhance media management.
+    *   **Rename Scans**: Identify files that do not conform to Sonarr's naming standards and create internal dashboard jobs to rename them via the Sonarr API.
+    *   **Quality Mismatch Scans**: Find episodes that do not meet their series' quality profile and create informational jobs for user investigation.
 *   **Hardware Acceleration:** Automatically detects and uses NVIDIA (NVENC), Intel (QSV/VAAPI), and Apple VideoToolbox for fast transcoding, with a fallback to CPU.
 *   **Centralized Web Dashboard:** A Flask-based UI for real-time monitoring and management.
     *   **Full Remote Control**: Start, stop, and pause individual worker nodes.

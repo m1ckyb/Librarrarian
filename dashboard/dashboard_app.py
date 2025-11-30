@@ -843,12 +843,14 @@ def api_settings():
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
-    """Clears all 'pending' jobs from the job_queue table."""
+    """
+    Clears jobs from the queue. This now clears all 'pending' transcode/cleanup jobs
+    and ALL jobs (regardless of status) that are internal-only (Rename, Quality Mismatch).
+    """
     try:
         db = get_db()
         with db.cursor() as cur:
-            # Use DELETE instead of TRUNCATE to preserve the ID sequence and avoid deleting active jobs.
-            cur.execute("DELETE FROM jobs WHERE status = 'pending';")
+            cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
         db.commit()
         return jsonify(success=True, message="Job queue cleared successfully.")
     except Exception as e:
@@ -1336,7 +1338,16 @@ def run_sonarr_rename_scan():
                 for episode in rename_res.json():
                     filepath = episode.get('existingPath')
                     if filepath:
-                        metadata = {'source': 'sonarr', 'seriesTitle': series['title'], 'seasonNumber': episode.get('seasonNumber'), 'episodeNumber': episode.get('episodeNumbers', [0])[0], 'episodeTitle': "Episode", 'quality': "N/A"}
+                        # Add the episodeFileId and seriesId to the metadata for the internal processor
+                        metadata = {
+                            'source': 'sonarr', 
+                            'seriesTitle': series['title'], 
+                            'seasonNumber': episode.get('seasonNumber'), 
+                            'episodeNumber': episode.get('episodeNumbers', [0])[0], 
+                            'episodeTitle': "Episode", 'quality': "N/A",
+                            'episodeFileId': episode.get('episodeFileId'),
+                            'seriesId': series.get('id')
+                        }
                         cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
                         if cur.rowcount > 0: new_jobs_found += 1
 
@@ -1775,7 +1786,8 @@ def request_job():
 
     try:
         cur.execute("BEGIN;") # Start a transaction
-        cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
+        # This query now explicitly excludes internal job types that are not meant for workers.
+        cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' AND job_type NOT IN ('Rename Job', 'Quality Mismatch') ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
         job = cur.fetchone()
 
         if job:
@@ -1895,6 +1907,74 @@ def cleanup_scanner_thread():
         cleanup_scan_now_event.clear() # Reset the event
         run_cleanup_scan()
 
+def sonarr_job_processor_thread():
+    """
+    This background thread periodically checks for and processes internal jobs
+    that are not meant for workers, such as Sonarr rename commands.
+    """
+    print("Sonarr Job Processor thread started.")
+    while True:
+        try:
+            with app.app_context():
+                conn = get_db()
+                if not conn:
+                    time.sleep(60) # Wait and retry if DB is down
+                    continue
+
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
+                cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 10 FOR UPDATE SKIP LOCKED")
+                jobs_to_process = cur.fetchall()
+                
+                if jobs_to_process:
+                    print(f"Found {len(jobs_to_process)} Sonarr rename jobs to process.")
+                    settings, _ = get_worker_settings()
+                    host = settings.get('sonarr_host', {}).get('setting_value')
+                    api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+                    
+                    if not host or not api_key:
+                        print("Sonarr is not configured. Skipping rename jobs.")
+                        time.sleep(300) # Wait 5 minutes before checking again
+                        continue
+
+                    base_url = host.rstrip('/')
+                    headers = {'X-Api-Key': api_key}
+                    
+                    for job in jobs_to_process:
+                        file_id = job.get('metadata', {}).get('episodeFileId')
+                        series_id = job.get('metadata', {}).get('seriesId')
+
+                        if not file_id or not series_id:
+                            print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
+                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            continue
+                        
+                        try:
+                            print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
+                            payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
+                            res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            res.raise_for_status()
+                            
+                            # Mark job as completed
+                            print(f"Sonarr rename job {job['id']} completed successfully.")
+                            cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                        except requests.exceptions.RequestException as e:
+                            print(f"Error processing Sonarr rename job {job['id']}: {e}")
+                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                
+                conn.commit()
+                cur.close()
+
+        except Exception as e:
+            print(f"CRITICAL ERROR in sonarr_job_processor_thread: {e}")
+            # Avoid a tight loop on critical error
+            time.sleep(300)
+        
+        # Wait 60 seconds before checking for new internal jobs
+        time.sleep(60)
+
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
@@ -1902,6 +1982,8 @@ sonarr_background_scanner = threading.Thread(target=sonarr_background_thread, da
 sonarr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
+sonarr_job_processor = threading.Thread(target=sonarr_job_processor_thread, daemon=True)
+sonarr_job_processor.start()
 
 if __name__ == '__main__':
     # Run migrations before starting the Flask app for local development

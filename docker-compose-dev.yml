@@ -3,7 +3,9 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/m1ckyb/codecshift-dashboard:0.10.11
+    build:
+      context: .
+      dockerfile: ./dashboard/Dockerfile
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -42,7 +44,9 @@ services:
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/m1ckyb/codecshift-worker:0.10.11
+    build:
+      context: .
+      dockerfile: ./worker/Dockerfile
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       db:
