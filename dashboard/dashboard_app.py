@@ -802,6 +802,7 @@ def options():
         if request.form.get(f'{arr_type}_api_key'):
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
+    settings_to_update['radarr_send_to_queue'] = 'true' if 'radarr_send_to_queue' in request.form else 'false'
     settings_to_update['sonarr_auto_rename_after_transcode'] = 'true' if 'sonarr_auto_rename_after_transcode' in request.form else 'false'
     settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
     # Convert hours from the form back to minutes for storage
@@ -1270,6 +1271,7 @@ scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
 sonarr_rename_scan_event = threading.Event()
 sonarr_quality_scan_event = threading.Event()
+radarr_rename_scan_event = threading.Event()
 scan_cancel_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
@@ -1279,8 +1281,8 @@ scan_progress_state = {
     "is_running": False, "current_step": "", "total_steps": 0, "progress": 0
 }
 
-def sonarr_background_thread():
-    """Waits for triggers to run Sonarr scans (rename, quality, etc.)."""
+def arr_background_thread():
+    """Waits for triggers to run Sonarr/Radarr scans (rename, quality, etc.)."""
     while True:
         # Wait for either event to be set. This is a simple polling mechanism.
         if sonarr_rename_scan_event.wait(timeout=1):
@@ -1295,6 +1297,13 @@ def sonarr_background_thread():
             print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
             # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_sonarr_quality_scan)
+            scan_thread.start()
+
+        if radarr_rename_scan_event.wait(timeout=1):
+            radarr_rename_scan_event.clear() # Clear the event immediately
+            print(f"[{datetime.now()}] Triggering Radarr rename scan in background thread.")
+            # Run the actual scan in a separate, non-blocking thread
+            scan_thread = threading.Thread(target=run_radarr_rename_scan)
             scan_thread.start()
 
         time.sleep(1) # Prevent a tight loop
@@ -1482,6 +1491,105 @@ def run_sonarr_quality_scan():
             if scanner_lock.locked():
                 scanner_lock.release()
 
+def run_radarr_rename_scan():
+    """
+    Handles Radarr integration. Can either trigger Radarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
+    """
+    with app.app_context():
+        # This function is now fully self-contained and runs in its own thread.
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Radarr rename scan trigger ignored: Another scan is already in progress.")
+            return
+
+        scan_cancel_event.clear() # Ensure cancel flag is down before starting
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0})
+
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+    
+            if settings.get('radarr_enabled', {}).get('setting_value') != 'true':
+                scan_progress_state["current_step"] = "Error: Radarr integration is disabled."
+                return
+    
+            host = settings.get('radarr_host', {}).get('setting_value')
+            api_key = settings.get('radarr_api_key', {}).get('setting_value')
+            send_to_queue = settings.get('radarr_send_to_queue', {}).get('setting_value') == 'true'
+    
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Radarr is not configured."
+                return
+    
+            print(f"[{datetime.now()}] Radarr Rename Scanner: Starting deep scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+            movies_res.raise_for_status()
+            all_movies = movies_res.json()
+            
+            scan_progress_state["total_steps"] = len(all_movies)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0 
+            renames_performed = 0 # Counter for direct renames
+    
+            for i, movie in enumerate(all_movies):
+                if scan_cancel_event.is_set():
+                    print("Radarr rename scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
+    
+                movie_title = movie.get('title', 'Unknown Movie')
+                scan_progress_state.update({"current_step": f"Analyzing: {movie_title}", "progress": i + 1})
+
+                # This is the correct pattern: trigger a rescan, then check for results.
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanMovie', 'movieId': movie['id']}, timeout=10, verify=False)
+                time.sleep(2) # Give Radarr a moment to process before we query
+                rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie['id']}", headers=headers, timeout=10, verify=False)
+                for rename_item in rename_res.json():
+                    filepath = rename_item.get('existingPath')
+                    if filepath:
+                        # Determine job status or perform direct rename based on 'send_to_queue' setting
+                        if send_to_queue:
+                            job_status = 'awaiting_approval' # If selected, awaiting approval
+                            metadata = {
+                                'source': 'radarr',
+                                'movieTitle': movie['title'],
+                                'movieId': movie.get('id'),
+                                'movieFileId': rename_item.get('movieFileId')
+                            }
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                        else:
+                            # Perform rename directly via Radarr API
+                            print(f"  -> Auto-renaming movie file {filepath} via Radarr API.")
+                            payload = {"name": "RenameFiles", "movieId": movie['id'], "files": [rename_item.get('movieFileId')]}
+                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res.raise_for_status() 
+                            renames_performed += 1
+    
+            conn.commit()
+            if send_to_queue:
+                message = f"Radarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+            else:
+                message = f"Radarr deep scan complete. Performed {renames_performed} automatic renames." 
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+
+        except Exception as e:
+            error_message = f"An error occurred during the Radarr deep scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            # Wait a moment before clearing the "finished" message from the UI
+            time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            if scanner_lock.locked():
+                scanner_lock.release()
+
 def run_internal_scan(force_scan=False):
     """
     The core logic for scanning local directories.
@@ -1652,6 +1760,17 @@ def api_trigger_quality_scan():
     scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
     sonarr_quality_scan_event.set()
     return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
+
+@app.route('/api/scan/radarr_rename', methods=['POST'])
+def api_trigger_radarr_rename_scan():
+    """API endpoint to manually trigger a Radarr rename scan or add jobs to queue."""
+    if scanner_lock.locked():
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+    
+    # Immediately set the state to running to avoid a race condition with the frontend polling
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0})
+    radarr_rename_scan_event.set()
+    return jsonify(success=True, message="Radarr rename scan has been triggered.")
 
 @app.route('/api/scan/cancel', methods=['POST'])
 def api_cancel_scan():
@@ -2075,14 +2194,14 @@ def cleanup_scanner_thread():
         cleanup_scan_now_event.clear() # Reset the event
         run_cleanup_scan()
 
-def sonarr_job_processor_thread():
+def arr_job_processor_thread():
     """
     This background thread periodically checks for and processes internal jobs
-    that are not meant for workers, such as Sonarr rename commands.
+    that are not meant for workers, such as Sonarr/Radarr rename commands.
     """
     # This thread now waits for the db_ready_event before starting its loop.
     db_ready_event.wait()
-    print("Sonarr Job Processor thread is now active.")
+    print("Arr Job Processor thread is now active.")
 
     while True:
         try:
@@ -2093,53 +2212,90 @@ def sonarr_job_processor_thread():
                     continue
 
                 cur = conn.cursor(cursor_factory=RealDictCursor)
+                settings, _ = get_worker_settings()
                 
                 # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
                 cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 10 FOR UPDATE SKIP LOCKED")
                 jobs_to_process = cur.fetchall()
                 
                 if jobs_to_process:
-                    print(f"Found {len(jobs_to_process)} Sonarr rename jobs to process.")
-                    settings, _ = get_worker_settings()
-                    host = settings.get('sonarr_host', {}).get('setting_value')
-                    api_key = settings.get('sonarr_api_key', {}).get('setting_value')
-                    
-                    if not host or not api_key:
-                        print("Sonarr is not configured. Skipping rename jobs.")
-                        time.sleep(300) # Wait 5 minutes before checking again
-                        continue
-
-                    base_url = host.rstrip('/')
-                    headers = {'X-Api-Key': api_key}
+                    print(f"Found {len(jobs_to_process)} rename jobs to process.")
                     
                     for job in jobs_to_process:
-                        file_id = job.get('metadata', {}).get('episodeFileId')
-                        series_id = job.get('metadata', {}).get('seriesId')
-
-                        if not file_id or not series_id:
-                            print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
-                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                            continue
+                        metadata = job.get('metadata', {})
+                        source = metadata.get('source', 'sonarr')  # Default to sonarr for backwards compatibility
                         
-                        try:
-                            print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
-                            payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
-                            res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
-                            res.raise_for_status()
+                        if source == 'radarr':
+                            # Process Radarr rename job
+                            host = settings.get('radarr_host', {}).get('setting_value')
+                            api_key = settings.get('radarr_api_key', {}).get('setting_value')
                             
-                            # Mark job as completed
-                            print(f"Sonarr rename job {job['id']} completed successfully.")
-                            cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            if not host or not api_key:
+                                print(f"Radarr is not configured. Skipping job {job['id']}.")
+                                continue
+                            
+                            file_id = metadata.get('movieFileId')
+                            movie_id = metadata.get('movieId')
 
-                        except requests.exceptions.RequestException as e:
-                            print(f"Error processing Sonarr rename job {job['id']}: {e}")
-                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            if not file_id or not movie_id:
+                                print(f"Failing job {job['id']}: Missing 'movieFileId' or 'movieId' in metadata.")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                continue
+                            
+                            try:
+                                base_url = host.rstrip('/')
+                                headers = {'X-Api-Key': api_key}
+                                print(f"Processing Radarr rename for job {job['id']} (File ID: {file_id})")
+                                payload = {"name": "RenameFiles", "movieId": movie_id, "files": [file_id]}
+                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res.raise_for_status()
+                                
+                                # Mark job as completed
+                                print(f"Radarr rename job {job['id']} completed successfully.")
+                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                            except requests.exceptions.RequestException as e:
+                                print(f"Error processing Radarr rename job {job['id']}: {e}")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        
+                        else:
+                            # Process Sonarr rename job (default)
+                            host = settings.get('sonarr_host', {}).get('setting_value')
+                            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+                            
+                            if not host or not api_key:
+                                print(f"Sonarr is not configured. Skipping job {job['id']}.")
+                                continue
+
+                            file_id = metadata.get('episodeFileId')
+                            series_id = metadata.get('seriesId')
+
+                            if not file_id or not series_id:
+                                print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                continue
+                            
+                            try:
+                                base_url = host.rstrip('/')
+                                headers = {'X-Api-Key': api_key}
+                                print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
+                                payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
+                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res.raise_for_status()
+                                
+                                # Mark job as completed
+                                print(f"Sonarr rename job {job['id']} completed successfully.")
+                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                            except requests.exceptions.RequestException as e:
+                                print(f"Error processing Sonarr rename job {job['id']}: {e}")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
                 
                 conn.commit()
                 cur.close()
 
         except Exception as e:
-            print(f"CRITICAL ERROR in sonarr_job_processor_thread: {e}")
+            print(f"CRITICAL ERROR in arr_job_processor_thread: {e}")
             # Avoid a tight loop on critical error
             time.sleep(300)
         
@@ -2149,12 +2305,12 @@ def sonarr_job_processor_thread():
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
-sonarr_background_scanner = threading.Thread(target=sonarr_background_thread, daemon=True)
-sonarr_background_scanner.start()
+arr_background_scanner = threading.Thread(target=arr_background_thread, daemon=True)
+arr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
-sonarr_job_processor = threading.Thread(target=sonarr_job_processor_thread, daemon=True)
-sonarr_job_processor.start()
+arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
+arr_job_processor.start()
 
 if __name__ == '__main__':
     # For local development, run migrations then start the app

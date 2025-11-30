@@ -5,6 +5,11 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Added
 - **Auto-Rename After Transcode**: New "Auto-Rename After Transcode" toggle for both Sonarr and Radarr. When enabled, after a transcode job completes, the system will automatically trigger a rescan in the respective Arr application to update media info, then rename the file if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.
 - **Release Rename Jobs**: Added a new "Release All Renames" button in the Job Queue tab to release Sonarr rename jobs that are awaiting approval. Rename jobs can now be selected and released individually or all at once.
+- **Radarr Rename Jobs**: Added full Radarr rename scan support mirroring the Sonarr functionality:
+  - Added "Create Rename Jobs in Queue" toggle in the Radarr Options tab. If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Radarr API.
+  - Added "Radarr Tools" section in the Tools tab with a "Scan for Renames" button.
+  - Added API endpoint `/api/scan/radarr_rename` to trigger Radarr rename scans.
+  - The job processor now handles both Sonarr and Radarr rename jobs based on the `source` field in job metadata.
 
 ### Changed
 - **UI Text Clarity**: Renamed the "Scan for Quality" button to "Scan for Quality Mismatches" for better clarity.

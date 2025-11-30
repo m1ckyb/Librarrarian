@@ -3,6 +3,10 @@ const sonarrRenameScanButton = document.getElementById('sonarr-rename-scan-butto
 const sonarrQualityScanButton = document.getElementById('sonarr-quality-scan-button');
 const sonarrCancelScanButton = document.getElementById('sonarr-cancel-scan-button');
 
+// Radarr scan buttons
+const radarrRenameScanButton = document.getElementById('radarr-rename-scan-button');
+const radarrCancelScanButton = document.getElementById('radarr-cancel-scan-button');
+
 // Rename the quality scan button as requested.
 if (sonarrQualityScanButton) {
     sonarrQualityScanButton.textContent = 'Scan for Quality Mismatches';
@@ -24,8 +28,17 @@ const sonarrQualityScanProgressBar = sonarrQualityScanProgress ? sonarrQualitySc
 const sonarrQualityScanProgressText = document.getElementById('sonarr-quality-scan-progress-text');
 const sonarrQualityScanTime = document.getElementById('sonarr-quality-scan-time');
 
+// Progress elements for Radarr Rename Scan
+const radarrRenameScanContainer = document.getElementById('radarr-rename-scan-container');
+const radarrRenameScanFeedback = document.getElementById('radarr-rename-scan-feedback');
+const radarrRenameScanProgress = document.getElementById('radarr-rename-scan-progress');
+const radarrRenameScanProgressBar = radarrRenameScanProgress ? radarrRenameScanProgress.querySelector('.progress-bar') : null;
+const radarrRenameScanProgressText = document.getElementById('radarr-rename-scan-progress-text');
+const radarrRenameScanTime = document.getElementById('radarr-rename-scan-time');
+
 let isPollingForScan = false;
 let activeScanType = null;
+let activeScanSource = null; // 'sonarr' or 'radarr'
 let progressInterval = null;
 let scanStartTime = null;
 
@@ -36,47 +49,83 @@ function stopProgressPolling() {
     }
     isPollingForScan = false;
     activeScanType = null;
+    activeScanSource = null;
 }
 
-function showSonarrFeedback(message, type, scanType) {
-    const feedbackEl = scanType === 'rename' ? sonarrRenameScanFeedback : sonarrQualityScanFeedback;
-    const containerEl = scanType === 'rename' ? sonarrRenameScanContainer : sonarrQualityScanContainer;
+function getScanElements(scanType, scanSource) {
+    if (scanSource === 'radarr') {
+        return {
+            feedbackEl: radarrRenameScanFeedback,
+            containerEl: radarrRenameScanContainer,
+            progressEl: radarrRenameScanProgress,
+            progressBarEl: radarrRenameScanProgressBar,
+            progressTextEl: radarrRenameScanProgressText,
+            timeEl: radarrRenameScanTime
+        };
+    }
+    // Default to Sonarr
+    if (scanType === 'rename') {
+        return {
+            feedbackEl: sonarrRenameScanFeedback,
+            containerEl: sonarrRenameScanContainer,
+            progressEl: sonarrRenameScanProgress,
+            progressBarEl: sonarrRenameScanProgressBar,
+            progressTextEl: sonarrRenameScanProgressText,
+            timeEl: sonarrRenameScanTime
+        };
+    } else {
+        return {
+            feedbackEl: sonarrQualityScanFeedback,
+            containerEl: sonarrQualityScanContainer,
+            progressEl: sonarrQualityScanProgress,
+            progressBarEl: sonarrQualityScanProgressBar,
+            progressTextEl: sonarrQualityScanProgressText,
+            timeEl: sonarrQualityScanTime
+        };
+    }
+}
+
+function showScanFeedback(message, type, scanType, scanSource = 'sonarr') {
+    const { feedbackEl, containerEl } = getScanElements(scanType, scanSource);
     if (!feedbackEl || !containerEl) return;
     feedbackEl.innerHTML = `<div class="alert alert-${type} alert-dismissible fade show" role="alert">${message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
     containerEl.style.display = 'block';
     feedbackEl.style.display = 'block';
 }
 
+// Keep legacy function for backward compatibility
+function showSonarrFeedback(message, type, scanType) {
+    showScanFeedback(message, type, scanType, 'sonarr');
+}
+
 function resetScanUI() {
     // Stop any polling and clear timers
     stopProgressPolling();
 
-    // Hide progress bars and feedback containers
+    // Hide progress bars and feedback containers for Sonarr
     if(sonarrRenameScanContainer) sonarrRenameScanContainer.style.display = 'none';
     if(sonarrQualityScanContainer) sonarrQualityScanContainer.style.display = 'none';
 
-    // Show scan buttons, hide cancel button
+    // Hide progress bars and feedback containers for Radarr
+    if(radarrRenameScanContainer) radarrRenameScanContainer.style.display = 'none';
+
+    // Show scan buttons, hide cancel buttons for Sonarr
     if(sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'inline-block';
-    // Re-enable the buttons
     if(sonarrRenameScanButton) sonarrRenameScanButton.disabled = false;
     if(sonarrQualityScanButton) sonarrQualityScanButton.disabled = false;
     if(sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'inline-block';
     if(sonarrCancelScanButton) sonarrCancelScanButton.style.display = 'none';
 
-    // Enable scan buttons
-    if(sonarrRenameScanButton) sonarrRenameScanButton.disabled = false;
-    if(sonarrQualityScanButton) sonarrQualityScanButton.disabled = false;
+    // Show scan buttons, hide cancel buttons for Radarr
+    if(radarrRenameScanButton) radarrRenameScanButton.style.display = 'inline-block';
+    if(radarrRenameScanButton) radarrRenameScanButton.disabled = false;
+    if(radarrCancelScanButton) radarrCancelScanButton.style.display = 'none';
 }
 
-function startProgressPolling(scanType) {
+function startProgressPolling(scanType, scanSource = 'sonarr') {
     stopProgressPolling();
 
-    const containerEl = scanType === 'rename' ? sonarrRenameScanContainer : sonarrQualityScanContainer;
-    const progressEl = scanType === 'rename' ? sonarrRenameScanProgress : sonarrQualityScanProgress;
-    const progressBarEl = scanType === 'rename' ? sonarrRenameScanProgressBar : sonarrQualityScanProgressBar;
-    const progressTextEl = scanType === 'rename' ? sonarrRenameScanProgressText : sonarrQualityScanProgressText;
-    const timeEl = scanType === 'rename' ? sonarrRenameScanTime : sonarrQualityScanTime;
-    const feedbackEl = scanType === 'rename' ? sonarrRenameScanFeedback : sonarrQualityScanFeedback; // Get feedback element
+    const { containerEl, progressEl, progressBarEl, progressTextEl, timeEl, feedbackEl } = getScanElements(scanType, scanSource);
 
     if (!containerEl || !progressEl) return;
 
@@ -91,6 +140,8 @@ function startProgressPolling(scanType) {
     progressBarEl.textContent = '0%';
     progressTextEl.textContent = 'Starting scan...';
     scanStartTime = new Date();
+    activeScanSource = scanSource;
+    activeScanType = scanType;
 
     progressInterval = setInterval(() => {
         fetch('/api/scan/progress')
@@ -111,7 +162,7 @@ function startProgressPolling(scanType) {
                     if (progressBarEl) progressBarEl.style.width = '100%';
                     if (progressBarEl) progressBarEl.textContent = '100%';
                     if (progressTextEl) progressTextEl.textContent = 'Scan complete.';
-                    showSonarrFeedback(data.current_step || 'Scan finished.', 'success', scanType);
+                    showScanFeedback(data.current_step || 'Scan finished.', 'success', scanType, scanSource);
                     setTimeout(resetScanUI, 5000);
                 }
             })
@@ -119,51 +170,72 @@ function startProgressPolling(scanType) {
                 console.error('Error polling for scan progress:', error);
                 stopProgressPolling();
                 resetScanUI();
-                showSonarrFeedback('Error polling for scan progress.', 'danger', scanType);
+                showScanFeedback('Error polling for scan progress.', 'danger', scanType, scanSource);
             });
     }, 2000); // Poll every 2 seconds
 }
 
-async function handleScanButtonClick(scanType) {
+async function handleScanButtonClick(scanType, scanSource = 'sonarr') {
     // If a scan is already running, don't start another one.
     if (isPollingForScan) {
         console.warn("A scan is already in progress. Please wait or cancel it.");
         return;
     }
 
-    // Disable both buttons to prevent double-clicking
-    sonarrRenameScanButton.disabled = true;
-    sonarrQualityScanButton.disabled = true;
+    // Disable all scan buttons to prevent double-clicking
+    if (sonarrRenameScanButton) sonarrRenameScanButton.disabled = true;
+    if (sonarrQualityScanButton) sonarrQualityScanButton.disabled = true;
+    if (radarrRenameScanButton) radarrRenameScanButton.disabled = true;
 
-    const endpoint = scanType === 'rename' ? '/api/scan/rename' : '/api/scan/quality';
+    // Determine the endpoint based on scan source and type
+    let endpoint;
+    if (scanSource === 'radarr') {
+        endpoint = '/api/scan/radarr_rename';
+    } else {
+        endpoint = scanType === 'rename' ? '/api/scan/rename' : '/api/scan/quality';
+    }
+
     try {
         const response = await fetch(endpoint, { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
             isPollingForScan = true;
-            showSonarrFeedback(`'${scanType}' scan started successfully.`, 'success', scanType);
-            sonarrRenameScanButton.style.display = 'none';
-            sonarrQualityScanButton.style.display = 'none';
-            sonarrCancelScanButton.style.display = 'inline-block';
-            startProgressPolling(scanType);
+            showScanFeedback(`'${scanType}' scan started successfully.`, 'success', scanType, scanSource);
+            
+            // Hide all scan buttons, show appropriate cancel button
+            if (sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'none';
+            if (sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'none';
+            if (radarrRenameScanButton) radarrRenameScanButton.style.display = 'none';
+            
+            if (scanSource === 'radarr') {
+                if (radarrCancelScanButton) radarrCancelScanButton.style.display = 'inline-block';
+            } else {
+                if (sonarrCancelScanButton) sonarrCancelScanButton.style.display = 'inline-block';
+            }
+            
+            startProgressPolling(scanType, scanSource);
         } else {
-            showSonarrFeedback(data.message || `Failed to start '${scanType}' scan.`, 'danger', scanType);
+            showScanFeedback(data.message || `Failed to start '${scanType}' scan.`, 'danger', scanType, scanSource);
             resetScanUI(); // Re-enable buttons on failure
         }
     } catch (error) {
-        console.error(`Error starting Sonarr ${scanType} scan:`, error);
-        showSonarrFeedback(`An error occurred while starting the '${scanType}' scan.`, 'danger', scanType);
+        console.error(`Error starting ${scanSource} ${scanType} scan:`, error);
+        showScanFeedback(`An error occurred while starting the '${scanType}' scan.`, 'danger', scanType, scanSource);
         resetScanUI(); // Re-enable buttons on error
     }
 }
 
 if (sonarrRenameScanButton) {
-    sonarrRenameScanButton.addEventListener('click', () => handleScanButtonClick('rename'));
+    sonarrRenameScanButton.addEventListener('click', () => handleScanButtonClick('rename', 'sonarr'));
 }
 
 if (sonarrQualityScanButton) {
-    sonarrQualityScanButton.addEventListener('click', () => handleScanButtonClick('quality'));
+    sonarrQualityScanButton.addEventListener('click', () => handleScanButtonClick('quality', 'sonarr'));
+}
+
+if (radarrRenameScanButton) {
+    radarrRenameScanButton.addEventListener('click', () => handleScanButtonClick('rename', 'radarr'));
 }
 
 if (sonarrCancelScanButton) {
@@ -172,13 +244,30 @@ if (sonarrCancelScanButton) {
             const response = await fetch('/api/scan/cancel', { method: 'POST' });
             const data = await response.json();
             if (data.success) {
-                showSonarrFeedback('Scan cancellation requested.', 'warning', activeScanType); // Use the global activeScanType
+                showScanFeedback('Scan cancellation requested.', 'warning', activeScanType, activeScanSource);
                 resetScanUI();
             } else {
-                showSonarrFeedback('Failed to send cancellation signal.', 'danger', activeScanType); // Use the global activeScanType
+                showScanFeedback('Failed to send cancellation signal.', 'danger', activeScanType, activeScanSource);
             }
         } catch (error) {
-            showSonarrFeedback('Error sending cancellation signal.', 'danger', activeScanType); // Use the global activeScanType
+            showScanFeedback('Error sending cancellation signal.', 'danger', activeScanType, activeScanSource);
+        }
+    });
+}
+
+if (radarrCancelScanButton) {
+    radarrCancelScanButton.addEventListener('click', async () => {
+        try {
+            const response = await fetch('/api/scan/cancel', { method: 'POST' });
+            const data = await response.json();
+            if (data.success) {
+                showScanFeedback('Scan cancellation requested.', 'warning', activeScanType, activeScanSource);
+                resetScanUI();
+            } else {
+                showScanFeedback('Failed to send cancellation signal.', 'danger', activeScanType, activeScanSource);
+            }
+        } catch (error) {
+            showScanFeedback('Error sending cancellation signal.', 'danger', activeScanType, activeScanSource);
         }
     });
 }
@@ -192,10 +281,16 @@ fetch('/api/scan/progress').then(r => r.json()).then(data => {
         console.log("A scan was already in progress on page load. Polling will not resume automatically without knowing the type.");
         // Or, we could try to infer from the 'current_step' message.
         let runningScanType = 'rename'; // default
-        if (data.current_step && data.current_step.toLowerCase().includes('quality')) {
-            runningScanType = 'quality';
+        let runningScanSource = 'sonarr'; // default
+        if (data.current_step) {
+            if (data.current_step.toLowerCase().includes('quality')) {
+                runningScanType = 'quality';
+            }
+            if (data.current_step.toLowerCase().includes('radarr')) {
+                runningScanSource = 'radarr';
+            }
         }
-        handleScanButtonClick(runningScanType); // This will effectively resume the UI state
+        handleScanButtonClick(runningScanType, runningScanSource); // This will effectively resume the UI state
     }
 });
 
@@ -845,6 +940,24 @@ document.addEventListener('DOMContentLoaded', () => {
             optionsTabTrigger.addEventListener('shown.bs.tab', () => {
                 const sonarrSubTabTrigger = document.getElementById('sonarr-integration-tab');
                 const subTab = new bootstrap.Tab(sonarrSubTabTrigger);
+                subTab.show();
+            }, { once: true }); // Use 'once' so this listener only fires once
+        });
+    }
+
+    const enableRadarrLink = document.getElementById('enable-radarr-link');
+    if (enableRadarrLink) {
+        enableRadarrLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Use bootstrap's API to show the main options tab
+            const optionsTabTrigger = document.getElementById('options-tab');
+            const tab = new bootstrap.Tab(optionsTabTrigger);
+            tab.show();
+
+            // Once the main tab is shown, show the radarr sub-tab
+            optionsTabTrigger.addEventListener('shown.bs.tab', () => {
+                const radarrSubTabTrigger = document.getElementById('radarr-integration-tab');
+                const subTab = new bootstrap.Tab(radarrSubTabTrigger);
                 subTab.show();
             }, { once: true }); // Use 'once' so this listener only fires once
         });
