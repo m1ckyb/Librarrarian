@@ -512,11 +512,15 @@
                                     <label class="form-label"><strong>Codecs Eligible for Re-Encoding</strong></label>
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="allow_hevc">Allow HEVC (H.265)</label>
+                                        <label class="form-check-label" for="allow_hevc">HEVC (H.265)</label>
                                     </div>
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="allow_av1" name="allow_av1" value="true" {{ 'checked' if settings.get('allow_av1', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="allow_av1">Allow AV1</label>
+                                        <label class="form-check-label" for="allow_av1">AV1</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_vp9" name="allow_vp9" value="true" {{ 'checked' if settings.get('allow_vp9', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="allow_vp9">VP9</label>
                                     </div>
                                 </div>
                             </div>

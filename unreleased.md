@@ -15,6 +15,7 @@ All upcoming features and bug fixes will be documented here until they are part 
   - Added "Lidarr Tools" section in the Tools tab with a "Scan for Renames" button.
   - Added API endpoint `/api/scan/lidarr_rename` to trigger Lidarr rename scans.
   - The job processor now handles Sonarr, Radarr, and Lidarr rename jobs based on the `source` field in job metadata.
+- **VP9 Codec Support**: Added VP9 to the list of codecs eligible for re-encoding. When enabled, VP9-encoded files will be added to the transcode queue instead of being skipped.
 
 
 ### Changed
@@ -26,6 +27,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Show Ignored Toggle**: Renamed "Show Hidden" toggle to "Show Ignored" for both Plex and Internal Scanner sections to better reflect the new behavior.
 - **Scan Button Behavior**: Scan buttons for Sonarr, Radarr, and Lidarr now remain visible but become disabled during an active scan, instead of disappearing. This provides clearer feedback that a scan is in progress.
 - **Elapsed Time Format**: The scanning info box now displays elapsed time in a human-readable format (e.g., "1m 04s") instead of just seconds (e.g., "64s").
+- **Codec Settings Labels**: Changed "Allow HEVC (H.265)" to "HEVC (H.265)" and "Allow AV1" to "AV1" in the codec eligible for re-encoding settings for better clarity.
+- **Scan Completion UI**: Removed the separate "Scan finished" alert popup. The progress bar now shows the completion message directly and resets the UI more quickly (2 seconds instead of 5).
 
 ### Fixed
 - **Sonarr Rename Jobs Processing**: Fixed a critical bug where Sonarr rename jobs created with the "Create Rename Jobs in Queue" option would never be processed. Jobs were created with `awaiting_approval` status but the job processor only looked for `pending` status jobs. Now rename jobs can be released to the queue via the UI.
@@ -44,3 +47,5 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Stats Cards Loading**: Fixed *arr stats cards not showing data by adding a null check for the tools tab element and loading stats when navigating directly to the Tools tab via URL hash.
 - **Scan Progress Box Position on Refresh**: Fixed an issue where the scan progress box would jump to the wrong section when refreshing the page during an active scan. Added `scan_source` and `scan_type` fields to the scan progress API to reliably track which integration is being scanned.
 - **Sonarr Episode Count**: Fixed Sonarr stats showing 0 episodes by changing from `episodeFileCount` (downloaded episodes only) to `episodeCount` (total episodes in library).
+- **Failed Files Table Colspan**: Fixed the "No failed files found" message not stretching across all 4 columns in the failed files modal.
+- **Scan Buttons After Cancel**: Fixed scan buttons not working immediately after cancelling a scan. The backend now skips the 10-second delay when a scan is cancelled, allowing users to start a new scan immediately.

@@ -214,9 +214,9 @@ function startProgressPolling(scanType, scanSource = 'sonarr') {
                     } else {
                         if (progressBarEl) progressBarEl.style.width = '100%';
                         if (progressBarEl) progressBarEl.textContent = '100%';
-                        if (progressTextEl) progressTextEl.textContent = 'Scan complete.';
-                        showScanFeedback(currentStep || 'Scan finished.', 'success', scanType, scanSource);
-                        setTimeout(resetScanUI, 5000);
+                        if (progressTextEl) progressTextEl.textContent = currentStep || 'Scan complete.';
+                        // Just reset the UI after a brief delay without showing a separate alert
+                        setTimeout(resetScanUI, 2000);
                     }
                 }
             })
@@ -584,10 +584,10 @@ document.getElementById('view-errors-btn').addEventListener('click', async () =>
                 </tr>
             `).join('');
         } else {
-            tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No failed files found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files found.</td></tr>';
         }
     } catch (error) {
-        tableBody.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Failed to load errors.</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load errors.</td></tr>';
     }
 });
 
