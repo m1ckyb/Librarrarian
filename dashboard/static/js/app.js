@@ -974,9 +974,11 @@ jobsTab.addEventListener('shown.bs.tab', () => {
 
 // Load *arr stats when Tools tab is shown
 const toolsTab = document.querySelector('#tools-tab');
-toolsTab.addEventListener('shown.bs.tab', () => {
-    loadArrStats();
-});
+if (toolsTab) {
+    toolsTab.addEventListener('shown.bs.tab', () => {
+        loadArrStats();
+    });
+}
 
 // Function to load *arr statistics
 async function loadArrStats() {
@@ -1224,6 +1226,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (triggerEl) {
                 const tab = new bootstrap.Tab(triggerEl);
                 tab.show();
+                // If loading directly to Tools tab, load stats immediately
+                if (hash === '#tools-tab-pane') {
+                    loadArrStats();
+                }
             }
         } else {
             const defaultTab = document.getElementById('nodes-tab');

@@ -1287,36 +1287,33 @@ scan_progress_state = {
 def arr_background_thread():
     """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
     while True:
-        # Wait for either event to be set. This is a simple polling mechanism.
-        if sonarr_rename_scan_event.wait(timeout=1):
-            sonarr_rename_scan_event.clear() # Clear the event immediately
+        # Check all events without blocking using is_set() first
+        # This prevents the sequential blocking that was causing delays
+        if sonarr_rename_scan_event.is_set():
+            sonarr_rename_scan_event.clear()
             print(f"[{datetime.now()}] Triggering Sonarr rename scan in background thread.")
-            # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_sonarr_rename_scan)
             scan_thread.start()
 
-        if sonarr_quality_scan_event.wait(timeout=1):
-            sonarr_quality_scan_event.clear() # Clear the event immediately
+        if sonarr_quality_scan_event.is_set():
+            sonarr_quality_scan_event.clear()
             print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
-            # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_sonarr_quality_scan)
             scan_thread.start()
 
-        if radarr_rename_scan_event.wait(timeout=1):
-            radarr_rename_scan_event.clear() # Clear the event immediately
+        if radarr_rename_scan_event.is_set():
+            radarr_rename_scan_event.clear()
             print(f"[{datetime.now()}] Triggering Radarr rename scan in background thread.")
-            # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_radarr_rename_scan)
             scan_thread.start()
 
-        if lidarr_rename_scan_event.wait(timeout=1):
-            lidarr_rename_scan_event.clear() # Clear the event immediately
+        if lidarr_rename_scan_event.is_set():
+            lidarr_rename_scan_event.clear()
             print(f"[{datetime.now()}] Triggering Lidarr rename scan in background thread.")
-            # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_lidarr_rename_scan)
             scan_thread.start()
 
-        time.sleep(1) # Prevent a tight loop
+        time.sleep(0.5)  # Check events every 500ms for good responsiveness without high CPU usage
 
 def run_sonarr_rename_scan():
     """
@@ -1324,6 +1321,9 @@ def run_sonarr_rename_scan():
     or add 'rename' jobs to the local queue for a worker to process.
     """
     with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
@@ -1331,7 +1331,6 @@ def run_sonarr_rename_scan():
             scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
-        scan_cancel_event.clear() # Ensure cancel flag is down before starting
         scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
 
         try:
@@ -1429,13 +1428,15 @@ def run_sonarr_quality_scan():
     a 'quality_mismatch' job is created for investigation.
     """
     with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
             # Reset the progress state since the API endpoint set it optimistically
             scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
-        scan_cancel_event.clear()
         scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
         
         try:
@@ -1511,6 +1512,9 @@ def run_radarr_rename_scan():
     or add 'rename' jobs to the local queue for a worker to process.
     """
     with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Radarr rename scan trigger ignored: Another scan is already in progress.")
@@ -1518,7 +1522,6 @@ def run_radarr_rename_scan():
             scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
-        scan_cancel_event.clear() # Ensure cancel flag is down before starting
         scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0})
 
         try:
@@ -1613,6 +1616,9 @@ def run_lidarr_rename_scan():
     Uses Lidarr API v1: https://lidarr.audio/docs/api/
     """
     with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Lidarr rename scan trigger ignored: Another scan is already in progress.")
@@ -1620,7 +1626,6 @@ def run_lidarr_rename_scan():
             scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
-        scan_cancel_event.clear() # Ensure cancel flag is down before starting
         scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0})
 
         try:
