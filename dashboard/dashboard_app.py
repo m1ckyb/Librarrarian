@@ -1281,7 +1281,7 @@ cleanup_scan_now_event = threading.Event()
 
 # --- Global state for scan progress ---
 scan_progress_state = {
-    "is_running": False, "current_step": "", "total_steps": 0, "progress": 0
+    "is_running": False, "current_step": "", "total_steps": 0, "progress": 0, "scan_source": "", "scan_type": ""
 }
 
 def arr_background_thread():
@@ -1328,10 +1328,10 @@ def run_sonarr_rename_scan():
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
             # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
 
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "rename"})
 
         try:
             settings, db_error = get_worker_settings()
@@ -1417,7 +1417,7 @@ def run_sonarr_rename_scan():
         finally:
             # Wait a moment before clearing the "finished" message from the UI
             time.sleep(10)
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
 
@@ -1434,10 +1434,10 @@ def run_sonarr_quality_scan():
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
             # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
 
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "quality"})
         
         try:
             settings, db_error = get_worker_settings()
@@ -1502,7 +1502,7 @@ def run_sonarr_quality_scan():
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
             time.sleep(10)
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
 
@@ -1519,10 +1519,10 @@ def run_radarr_rename_scan():
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Radarr rename scan trigger ignored: Another scan is already in progress.")
             # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
 
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0})
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "radarr", "scan_type": "rename"})
 
         try:
             settings, db_error = get_worker_settings()
@@ -1605,7 +1605,7 @@ def run_radarr_rename_scan():
         finally:
             # Wait a moment before clearing the "finished" message from the UI
             time.sleep(10)
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
 
@@ -1623,10 +1623,10 @@ def run_lidarr_rename_scan():
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Lidarr rename scan trigger ignored: Another scan is already in progress.")
             # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
 
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0})
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "lidarr", "scan_type": "rename"})
 
         try:
             settings, db_error = get_worker_settings()
@@ -1714,7 +1714,7 @@ def run_lidarr_rename_scan():
         finally:
             # Wait a moment before clearing the "finished" message from the UI
             time.sleep(10)
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
 
@@ -1874,7 +1874,7 @@ def api_trigger_rename_scan():
         return jsonify(success=False, message="Another scan is already in progress."), 409
     
     # Immediately set the state to running to avoid a race condition with the frontend polling
-    scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "rename"})
     sonarr_rename_scan_event.set()
     return jsonify(success=True, message="Sonarr rename scan has been triggered.")
 
@@ -1885,7 +1885,7 @@ def api_trigger_quality_scan():
         return jsonify(success=False, message="Another scan is already in progress."), 409
 
     # Immediately set the state to running
-    scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "quality"})
     sonarr_quality_scan_event.set()
     return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
 
@@ -1896,7 +1896,7 @@ def api_trigger_radarr_rename_scan():
         return jsonify(success=False, message="Another scan is already in progress."), 409
     
     # Immediately set the state to running to avoid a race condition with the frontend polling
-    scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0})
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "radarr", "scan_type": "rename"})
     radarr_rename_scan_event.set()
     return jsonify(success=True, message="Radarr rename scan has been triggered.")
 
@@ -1907,7 +1907,7 @@ def api_trigger_lidarr_rename_scan():
         return jsonify(success=False, message="Another scan is already in progress."), 409
     
     # Immediately set the state to running to avoid a race condition with the frontend polling
-    scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0})
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "lidarr", "scan_type": "rename"})
     lidarr_rename_scan_event.set()
     return jsonify(success=True, message="Lidarr rename scan has been triggered.")
 
@@ -2090,13 +2090,13 @@ def api_arr_stats():
                 base_url = host.rstrip('/')
                 
                 # Get series data - includes show and season counts
-                # We sum the episodeFileCount from each series for the total episode count
+                # We sum the episodeCount from each series for the total episode count
                 series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
                 series_res.raise_for_status()
                 series_data = series_res.json()
                 stats['sonarr']['shows'] = len(series_data)
                 stats['sonarr']['seasons'] = sum(len(s.get('seasons', [])) for s in series_data)
-                stats['sonarr']['episodes'] = sum(s.get('episodeFileCount', 0) for s in series_data)
+                stats['sonarr']['episodes'] = sum(s.get('episodeCount', 0) for s in series_data)
             except Exception as e:
                 print(f"Could not fetch Sonarr stats: {e}")
 
