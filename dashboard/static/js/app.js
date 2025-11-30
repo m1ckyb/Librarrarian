@@ -187,13 +187,28 @@ function startProgressPolling(scanType, scanSource = 'sonarr') {
                     if (progressBarEl) progressBarEl.textContent = `${progressPercent}%`;
                     if (progressTextEl) progressTextEl.textContent = data.current_step || 'Scanning...';
                 } else {
-                    // Scan finished
+                    // Scan finished or failed to start
                     stopProgressPolling();
-                    if (progressBarEl) progressBarEl.style.width = '100%';
-                    if (progressBarEl) progressBarEl.textContent = '100%';
-                    if (progressTextEl) progressTextEl.textContent = 'Scan complete.';
-                    showScanFeedback(data.current_step || 'Scan finished.', 'success', scanType, scanSource);
-                    setTimeout(resetScanUI, 5000);
+                    
+                    // Check if this is an error/conflict message vs a success
+                    // Also check if progress is 0 - this indicates the scan never really started
+                    const currentStep = data.current_step || '';
+                    const isError = currentStep.toLowerCase().includes('error') || 
+                                    currentStep.toLowerCase().includes('already in progress') ||
+                                    currentStep.toLowerCase().includes('cancelled') ||
+                                    (data.progress === 0 && data.total_steps === 0);
+                    
+                    if (isError) {
+                        // Don't show 100% progress bar for errors
+                        showScanFeedback(currentStep || 'Scan was interrupted.', 'warning', scanType, scanSource);
+                        resetScanUI();
+                    } else {
+                        if (progressBarEl) progressBarEl.style.width = '100%';
+                        if (progressBarEl) progressBarEl.textContent = '100%';
+                        if (progressTextEl) progressTextEl.textContent = 'Scan complete.';
+                        showScanFeedback(currentStep || 'Scan finished.', 'success', scanType, scanSource);
+                        setTimeout(resetScanUI, 5000);
+                    }
                 }
             })
             .catch(error => {
@@ -280,51 +295,69 @@ if (lidarrRenameScanButton) {
 
 if (sonarrCancelScanButton) {
     sonarrCancelScanButton.addEventListener('click', async () => {
+        // Save the current scan context before any async operations
+        const currentScanType = activeScanType || 'rename';
+        const currentScanSource = activeScanSource || 'sonarr';
+        
         try {
             const response = await fetch('/api/scan/cancel', { method: 'POST' });
             const data = await response.json();
             if (data.success) {
-                showScanFeedback('Scan cancellation requested.', 'warning', activeScanType, activeScanSource);
+                showScanFeedback('Scan cancellation requested.', 'warning', currentScanType, currentScanSource);
                 resetScanUI();
             } else {
-                showScanFeedback('Failed to send cancellation signal.', 'danger', activeScanType, activeScanSource);
+                showScanFeedback('Failed to send cancellation signal.', 'danger', currentScanType, currentScanSource);
             }
         } catch (error) {
-            showScanFeedback('Error sending cancellation signal.', 'danger', activeScanType, activeScanSource);
+            showScanFeedback('Error sending cancellation signal.', 'danger', currentScanType, currentScanSource);
+            // Still reset the UI on error to avoid getting stuck
+            resetScanUI();
         }
     });
 }
 
 if (radarrCancelScanButton) {
     radarrCancelScanButton.addEventListener('click', async () => {
+        // Save the current scan context before any async operations
+        const currentScanType = activeScanType || 'rename';
+        const currentScanSource = activeScanSource || 'radarr';
+        
         try {
             const response = await fetch('/api/scan/cancel', { method: 'POST' });
             const data = await response.json();
             if (data.success) {
-                showScanFeedback('Scan cancellation requested.', 'warning', activeScanType, activeScanSource);
+                showScanFeedback('Scan cancellation requested.', 'warning', currentScanType, currentScanSource);
                 resetScanUI();
             } else {
-                showScanFeedback('Failed to send cancellation signal.', 'danger', activeScanType, activeScanSource);
+                showScanFeedback('Failed to send cancellation signal.', 'danger', currentScanType, currentScanSource);
             }
         } catch (error) {
-            showScanFeedback('Error sending cancellation signal.', 'danger', activeScanType, activeScanSource);
+            showScanFeedback('Error sending cancellation signal.', 'danger', currentScanType, currentScanSource);
+            // Still reset the UI on error to avoid getting stuck
+            resetScanUI();
         }
     });
 }
 
 if (lidarrCancelScanButton) {
     lidarrCancelScanButton.addEventListener('click', async () => {
+        // Save the current scan context before any async operations
+        const currentScanType = activeScanType || 'rename';
+        const currentScanSource = activeScanSource || 'lidarr';
+        
         try {
             const response = await fetch('/api/scan/cancel', { method: 'POST' });
             const data = await response.json();
             if (data.success) {
-                showScanFeedback('Scan cancellation requested.', 'warning', activeScanType, activeScanSource);
+                showScanFeedback('Scan cancellation requested.', 'warning', currentScanType, currentScanSource);
                 resetScanUI();
             } else {
-                showScanFeedback('Failed to send cancellation signal.', 'danger', activeScanType, activeScanSource);
+                showScanFeedback('Failed to send cancellation signal.', 'danger', currentScanType, currentScanSource);
             }
         } catch (error) {
-            showScanFeedback('Error sending cancellation signal.', 'danger', activeScanType, activeScanSource);
+            showScanFeedback('Error sending cancellation signal.', 'danger', currentScanType, currentScanSource);
+            // Still reset the UI on error to avoid getting stuck
+            resetScanUI();
         }
     });
 }
@@ -332,11 +365,7 @@ if (lidarrCancelScanButton) {
 // On page load, check if a scan is already running and resume polling
 fetch('/api/scan/progress').then(r => r.json()).then(data => {
     if (data.is_running) {
-        // This is a bit tricky since we don't know which scan type was running.
-        // We can make an educated guess or just default to one.
-        // For now, let's just log it. A more advanced implementation could store the activeScanType.
-        console.log("A scan was already in progress on page load. Polling will not resume automatically without knowing the type.");
-        // Or, we could try to infer from the 'current_step' message.
+        // Infer the scan type and source from the current_step message
         let runningScanType = 'rename'; // default
         let runningScanSource = 'sonarr'; // default
         if (data.current_step) {
@@ -350,9 +379,42 @@ fetch('/api/scan/progress').then(r => r.json()).then(data => {
                 runningScanSource = 'lidarr';
             }
         }
-        handleScanButtonClick(runningScanType, runningScanSource); // This will effectively resume the UI state
+        // Resume the UI state without triggering a new API call
+        // Just start polling for progress and update UI accordingly
+        resumeScanUI(runningScanType, runningScanSource);
     }
 });
+
+/**
+ * Resumes the scan UI state when a scan is already in progress on page load.
+ * Unlike handleScanButtonClick, this does NOT trigger a new API call.
+ */
+function resumeScanUI(scanType, scanSource) {
+    if (isPollingForScan) {
+        console.warn("Already polling for a scan.");
+        return;
+    }
+    
+    isPollingForScan = true;
+    activeScanType = scanType;
+    activeScanSource = scanSource;
+    
+    // Hide all scan buttons, show appropriate cancel button
+    if (sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'none';
+    if (sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'none';
+    if (radarrRenameScanButton) radarrRenameScanButton.style.display = 'none';
+    if (lidarrRenameScanButton) lidarrRenameScanButton.style.display = 'none';
+    
+    if (scanSource === 'radarr') {
+        if (radarrCancelScanButton) radarrCancelScanButton.style.display = 'inline-block';
+    } else if (scanSource === 'lidarr') {
+        if (lidarrCancelScanButton) lidarrCancelScanButton.style.display = 'inline-block';
+    } else {
+        if (sonarrCancelScanButton) sonarrCancelScanButton.style.display = 'inline-block';
+    }
+    
+    startProgressPolling(scanType, scanSource);
+}
 
 // Function to create an HTML element for a single node
 function createNodeCard(node) {
@@ -1633,14 +1695,24 @@ document.addEventListener('DOMContentLoaded', () => {
         else themeIcon.className = 'mdi mdi-desktop-classic';
     };
 
-    setTheme(getStoredTheme() || 'dark'); // Set initial theme
+    // Set initial theme on page load
+    setTheme(getStoredTheme() || 'dark');
 
+    // Handle theme selection from dropdown
     document.querySelectorAll('[data-theme-value]').forEach(toggle => {
         toggle.addEventListener('click', () => {
             const theme = toggle.getAttribute('data-theme-value');
             setStoredTheme(theme);
             setTheme(theme);
         });
+    });
+
+    // Listen for system preference changes (for 'auto' mode)
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
+        const storedTheme = getStoredTheme();
+        if (storedTheme === 'auto') {
+            setTheme('auto');
+        }
     });
 })();
 
