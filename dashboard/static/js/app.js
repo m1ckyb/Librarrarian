@@ -191,10 +191,12 @@ function startProgressPolling(scanType, scanSource = 'sonarr') {
                     stopProgressPolling();
                     
                     // Check if this is an error/conflict message vs a success
+                    // Also check if progress is 0 - this indicates the scan never really started
                     const currentStep = data.current_step || '';
                     const isError = currentStep.toLowerCase().includes('error') || 
                                     currentStep.toLowerCase().includes('already in progress') ||
-                                    currentStep.toLowerCase().includes('cancelled');
+                                    currentStep.toLowerCase().includes('cancelled') ||
+                                    (data.progress === 0 && data.total_steps === 0);
                     
                     if (isError) {
                         // Don't show 100% progress bar for errors
@@ -394,6 +396,8 @@ function resumeScanUI(scanType, scanSource) {
     }
     
     isPollingForScan = true;
+    activeScanType = scanType;
+    activeScanSource = scanSource;
     
     // Hide all scan buttons, show appropriate cancel button
     if (sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'none';
