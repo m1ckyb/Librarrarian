@@ -2045,6 +2045,95 @@ def api_arr_test():
     except requests.exceptions.RequestException as e:
         return jsonify(success=False, message=f"Connection failed: {e}. Check the host address and ensure it is reachable."), 500
 
+@app.route('/api/arr/stats', methods=['GET'])
+def api_arr_stats():
+    """
+    Fetches statistics from Sonarr, Radarr, and Lidarr.
+    Returns total counts for shows/seasons/episodes, movies, and artists/albums/tracks.
+    """
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(success=False, error=db_error), 500
+
+    stats = {
+        'sonarr': {'enabled': False, 'shows': 0, 'seasons': 0, 'episodes': 0},
+        'radarr': {'enabled': False, 'movies': 0},
+        'lidarr': {'enabled': False, 'artists': 0, 'albums': 0, 'tracks': 0}
+    }
+
+    # Sonarr stats
+    if settings.get('sonarr_enabled', {}).get('setting_value') == 'true':
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            stats['sonarr']['enabled'] = True
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all series for show count and season count
+                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+                series_res.raise_for_status()
+                series_data = series_res.json()
+                stats['sonarr']['shows'] = len(series_data)
+                stats['sonarr']['seasons'] = sum(len(s.get('seasons', [])) for s in series_data)
+                
+                # Get episode count from wanted/missing or use episode endpoint
+                episode_res = requests.get(f"{base_url}/api/v3/episode", headers=headers, timeout=10, verify=False)
+                episode_res.raise_for_status()
+                stats['sonarr']['episodes'] = len(episode_res.json())
+            except Exception as e:
+                print(f"Could not fetch Sonarr stats: {e}")
+
+    # Radarr stats
+    if settings.get('radarr_enabled', {}).get('setting_value') == 'true':
+        host = settings.get('radarr_host', {}).get('setting_value')
+        api_key = settings.get('radarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            stats['radarr']['enabled'] = True
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all movies
+                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+                movies_res.raise_for_status()
+                stats['radarr']['movies'] = len(movies_res.json())
+            except Exception as e:
+                print(f"Could not fetch Radarr stats: {e}")
+
+    # Lidarr stats
+    if settings.get('lidarr_enabled', {}).get('setting_value') == 'true':
+        host = settings.get('lidarr_host', {}).get('setting_value')
+        api_key = settings.get('lidarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            stats['lidarr']['enabled'] = True
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all artists
+                artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
+                artists_res.raise_for_status()
+                stats['lidarr']['artists'] = len(artists_res.json())
+                
+                # Get all albums
+                albums_res = requests.get(f"{base_url}/api/v1/album", headers=headers, timeout=10, verify=False)
+                albums_res.raise_for_status()
+                stats['lidarr']['albums'] = len(albums_res.json())
+                
+                # Get all tracks (track files)
+                tracks_res = requests.get(f"{base_url}/api/v1/trackfile", headers=headers, timeout=10, verify=False)
+                tracks_res.raise_for_status()
+                stats['lidarr']['tracks'] = len(tracks_res.json())
+            except Exception as e:
+                print(f"Could not fetch Lidarr stats: {e}")
+
+    return jsonify(success=True, stats=stats)
+
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():
     """Toggles the paused state of the job queue."""
