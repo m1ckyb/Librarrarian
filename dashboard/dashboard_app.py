@@ -803,6 +803,7 @@ def options():
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
     settings_to_update['radarr_send_to_queue'] = 'true' if 'radarr_send_to_queue' in request.form else 'false'
+    settings_to_update['lidarr_send_to_queue'] = 'true' if 'lidarr_send_to_queue' in request.form else 'false'
     settings_to_update['sonarr_auto_rename_after_transcode'] = 'true' if 'sonarr_auto_rename_after_transcode' in request.form else 'false'
     settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
     # Convert hours from the form back to minutes for storage
@@ -1272,6 +1273,7 @@ scan_now_event = threading.Event()
 sonarr_rename_scan_event = threading.Event()
 sonarr_quality_scan_event = threading.Event()
 radarr_rename_scan_event = threading.Event()
+lidarr_rename_scan_event = threading.Event()
 scan_cancel_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
@@ -1282,7 +1284,7 @@ scan_progress_state = {
 }
 
 def arr_background_thread():
-    """Waits for triggers to run Sonarr/Radarr scans (rename, quality, etc.)."""
+    """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
     while True:
         # Wait for either event to be set. This is a simple polling mechanism.
         if sonarr_rename_scan_event.wait(timeout=1):
@@ -1304,6 +1306,13 @@ def arr_background_thread():
             print(f"[{datetime.now()}] Triggering Radarr rename scan in background thread.")
             # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_radarr_rename_scan)
+            scan_thread.start()
+
+        if lidarr_rename_scan_event.wait(timeout=1):
+            lidarr_rename_scan_event.clear() # Clear the event immediately
+            print(f"[{datetime.now()}] Triggering Lidarr rename scan in background thread.")
+            # Run the actual scan in a separate, non-blocking thread
+            scan_thread = threading.Thread(target=run_lidarr_rename_scan)
             scan_thread.start()
 
         time.sleep(1) # Prevent a tight loop
@@ -1590,6 +1599,111 @@ def run_radarr_rename_scan():
             if scanner_lock.locked():
                 scanner_lock.release()
 
+def run_lidarr_rename_scan():
+    """
+    Handles Lidarr integration. Can either trigger Lidarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
+    Uses Lidarr API v1: https://lidarr.audio/docs/api/
+    """
+    with app.app_context():
+        # This function is now fully self-contained and runs in its own thread.
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Lidarr rename scan trigger ignored: Another scan is already in progress.")
+            return
+
+        scan_cancel_event.clear() # Ensure cancel flag is down before starting
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0})
+
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+    
+            if settings.get('lidarr_enabled', {}).get('setting_value') != 'true':
+                scan_progress_state["current_step"] = "Error: Lidarr integration is disabled."
+                return
+    
+            host = settings.get('lidarr_host', {}).get('setting_value')
+            api_key = settings.get('lidarr_api_key', {}).get('setting_value')
+            send_to_queue = settings.get('lidarr_send_to_queue', {}).get('setting_value') == 'true'
+    
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Lidarr is not configured."
+                return
+    
+            print(f"[{datetime.now()}] Lidarr Rename Scanner: Starting deep scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            
+            # Lidarr uses API v1, get all artists
+            artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
+            artists_res.raise_for_status()
+            all_artists = artists_res.json()
+            
+            scan_progress_state["total_steps"] = len(all_artists)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0 
+            renames_performed = 0 # Counter for direct renames
+    
+            for i, artist in enumerate(all_artists):
+                if scan_cancel_event.is_set():
+                    print("Lidarr rename scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
+    
+                artist_name = artist.get('artistName', 'Unknown Artist')
+                scan_progress_state.update({"current_step": f"Analyzing: {artist_name}", "progress": i + 1})
+
+                # Trigger a rescan for the artist, then check for rename results
+                requests.post(f"{base_url}/api/v1/command", headers=headers, json={'name': 'RescanArtist', 'artistId': artist['id']}, timeout=10, verify=False)
+                time.sleep(2) # Give Lidarr a moment to process before we query
+                
+                # Check for files that need renaming for this artist
+                rename_res = requests.get(f"{base_url}/api/v1/rename?artistId={artist['id']}", headers=headers, timeout=10, verify=False)
+                for rename_item in rename_res.json():
+                    filepath = rename_item.get('existingPath')
+                    if filepath:
+                        # Determine job status or perform direct rename based on 'send_to_queue' setting
+                        if send_to_queue:
+                            job_status = 'awaiting_approval' # If selected, awaiting approval
+                            metadata = {
+                                'source': 'lidarr',
+                                'artistName': artist['artistName'],
+                                'artistId': artist.get('id'),
+                                'trackFileId': rename_item.get('trackFileId'),
+                                'albumId': rename_item.get('albumId')
+                            }
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                        else:
+                            # Perform rename directly via Lidarr API
+                            print(f"  -> Auto-renaming track file {filepath} via Lidarr API.")
+                            payload = {"name": "RenameFiles", "artistId": artist['id'], "files": [rename_item.get('trackFileId')]}
+                            rename_cmd_res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res.raise_for_status() 
+                            renames_performed += 1
+    
+            conn.commit()
+            if send_to_queue:
+                message = f"Lidarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+            else:
+                message = f"Lidarr deep scan complete. Performed {renames_performed} automatic renames." 
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+
+        except Exception as e:
+            error_message = f"An error occurred during the Lidarr deep scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            # Wait a moment before clearing the "finished" message from the UI
+            time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            if scanner_lock.locked():
+                scanner_lock.release()
+
 def run_internal_scan(force_scan=False):
     """
     The core logic for scanning local directories.
@@ -1771,6 +1885,17 @@ def api_trigger_radarr_rename_scan():
     scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0})
     radarr_rename_scan_event.set()
     return jsonify(success=True, message="Radarr rename scan has been triggered.")
+
+@app.route('/api/scan/lidarr_rename', methods=['POST'])
+def api_trigger_lidarr_rename_scan():
+    """API endpoint to manually trigger a Lidarr rename scan or add jobs to queue."""
+    if scanner_lock.locked():
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+    
+    # Immediately set the state to running to avoid a race condition with the frontend polling
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0})
+    lidarr_rename_scan_event.set()
+    return jsonify(success=True, message="Lidarr rename scan has been triggered.")
 
 @app.route('/api/scan/cancel', methods=['POST'])
 def api_cancel_scan():
@@ -2197,7 +2322,7 @@ def cleanup_scanner_thread():
 def arr_job_processor_thread():
     """
     This background thread periodically checks for and processes internal jobs
-    that are not meant for workers, such as Sonarr/Radarr rename commands.
+    that are not meant for workers, such as Sonarr/Radarr/Lidarr rename commands.
     """
     # This thread now waits for the db_ready_event before starting its loop.
     db_ready_event.wait()
@@ -2256,6 +2381,40 @@ def arr_job_processor_thread():
 
                             except requests.exceptions.RequestException as e:
                                 print(f"Error processing Radarr rename job {job['id']}: {e}")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        
+                        elif source == 'lidarr':
+                            # Process Lidarr rename job
+                            host = settings.get('lidarr_host', {}).get('setting_value')
+                            api_key = settings.get('lidarr_api_key', {}).get('setting_value')
+                            
+                            if not host or not api_key:
+                                print(f"Lidarr is not configured. Skipping job {job['id']}.")
+                                continue
+                            
+                            file_id = metadata.get('trackFileId')
+                            artist_id = metadata.get('artistId')
+
+                            if not file_id or not artist_id:
+                                print(f"Failing job {job['id']}: Missing 'trackFileId' or 'artistId' in metadata.")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                continue
+                            
+                            try:
+                                base_url = host.rstrip('/')
+                                headers = {'X-Api-Key': api_key}
+                                print(f"Processing Lidarr rename for job {job['id']} (File ID: {file_id})")
+                                # Lidarr uses API v1
+                                payload = {"name": "RenameFiles", "artistId": artist_id, "files": [file_id]}
+                                res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res.raise_for_status()
+                                
+                                # Mark job as completed
+                                print(f"Lidarr rename job {job['id']} completed successfully.")
+                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                            except requests.exceptions.RequestException as e:
+                                print(f"Error processing Lidarr rename job {job['id']}: {e}")
                                 cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
                         
                         else:
