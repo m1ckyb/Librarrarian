@@ -1,6 +1,17 @@
-# [Unreleased]
+## [0.10.12] - 2025-11-30 - Patch Release
+### Changed
+- **Options UI Reorganization**: Consolidated and reorganized settings on the Options page into logical groups ("Transcoding & System", "Maintenance", "File Handling") for improved clarity and user experience.
+- **Sonarr Rename Job Handling**: Modified the "Create Rename Jobs in Queue" setting behavior. If selected, rename jobs are now added to the queue with 'awaiting_approval' status. If unselected, rename jobs are automatically performed by directly calling Sonarr's API, bypassing the local job queue.
+- **Code Structure**: Refactored all inline JavaScript from `index.html` into a dedicated `dashboard/static/js/app.js` file. This improves maintainability, enables browser caching, and follows web development best practices.
 
-All upcoming features and bug fixes will be documented here until they are part of an official release.
+### Fixed
+- **Sonarr Tools Buttons & UI**: Correctly implemented the "Scan for Renames" and "Scan for Quality" buttons and their associated JavaScript logic directly within `index.html`. The UI now has separate, functional progress bars and feedback areas for each scan type.
+- **Startup Race Condition**: Fixed a critical startup error where background threads would attempt to access the database before it was initialized. Implemented a `threading.Event` to ensure all threads wait until database migrations are complete.
+- **Jinja2 TemplateNotFound Errors**: Resolved multiple `TemplateNotFound` errors by creating missing modal template files (`failures_modal.html`, `node_options_modal.html`, `plex_login_modal.html`, `changelog_modal.html`) within the `dashboard/templates/modals` directory.
+- **Sonarr Scan UI Visibility**: Corrected the display logic for Sonarr rename and quality scan feedback and progress elements. The progress bar and associated messages now correctly appear within their respective styled container boxes due to updated JavaScript and HTML structure.
+- **Progress Box Styling**: Updated the CSS for `.progress-box` to have a transparent background and a green outline, matching the page's background.
+- **Sonarr Scan Feedback Display**: Modified the JavaScript to clear the "scan started successfully" feedback message once the progress bar is active, as requested by the user.
+- **Indentation Error in dashboard_app.py**: Corrected a recurring `IndentationError` in `dashboard/dashboard_app.py` around line 1321, ensuring all affected lines are now correctly indented.
 
 ---
 ## [0.10.11] - 2025-11-30 - Patch Release

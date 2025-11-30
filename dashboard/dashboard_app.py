@@ -19,6 +19,7 @@ try:
     from werkzeug.middleware.proxy_fix import ProxyFix
     import requests
 except ImportError:
+    # This part is for user feedback when running locally without installing requirements
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
     sys.exit(1)
@@ -26,9 +27,14 @@ except ImportError:
 # Configuration
 # ===========================
 app = Flask(__name__)
+
+# --- Thread Synchronization Event ---
+db_ready_event = threading.Event() # This will be set after migrations are complete
+
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
+
 
 # --- Custom Logging Filter ---
 # This filter will suppress the noisy GET /api/scan/progress logs from appearing.
@@ -213,6 +219,7 @@ MIGRATIONS = {
 
 def run_migrations():
     """Checks the current DB schema version and applies any necessary migrations."""
+    # This function is now called before the app starts serving requests.
     print("Checking database schema version...")
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -262,6 +269,7 @@ def run_migrations():
 # ===========================
 def get_db():
     """Opens a new database connection if there is none yet for the current application context."""
+    db_ready_event.wait() # Ensure no DB operations happen until migrations are done.
     if 'db' not in g:
         try:
             g.db = psycopg2.connect(**DB_CONFIG)
@@ -674,6 +682,14 @@ def dashboard():
         db_error=db_error or settings_db_error, # Show error from either query
         settings=settings
     )
+
+@app.route('/api/health')
+def api_health():
+    """A dedicated health check endpoint that waits for the DB to be ready."""
+    if db_ready_event.is_set():
+        return "OK", 200
+    else:
+        return "Database not ready", 503
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -1306,21 +1322,18 @@ def run_sonarr_rename_scan():
                 scan_progress_state["current_step"] = "Error: Sonarr is not configured."
                 return
 
-            if not send_to_queue:
-                scan_progress_state["current_step"] = "Scan aborted: 'Send Rename Jobs to Queue' is disabled."
-                return
-
             print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan...")
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
             series_res.raise_for_status()
             all_series = series_res.json()
-
+            
             scan_progress_state["total_steps"] = len(all_series)
             conn = get_db()
             cur = conn.cursor()
             new_jobs_found = 0
+            renames_performed = 0 # NEW: Counter for direct renames
 
             for i, series in enumerate(all_series):
                 if scan_cancel_event.is_set():
@@ -1338,21 +1351,33 @@ def run_sonarr_rename_scan():
                 for episode in rename_res.json():
                     filepath = episode.get('existingPath')
                     if filepath:
-                        # Add the episodeFileId and seriesId to the metadata for the internal processor
-                        metadata = {
-                            'source': 'sonarr', 
-                            'seriesTitle': series['title'], 
-                            'seasonNumber': episode.get('seasonNumber'), 
-                            'episodeNumber': episode.get('episodeNumbers', [0])[0], 
-                            'episodeTitle': "Episode", 'quality': "N/A",
-                            'episodeFileId': episode.get('episodeFileId'),
-                            'seriesId': series.get('id')
-                        }
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                        if cur.rowcount > 0: new_jobs_found += 1
+                        # Determine job status or perform direct rename based on 'send_to_queue' setting
+                        if send_to_queue:
+                            job_status = 'awaiting_approval' # New behavior: if selected, awaiting approval
+                            metadata = {
+                                'source': 'sonarr',
+                                'seriesTitle': series['title'],
+                                'seasonNumber': episode.get('seasonNumber'),
+                                'episodeNumber': episode.get('episodeNumbers', [0])[0],
+                                'episodeTitle': "Episode", 'quality': "N/A",
+                                'episodeFileId': episode.get('episodeFileId'),
+                                'seriesId': series.get('id')
+                            }
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                        else:
+                            # New behavior: if not selected, perform rename directly via Sonarr API
+                            print(f"  -> Auto-renaming episode file {filepath} via Sonarr API.")
+                            payload = {"name": "RenameFiles", "seriesId": series['id'], "files": [episode.get('episodeFileId')]}
+                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res.raise_for_status()
+                            renames_performed += 1
 
             conn.commit()
-            message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+            if send_to_queue:
+                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+            else:
+                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic renames."
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
 
@@ -1872,8 +1897,13 @@ def update_job(job_id):
 
 def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Plex Scanner thread is now active.")
+
     while True:
         print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
+
         # Use the rescan delay from settings, default to 0 (disabled)
         delay = 0 
         try:
@@ -1906,7 +1936,11 @@ def plex_scanner_thread():
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Cleanup Scanner thread is now active.")
     while True:
+
         # Wait indefinitely until the event is set
         cleanup_scan_now_event.wait()
         print(f"[{datetime.now()}] Manual cleanup scan trigger received.")
@@ -1918,7 +1952,10 @@ def sonarr_job_processor_thread():
     This background thread periodically checks for and processes internal jobs
     that are not meant for workers, such as Sonarr rename commands.
     """
-    print("Sonarr Job Processor thread started.")
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Sonarr Job Processor thread is now active.")
+
     while True:
         try:
             with app.app_context():
@@ -1992,12 +2029,15 @@ sonarr_job_processor = threading.Thread(target=sonarr_job_processor_thread, daem
 sonarr_job_processor.start()
 
 if __name__ == '__main__':
-    # Run migrations before starting the Flask app for local development
+    # For local development, run migrations then start the app
     initialize_database_if_needed()
     run_migrations()
+    db_ready_event.set() # Signal to all threads that the DB is ready
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
 else:
-    # When run by Gunicorn in production, run migrations first
+    # When run by Gunicorn in production, run migrations first, then signal ready.
+    # Gunicorn will then start the Flask app.
     initialize_database_if_needed()
     run_migrations()
+    db_ready_event.set()

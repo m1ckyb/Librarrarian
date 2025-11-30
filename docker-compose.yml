@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/m1ckyb/codecshift-dashboard:0.10.11
+    image: ghcr.io/m1ckyb/codecshift-dashboard:0.10.12
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -36,8 +36,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+    healthcheck: # This check now waits for the database to be fully initialized
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -48,7 +48,7 @@ services:
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/m1ckyb/codecshift-worker:0.10.11
+    image: ghcr.io/m1ckyb/codecshift-worker:0.10.12
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       db: # Depends on the database being ready

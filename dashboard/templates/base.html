@@ -74,8 +74,8 @@
         }
 
         .progress-box {
-            background-color: #f8f9fa;
-            border: 1px solid #dee2e6;
+            background-color: transparent; /* Changed */
+            border: 1px solid var(--bs-success); /* Changed to green outline */
             border-radius: 0.25rem;
             margin-top: 1rem;
             padding: 1rem;
@@ -158,20 +158,18 @@
         $(document).ready(function() {
             let progressPollers = {}; // Object to hold interval IDs for each scanner
 
-            function startScan(scannerType) {
+            function startScan(scannerType, apiEndpoint) {
                 const scanButton = $(`#trigger${scannerType}Scan`);
-                const cancelButton = $(`#cancel${scannerType}Scan`);
                 const progressBox = $(`#${scannerType.toLowerCase()}-scan-progress-box`);
                 const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
 
                 // Immediately show progress box and disable scan button
                 outputDiv.text('Starting scan...');
                 progressBox.show();
-                scanButton.hide();
-                cancelButton.show();
+                scanButton.prop('disabled', true);
 
                 // Make the API call to start the scan
-                $.post(`/api/${scannerType.toLowerCase()}/scan`, function(data) {
+                $.post(apiEndpoint, function(data) {
                     // Start polling for progress
                     progressPollers[scannerType] = setInterval(function() {
                         $.get(`/api/scan_progress?scanner=${scannerType.toLowerCase()}`, function(progressData) {
@@ -190,7 +188,6 @@
 
             function stopScan(scannerType, callCancelApi = true) {
                 const scanButton = $(`#trigger${scannerType}Scan`);
-                const cancelButton = $(`#cancel${scannerType}Scan`);
                 const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
 
                 // Stop the poller
@@ -200,19 +197,38 @@
                 }
 
                 // Reset UI
-                scanButton.show();
-                cancelButton.hide();
+                scanButton.prop('disabled', false);
 
                 if (callCancelApi) {
                     $.post(`/api/cancel_scan?scanner=${scannerType.toLowerCase()}`, function(data) {
-                        outputDiv.append('\n\nScan cancelled by user.');
+                        if (outputDiv.text()) {
+                            outputDiv.append('\n\nScan cancelled by user.');
+                        }
                     });
                 }
             }
 
             // Attach event listeners if the elements exist on the page
-            $('#triggerSonarrScan').click(() => startScan('Sonarr'));
-            $('#cancelSonarrScan').click(() => stopScan('Sonarr'));
+            $('#triggerSonarrRenameScan').click(() => startScan('SonarrRename', '/api/scan/rename'));
+            $('#triggerSonarrQualityScan').click(() => startScan('SonarrQuality', '/api/scan/quality'));
+        });
+
+        // --- Options Page Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const keepOriginalSwitch = document.getElementById('keep_original');
+            const backupDirInput = document.getElementById('backup_directory');
+
+            function toggleBackupDir() {
+                if (backupDirInput) {
+                    // The backup directory is only relevant if we are NOT keeping the original.
+                    backupDirInput.disabled = keepOriginalSwitch.checked;
+                }
+            }
+
+            if (keepOriginalSwitch) {
+                keepOriginalSwitch.addEventListener('change', toggleBackupDir);
+                toggleBackupDir(); // Run on page load to set initial state
+            }
         });
     </script>
     </body>
