@@ -1789,7 +1789,7 @@ def run_internal_scan(force_scan=False):
                         
                         print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
                         if codec and codec not in skip_codecs:
-                            print(f"    -> Adding file to queue.")
+                            print(f"    -> Adding file to queue (codec: {codec}).")
                             cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                             if cur.rowcount > 0:
                                 new_files_found += 1
@@ -1869,11 +1869,11 @@ def run_plex_scan(force_scan=False):
 
                     codec = video.media[0].videoCodec
                     filepath = video.media[0].parts[0].file
-
-                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
                     codec_lower = codec.lower() if codec else ''
+
+                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'})")
                     if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
-                        print(f"    -> Adding file to queue.")
+                        print(f"    -> Adding file to queue (codec: {codec_lower}).")
                         cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                         if cur.rowcount > 0:
                             new_files_found += 1
