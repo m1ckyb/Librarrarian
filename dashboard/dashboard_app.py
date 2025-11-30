@@ -834,8 +834,8 @@ def options():
 
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
-                # A checked checkbox will be in the form, an unchecked one will not.
-                is_hidden = f'hide_plex_{source_name}' in request.form
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'plex', %s, %s)
@@ -844,7 +844,8 @@ def options():
 
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
-                is_hidden = f'hide_internal_{source_name}' in request.form
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'internal', %s, %s)
@@ -1326,6 +1327,8 @@ def run_sonarr_rename_scan():
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
         scan_cancel_event.clear() # Ensure cancel flag is down before starting
@@ -1428,6 +1431,8 @@ def run_sonarr_quality_scan():
     with app.app_context():
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
         scan_cancel_event.clear()
@@ -1496,7 +1501,7 @@ def run_sonarr_quality_scan():
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
             time.sleep(10)
-            scan_progress_state["is_running"] = False
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
             if scanner_lock.locked():
                 scanner_lock.release()
 
@@ -1509,6 +1514,8 @@ def run_radarr_rename_scan():
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Radarr rename scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
         scan_cancel_event.clear() # Ensure cancel flag is down before starting
@@ -1609,6 +1616,8 @@ def run_lidarr_rename_scan():
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Lidarr rename scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0})
             return
 
         scan_cancel_event.clear() # Ensure cancel flag is down before starting
