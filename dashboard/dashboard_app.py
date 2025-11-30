@@ -971,8 +971,9 @@ def api_jobs():
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
             
             # Query for the total number of jobs to calculate total pages (respecting filters)
+            # count_params should only include the filter parameters, not LIMIT and OFFSET
             count_query = f"SELECT COUNT(*) FROM jobs {where_sql}"
-            count_params = params[:-2] if where_clauses else []  # Exclude LIMIT and OFFSET params
+            count_params = params[:-2] if len(params) > 2 else []  # Exclude LIMIT and OFFSET params
             cur.execute(count_query, count_params)
             total_jobs = cur.fetchone()['count']
 

@@ -731,7 +731,7 @@ async function loadJobQueueFilters() {
             // Preserve current selection
             const currentStatus = statusSelect.value;
             statusSelect.innerHTML = '<option value="">All Statuses</option>' + 
-                data.statuses.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' ')}</option>`).join('');
+                data.statuses.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ')}</option>`).join('');
             if (currentStatus) statusSelect.value = currentStatus;
         }
     } catch (error) {
