@@ -4,6 +4,41 @@ This document is a summary of the key architectural patterns, decisions, and com
 
 ---
 
+## Project File Structure
+
+This is a reference list of the key files in the project and their purpose.
+
+```
+# High-Level Documentation
+README.md              # Main project overview, features, and deployment instructions.
+summary.md             # A concise, high-level summary of the project's architecture and purpose.
+remember.md            # This file. My memory of architectural patterns, workflows, and common pitfalls.
+
+# Versioning & Release Management
+VERSION.txt            # Single source of truth for the entire project's version number.
+CHANGELOG.md           # A log of all changes for each released version.
+unreleased.md          # A staging area for documenting changes before they are part of a release.
+
+# Docker & Deployment
+docker-compose.yml     # Defines and orchestrates the production services (dashboard, worker, db).
+docker-compose-dev.yml # A version of the compose file for local development, using local builds.
+.env.example           # An example environment file showing required variables.
+
+# Dashboard Application (The Brain)
+dashboard/Dockerfile         # Instructions for building the dashboard Docker image.
+dashboard/dashboard_app.py   # The main Flask application: serves the UI, provides the API, and runs background threads.
+dashboard/static/js/app.js   # Core frontend JavaScript for UI interactivity, API calls, and dynamic updates.
+dashboard/templates/         # Directory containing all Jinja2 HTML templates for the UI.
+
+# Worker Application (The Muscle)
+worker/Dockerfile            # Instructions for building the worker Docker image.
+worker/transcode.py          # The main script for the worker node. It requests jobs and performs transcodes.
+
+# CI/CD Pipelines
+.github/workflows/     # Directory for GitHub Actions workflows (e.g., for Docker image publishing).
+.forgejo/workflows/    # Directory for Forgejo Actions, a parallel CI/CD pipeline for self-hosting.
+```
+
 ## Session Initialization
 
 When a new chat session begins, I must first read the following files to establish a complete understanding of the project's current state, architecture, and purpose:
@@ -24,6 +59,7 @@ This ensures all subsequent responses are informed by the full project context.
 2.  **Clear Data Contracts**: The data structure sent by a backend API endpoint (the "contract") must exactly match what the frontend JavaScript expects. Any changes to one must be reflected in the other to prevent "undefined" errors in the UI.
 3.  **Configuration Management**:
     *   **Secrets & Deployment Config** (e.g., database passwords, API keys, OIDC details) belong in environment variables (`.env` file).
+    *   **Documentation**: Whenever an environment variable is added or changed, `.env.example` **must** be updated to reflect the change with placeholder data and a descriptive comment.
     *   **User-Tunable Settings** (e.g., quality values, scan delays, feature flags) belong in the `worker_settings` database table and should be managed via the UI.
 
 ---

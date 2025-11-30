@@ -3,6 +3,11 @@ const sonarrRenameScanButton = document.getElementById('sonarr-rename-scan-butto
 const sonarrQualityScanButton = document.getElementById('sonarr-quality-scan-button');
 const sonarrCancelScanButton = document.getElementById('sonarr-cancel-scan-button');
 
+// Rename the quality scan button as requested.
+if (sonarrQualityScanButton) {
+    sonarrQualityScanButton.textContent = 'Scan for Quality Mismatches';
+}
+
 // Progress elements for Rename Scan
 const sonarrRenameScanContainer = document.getElementById('sonarr-rename-scan-container');
 const sonarrRenameScanFeedback = document.getElementById('sonarr-rename-scan-feedback');
@@ -19,7 +24,8 @@ const sonarrQualityScanProgressBar = sonarrQualityScanProgress ? sonarrQualitySc
 const sonarrQualityScanProgressText = document.getElementById('sonarr-quality-scan-progress-text');
 const sonarrQualityScanTime = document.getElementById('sonarr-quality-scan-time');
 
-let activeScanType = null; // 'rename' or 'quality'
+let isPollingForScan = false;
+let activeScanType = null;
 let progressInterval = null;
 let scanStartTime = null;
 
@@ -33,12 +39,18 @@ function showSonarrFeedback(message, type, scanType) {
 }
 
 function resetScanUI() {
+    // Stop any polling and clear timers
+    stopProgressPolling();
+
     // Hide progress bars and feedback containers
     if(sonarrRenameScanContainer) sonarrRenameScanContainer.style.display = 'none';
     if(sonarrQualityScanContainer) sonarrQualityScanContainer.style.display = 'none';
 
     // Show scan buttons, hide cancel button
     if(sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'inline-block';
+    // Re-enable the buttons
+    if(sonarrRenameScanButton) sonarrRenameScanButton.disabled = false;
+    if(sonarrQualityScanButton) sonarrQualityScanButton.disabled = false;
     if(sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'inline-block';
     if(sonarrCancelScanButton) sonarrCancelScanButton.style.display = 'none';
 
@@ -48,8 +60,7 @@ function resetScanUI() {
 }
 
 function startProgressPolling(scanType) {
-    stopProgressPolling(); // Stop any existing polling
-    activeScanType = scanType;
+    stopProgressPolling();
 
     const containerEl = scanType === 'rename' ? sonarrRenameScanContainer : sonarrQualityScanContainer;
     const progressEl = scanType === 'rename' ? sonarrRenameScanProgress : sonarrQualityScanProgress;
@@ -82,20 +93,17 @@ function startProgressPolling(scanType) {
 
                 if (data.is_running) {
                     const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
-                    progressBarEl.style.width = `${progressPercent}%`;
-                    progressBarEl.textContent = `${progressPercent}%`;
-                    progressTextEl.textContent = data.current_step || 'Scanning...';
+                    if (progressBarEl) progressBarEl.style.width = `${progressPercent}%`;
+                    if (progressBarEl) progressBarEl.textContent = `${progressPercent}%`;
+                    if (progressTextEl) progressTextEl.textContent = data.current_step || 'Scanning...';
                 } else {
                     // Scan finished
                     stopProgressPolling();
-                    progressBarEl.style.width = '100%';
-                    progressBarEl.textContent = '100%';
-                    progressTextEl.textContent = 'Scan complete.';
+                    if (progressBarEl) progressBarEl.style.width = '100%';
+                    if (progressBarEl) progressBarEl.textContent = '100%';
+                    if (progressTextEl) progressTextEl.textContent = 'Scan complete.';
                     showSonarrFeedback(data.current_step || 'Scan finished.', 'success', scanType);
-                    resetScanUI();
-                    setTimeout(() => {
-                        if(containerEl) containerEl.style.display = 'none';
-                    }, 8000);
+                    setTimeout(resetScanUI, 5000);
                 }
             })
             .catch(error => {
@@ -104,29 +112,27 @@ function startProgressPolling(scanType) {
                 resetScanUI();
                 showSonarrFeedback('Error polling for scan progress.', 'danger', scanType);
             });
-    }, 1500); // Poll every 1.5 seconds
-}
-
-function stopProgressPolling() {
-    clearInterval(progressInterval);
-    progressInterval = null;
-    activeScanType = null;
-    if (sonarrRenameScanTime) sonarrRenameScanTime.textContent = '';
-    if (sonarrQualityScanTime) sonarrQualityScanTime.textContent = '';
+    }, 2000); // Poll every 2 seconds
 }
 
 async function handleScanButtonClick(scanType) {
+    // If a scan is already running, don't start another one.
+    if (isPollingForScan) {
+        console.warn("A scan is already in progress. Please wait or cancel it.");
+        return;
+    }
+
     // Disable both buttons to prevent double-clicking
     sonarrRenameScanButton.disabled = true;
     sonarrQualityScanButton.disabled = true;
 
     const endpoint = scanType === 'rename' ? '/api/scan/rename' : '/api/scan/quality';
-
     try {
         const response = await fetch(endpoint, { method: 'POST' });
         const data = await response.json();
 
         if (data.success) {
+            isPollingForScan = true;
             showSonarrFeedback(`'${scanType}' scan started successfully.`, 'success', scanType);
             sonarrRenameScanButton.style.display = 'none';
             sonarrQualityScanButton.style.display = 'none';
@@ -153,20 +159,17 @@ if (sonarrQualityScanButton) {
 
 if (sonarrCancelScanButton) {
     sonarrCancelScanButton.addEventListener('click', async () => {
-        if (!activeScanType) return;
-
         try {
             const response = await fetch('/api/scan/cancel', { method: 'POST' });
             const data = await response.json();
             if (data.success) {
-                showSonarrFeedback('Scan cancellation requested.', 'warning', activeScanType);
-                stopProgressPolling();
+                showSonarrFeedback('Scan cancellation requested.', 'warning', activeScanType); // Use the global activeScanType
                 resetScanUI();
             } else {
-                showSonarrFeedback('Failed to send cancellation signal.', 'danger', activeScanType);
+                showSonarrFeedback('Failed to send cancellation signal.', 'danger', activeScanType); // Use the global activeScanType
             }
         } catch (error) {
-            showSonarrFeedback('Error sending cancellation signal.', 'danger', activeScanType);
+            showSonarrFeedback('Error sending cancellation signal.', 'danger', activeScanType); // Use the global activeScanType
         }
     });
 }
@@ -1329,24 +1332,24 @@ document.addEventListener('DOMContentLoaded', () => {
         const statusDiv = document.getElementById(`${arrType}-test-status`);
 
         if (!host || !apiKey) {
-            statusDiv.innerHTML = `<div class="alert alert-warning">Host and API Key are required.</div>`;
+            statusDiv.innerHTML = `<div class="alert alert-warning alert-dismissible fade show" role="alert">Host and API Key are required.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
             return;
         }
 
         statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing...`;
 
         try {
-            const response = await fetch(`/api/arr/test`, {
+            const response = await fetch('/api/arr/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ arr_type: arrType, host: host, api_key: apiKey })
             });
             const data = await response.json();
             const alertClass = data.success ? 'alert-success' : 'alert-danger';
-            statusDiv.innerHTML = `<div class="alert ${alertClass}">${data.message}</div>`;
+            statusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
         } catch (error) {
             console.error(`Error testing ${arrType} connection:`, error);
-            statusDiv.innerHTML = `<div class="alert alert-danger">An error occurred while communicating with the server.</div>`;
+            statusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
         }
     }
 });

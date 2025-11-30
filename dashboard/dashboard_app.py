@@ -1309,19 +1309,19 @@ def run_sonarr_rename_scan():
             if db_error:
                 scan_progress_state["current_step"] = "Error: Database not available."
                 return
-
+    
             if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
                 scan_progress_state["current_step"] = "Error: Sonarr integration is disabled."
                 return
-
+    
             host = settings.get('sonarr_host', {}).get('setting_value')
             api_key = settings.get('sonarr_api_key', {}).get('setting_value')
             send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
-
+    
             if not host or not api_key:
                 scan_progress_state["current_step"] = "Error: Sonarr is not configured."
                 return
-
+    
             print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan...")
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
@@ -1332,18 +1332,18 @@ def run_sonarr_rename_scan():
             scan_progress_state["total_steps"] = len(all_series)
             conn = get_db()
             cur = conn.cursor()
-            new_jobs_found = 0
+            new_jobs_found = 0 
             renames_performed = 0 # NEW: Counter for direct renames
-
+    
             for i, series in enumerate(all_series):
                 if scan_cancel_event.is_set():
                     print("Rename scan cancelled by user.")
                     scan_progress_state["current_step"] = "Scan cancelled by user."
                     return
-
+    
                 series_title = series.get('title', 'Unknown Series')
                 scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
-
+    
                 # This is the correct pattern: trigger a scan, then check for results.
                 requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
                 time.sleep(2) # Give Sonarr a moment to process before we query
@@ -1370,14 +1370,14 @@ def run_sonarr_rename_scan():
                             print(f"  -> Auto-renaming episode file {filepath} via Sonarr API.")
                             payload = {"name": "RenameFiles", "seriesId": series['id'], "files": [episode.get('episodeFileId')]}
                             rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
-                            rename_cmd_res.raise_for_status()
+                            rename_cmd_res.raise_for_status() 
                             renames_performed += 1
-
+    
             conn.commit()
             if send_to_queue:
                 message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
             else:
-                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic renames."
+                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic renames." 
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
 
