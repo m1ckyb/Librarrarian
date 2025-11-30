@@ -318,26 +318,14 @@
                                         <label class="form-check-label" for="sonarr_enabled"><strong>Enable Sonarr Integration</strong></label>
                                     </div>
                                     <div class="row">
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="sonarr_host" class="form-label"><strong>Sonarr Host URL</strong></label>
                                             <input type="text" class="form-control" id="sonarr_host" name="sonarr_host" value="{{ settings.get('sonarr_host', {}).get('setting_value', '') }}" placeholder="http://sonarr:8989">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="sonarr_api_key" class="form-label"><strong>API Key</strong></label>
                                             <input type="password" class="form-control" id="sonarr_api_key" name="sonarr_api_key" value="{{ settings.get('sonarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
-                                        <div class="col-md-4">
-                                            {# Convert stored minutes to hours for the slider #}
-                                            {% set rescan_hours = (settings.get('sonarr_rescan_minutes', {}).get('setting_value', '60') | int) / 60 %}
-                                            <label for="sonarr_rescan_hours" class="form-label"><strong>Rescan Time: <span id="sonarr-rescan-value">{{ rescan_hours | round | int }}</span> hr(s)</strong></label>
-                                            <input type="range" class="form-range" id="sonarr_rescan_hours" name="sonarr_rescan_hours" min="1" max="24" step="1" value="{{ rescan_hours | round | int }}">
-                                        </div>
-                                    </div>
-                                    <div class="form-check form-switch my-3">
-                                        {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
-                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
-                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Automatic Scanning</strong></label>
-                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically run the 'Scan for Renames' and 'Scan for Quality Mismatches' functions at the specified interval.</p>
                                     </div>
                                     <div class="form-check form-switch mt-3">
                                         {% set sonarr_send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
