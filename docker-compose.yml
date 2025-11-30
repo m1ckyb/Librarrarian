@@ -36,6 +36,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - ./media:/media
     # The command is now defined in the dashboard/Dockerfile
@@ -45,7 +51,9 @@ services:
     image: ghcr.io/m1ckyb/codecshift-worker:0.10.11
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
-      db:
+      db: # Depends on the database being ready
+        condition: service_healthy
+      dashboard: # Also depends on the dashboard being healthy
         condition: service_healthy
     environment:
       - DB_HOST=db

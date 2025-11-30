@@ -551,17 +551,17 @@
                         {% if settings.get('sonarr_enabled', {}).get('setting_value') == 'true' %}
                             <h5>Sonarr Tools</h5>
                             <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
-                            <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-secondary" id="manual-sonarr-scan-btn" title="Scans your library for files that do not match Sonarr's naming standard.">
-                                    <span class="mdi mdi-sync"></span> 
-                                    <span id="manual-sonarr-scan-btn-text">Scan for Renames</span>
-                                </button>
-                                <button type="button" class="btn btn-secondary" id="manual-quality-scan-btn" title="Scans your library for episodes that do not meet their series' quality profile.">
-                                    <span class="mdi mdi-quality-high"></span>
-                                    <span>Scan for Quality Mismatches</span>
-                                </button>
+                            <button id="triggerSonarrScan" class="btn btn-primary">Scan</button>
+                            <button id="cancelSonarrScan" class="btn btn-secondary" style="display:none;">Cancel Scan</button>
+                            <div id="sonarr-scan-progress-box" class="progress-box" style="display: none;">
+                                <pre id="sonarr-scan-output"></pre>
                             </div>
-                            <div id="sonarr-scan-status" class="mt-3"></div>
+                            <!-- The old buttons and status divs are no longer needed with the new JS logic -->
+                            <!-- 
+                            <button type="button" class="btn btn-secondary" id="manual-quality-scan-btn" title="Scans your library for episodes that do not meet their series' quality profile.">
+                                <span class="mdi mdi-quality-high"></span><span>Scan for Quality Mismatches</span>
+                            </button> 
+                            -->
                         {% else %}
                             <h5>Sonarr Tools <span class="badge bg-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">

@@ -72,6 +72,16 @@
         .footer a:hover {
             text-decoration: underline;
         }
+
+        .progress-box {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 0.25rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -117,6 +127,7 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     {% block scripts %}{% endblock %}
     <script>
         // --- Update Checker ---
@@ -140,6 +151,68 @@
                 }
             }
             checkForUpdates();
+        });
+    </script>
+    <script>
+        // --- Tools Page Scanner Logic ---
+        $(document).ready(function() {
+            let progressPollers = {}; // Object to hold interval IDs for each scanner
+
+            function startScan(scannerType) {
+                const scanButton = $(`#trigger${scannerType}Scan`);
+                const cancelButton = $(`#cancel${scannerType}Scan`);
+                const progressBox = $(`#${scannerType.toLowerCase()}-scan-progress-box`);
+                const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
+
+                // Immediately show progress box and disable scan button
+                outputDiv.text('Starting scan...');
+                progressBox.show();
+                scanButton.hide();
+                cancelButton.show();
+
+                // Make the API call to start the scan
+                $.post(`/api/${scannerType.toLowerCase()}/scan`, function(data) {
+                    // Start polling for progress
+                    progressPollers[scannerType] = setInterval(function() {
+                        $.get(`/api/scan_progress?scanner=${scannerType.toLowerCase()}`, function(progressData) {
+                            outputDiv.text(progressData.progress);
+                            // If the scan is no longer running, stop polling
+                            if (!progressData.is_running) {
+                                stopScan(scannerType, false); // Don't call cancel API
+                            }
+                        });
+                    }, 2000); // Poll every 2 seconds
+                }).fail(function(jqXHR) {
+                    outputDiv.text(`Error starting scan: ${jqXHR.responseJSON ? jqXHR.responseJSON.error : 'Unknown error'}`);
+                    stopScan(scannerType, false);
+                });
+            }
+
+            function stopScan(scannerType, callCancelApi = true) {
+                const scanButton = $(`#trigger${scannerType}Scan`);
+                const cancelButton = $(`#cancel${scannerType}Scan`);
+                const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
+
+                // Stop the poller
+                if (progressPollers[scannerType]) {
+                    clearInterval(progressPollers[scannerType]);
+                    delete progressPollers[scannerType];
+                }
+
+                // Reset UI
+                scanButton.show();
+                cancelButton.hide();
+
+                if (callCancelApi) {
+                    $.post(`/api/cancel_scan?scanner=${scannerType.toLowerCase()}`, function(data) {
+                        outputDiv.append('\n\nScan cancelled by user.');
+                    });
+                }
+            }
+
+            // Attach event listeners if the elements exist on the page
+            $('#triggerSonarrScan').click(() => startScan('Sonarr'));
+            $('#cancelSonarrScan').click(() => stopScan('Sonarr'));
         });
     </script>
     </body>
