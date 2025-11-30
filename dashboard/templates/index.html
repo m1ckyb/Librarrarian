@@ -1683,7 +1683,8 @@
             async function triggerSonarrScan(button, endpoint) {
                 button.disabled = true;
                 button.querySelector('.mdi').classList.add('mdi-spin');
-                sonarrScanStatusDiv.innerHTML = '';
+                // Display an initial message immediately
+                sonarrScanStatusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Starting scan...`; 
 
                 try {
                     const response = await fetch(endpoint, { method: 'POST' });
@@ -1704,11 +1705,15 @@
                         sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
                         button.disabled = false;
                         button.querySelector('.mdi').classList.remove('mdi-spin');
+                        // Ensure isPollingForScan is false if the trigger API fails
+                        isPollingForScan = false; 
                     }
                 } catch (error) {
                     sonarrScanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                     button.disabled = false;
                     button.querySelector('.mdi').classList.remove('mdi-spin');
+                    // Ensure isPollingForScan is false if there's a network error
+                    isPollingForScan = false;
                 }
             }
 

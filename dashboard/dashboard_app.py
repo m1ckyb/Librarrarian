@@ -1600,16 +1600,22 @@ def api_trigger_scan():
 @app.route('/api/scan/rename', methods=['POST'])
 def api_trigger_rename_scan():
     """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
-    if not scanner_lock.locked():
-        sonarr_rename_scan_event.set()
-        return jsonify(success=True, message="Sonarr rename scan has been triggered.")
-    return jsonify(success=False, message="Another scan is already in progress."), 409
+    if scanner_lock.locked():
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+    
+    # Immediately set the state to running to avoid a race condition with the frontend polling
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
+    sonarr_rename_scan_event.set()
+    return jsonify(success=True, message="Sonarr rename scan has been triggered.")
 
 @app.route('/api/scan/quality', methods=['POST'])
 def api_trigger_quality_scan():
     """API endpoint to manually trigger a Sonarr quality mismatch scan."""
     if scanner_lock.locked():
-        return jsonify({"success": False, "message": "Another scan is already in progress."})
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+
+    # Immediately set the state to running
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
     sonarr_quality_scan_event.set()
     return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
 

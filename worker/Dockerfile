@@ -5,10 +5,13 @@ FROM python:3.13-slim-bullseye
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install ffmpeg from the OS package manager
-RUN apt-get update && apt-get install -y ffmpeg && apt-get clean
+RUN apt-get update && apt-get install -y ffmpeg iputils-ping curl && apt-get clean
 
 # Set the working directory inside the container
 WORKDIR /app
+
+# Ensure Python output is unbuffered
+ENV PYTHONUNBUFFERED=1
 
 # Copy the requirements file into the container
 COPY worker/requirements.txt .
