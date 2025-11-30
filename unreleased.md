@@ -35,6 +35,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Sonarr Settings**: Corrected a bug where the `sonarr_send_to_queue` setting was not being properly handled by the backend.
 - **View Errors Button**: Fixed the "View Errors" button not working due to missing modal HTML content in the failures_modal.html template.
 - **Theme Dropdown**: Fixed the theme switcher dropdown not properly applying the "System" (auto) theme option. The theme now correctly resolves to the user's system preference when set to auto.
+- **Scan Progress State Race Condition**: Fixed a race condition where clicking scan buttons (Sonarr rename, Sonarr quality, Radarr rename, Lidarr rename) could leave the UI in an inconsistent "scanning" state when another scan was already in progress. The scan progress state is now properly reset when the scanner lock cannot be acquired.
+- **Monitored Libraries Hide Logic**: Fixed the backend logic for determining when a library/folder is hidden. The old code looked for non-existent `hide_plex_*` and `hide_internal_*` form fields. Now `is_hidden` is correctly set based on whether the media type dropdown is set to 'none' (Ignore).
 
 ### Bugs / To Be Fixed
 - **Sonarr Scan UI**: There is a persistent race condition where cancelling a Sonarr scan can leave the scan buttons permanently disabled until a page refresh. The UI state management needs to be refactored to ensure it correctly and reliably resets after cancellation.

@@ -1501,7 +1501,7 @@ def run_sonarr_quality_scan():
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
             time.sleep(10)
-            scan_progress_state["is_running"] = False
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
             if scanner_lock.locked():
                 scanner_lock.release()
 
