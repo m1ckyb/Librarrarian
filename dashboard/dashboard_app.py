@@ -2050,6 +2050,9 @@ def api_arr_stats():
     """
     Fetches statistics from Sonarr, Radarr, and Lidarr.
     Returns total counts for shows/seasons/episodes, movies, and artists/albums/tracks.
+    
+    Note: The *arr APIs don't have dedicated stats/summary endpoints, so we need to 
+    fetch the full data lists and count them. This may be slow for very large libraries.
     """
     settings, db_error = get_worker_settings()
     if db_error:
@@ -2072,17 +2075,14 @@ def api_arr_stats():
                 headers = {'X-Api-Key': api_key}
                 base_url = host.rstrip('/')
                 
-                # Get all series for show count and season count
+                # Get series data - includes show and season counts
+                # We sum the episodeFileCount from each series for the total episode count
                 series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
                 series_res.raise_for_status()
                 series_data = series_res.json()
                 stats['sonarr']['shows'] = len(series_data)
                 stats['sonarr']['seasons'] = sum(len(s.get('seasons', [])) for s in series_data)
-                
-                # Get episode count from wanted/missing or use episode endpoint
-                episode_res = requests.get(f"{base_url}/api/v3/episode", headers=headers, timeout=10, verify=False)
-                episode_res.raise_for_status()
-                stats['sonarr']['episodes'] = len(episode_res.json())
+                stats['sonarr']['episodes'] = sum(s.get('episodeFileCount', 0) for s in series_data)
             except Exception as e:
                 print(f"Could not fetch Sonarr stats: {e}")
 
@@ -2115,20 +2115,21 @@ def api_arr_stats():
                 headers = {'X-Api-Key': api_key}
                 base_url = host.rstrip('/')
                 
-                # Get all artists
+                # Get artist and album counts
+                # For tracks, we sum the trackFileCount from albums instead of fetching all track files
                 artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
                 artists_res.raise_for_status()
                 stats['lidarr']['artists'] = len(artists_res.json())
                 
-                # Get all albums
                 albums_res = requests.get(f"{base_url}/api/v1/album", headers=headers, timeout=10, verify=False)
                 albums_res.raise_for_status()
-                stats['lidarr']['albums'] = len(albums_res.json())
+                albums_data = albums_res.json()
+                stats['lidarr']['albums'] = len(albums_data)
                 
-                # Get all tracks (track files)
-                tracks_res = requests.get(f"{base_url}/api/v1/trackfile", headers=headers, timeout=10, verify=False)
-                tracks_res.raise_for_status()
-                stats['lidarr']['tracks'] = len(tracks_res.json())
+                # Sum up track counts from album statistics
+                stats['lidarr']['tracks'] = sum(
+                    a.get('statistics', {}).get('trackFileCount', 0) for a in albums_data
+                )
             except Exception as e:
                 print(f"Could not fetch Lidarr stats: {e}")
 

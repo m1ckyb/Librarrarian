@@ -922,7 +922,12 @@ async function loadArrStats() {
         const response = await fetch('/api/arr/stats');
         const data = await response.json();
         
-        if (!data.success || !data.stats) return;
+        if (!data.success) {
+            console.warn('Failed to load *arr stats:', data.error || 'Unknown error');
+            return;
+        }
+        
+        if (!data.stats) return;
         
         const stats = data.stats;
         
