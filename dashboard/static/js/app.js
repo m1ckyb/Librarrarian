@@ -1538,13 +1538,6 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Sonarr Options Logic ---
     const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
     const sonarrStatusDiv = document.getElementById('sonarr-test-status');
-    const rescanValueSpan = document.getElementById('sonarr-rescan-value');
-
-    // This element might not exist if the user has old settings, so check for it.
-    const sonarrRescanSlider = document.getElementById('sonarr_rescan_hours');
-    if (sonarrRescanSlider) {
-        sonarrRescanSlider.addEventListener('input', (event) => { rescanValueSpan.textContent = event.target.value; });
-    }
 
     // --- *Arr Integration Enable/Disable Logic ---
     function setupArrToggle(arrType) {

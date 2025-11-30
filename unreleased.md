@@ -29,6 +29,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Elapsed Time Format**: The scanning info box now displays elapsed time in a human-readable format (e.g., "1m 04s") instead of just seconds (e.g., "64s").
 - **Codec Settings Labels**: Changed "Allow HEVC (H.265)" to "HEVC (H.265)" and "Allow AV1" to "AV1" in the codec eligible for re-encoding settings for better clarity.
 - **Scan Completion UI**: Removed the separate "Scan finished" alert popup. The progress bar now shows the completion message directly and resets the UI more quickly (2 seconds instead of 5).
+- **Sonarr Integration UI**: Removed "Rescan Time" slider and "Enable Automatic Scanning" checkbox from the Sonarr Options tab. Auto-scanning is no longer supported; scans must be triggered manually via the Tools tab.
+- **Reduced Log Noise**: Suppressed frequent polling endpoints (`/api/status` and `/api/scan/progress`) from appearing in the dashboard logs to reduce noise.
 
 ### Fixed
 - **Sonarr Rename Jobs Processing**: Fixed a critical bug where Sonarr rename jobs created with the "Create Rename Jobs in Queue" option would never be processed. Jobs were created with `awaiting_approval` status but the job processor only looked for `pending` status jobs. Now rename jobs can be released to the queue via the UI.
@@ -49,3 +51,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Sonarr Episode Count**: Fixed Sonarr stats showing 0 episodes by changing from `episodeFileCount` (downloaded episodes only) to `episodeCount` (total episodes in library).
 - **Failed Files Table Colspan**: Fixed the "No failed files found" message not stretching across all 4 columns in the failed files modal.
 - **Scan Buttons After Cancel**: Fixed scan buttons not working immediately after cancelling a scan. The backend now skips the 10-second delay when a scan is cancelled, allowing users to start a new scan immediately.
+- **Sonarr Quality Mismatch Scanner**: Fixed the Sonarr quality mismatch scanner to properly detect episodes that don't meet the quality profile's cutoff. The scan now correctly uses the `includeEpisodeFile=true` parameter when fetching episode data from the Sonarr API to get proper quality information. Added detailed logging for each mismatch found.

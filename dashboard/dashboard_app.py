@@ -37,16 +37,22 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev"
 
 
 # --- Custom Logging Filter ---
-# This filter will suppress the noisy GET /api/scan/progress logs from appearing.
+# This filter will suppress noisy polling endpoints from appearing in the logs.
 class HealthCheckFilter(logging.Filter):
+    # Endpoints to suppress from logs (these are polled frequently by the UI)
+    SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status']
+
     def filter(self, record):
         # The log message for an access log is in record.args
         if record.args and len(record.args) >= 3 and isinstance(record.args[2], str):
-            return '/api/scan/progress' not in record.args[2]
+            log_path = record.args[2]
+            return not any(endpoint in log_path for endpoint in self.SUPPRESSED_ENDPOINTS)
         return True
 
 # Apply the filter to Werkzeug's logger (used by Flask's dev server and Gunicorn)
 logging.getLogger('werkzeug').addFilter(HealthCheckFilter())
+# Also apply to Gunicorn's access logger
+logging.getLogger('gunicorn.access').addFilter(HealthCheckFilter())
 
 # If running behind a reverse proxy, this is crucial for url_for() to generate correct
 # external URLs (e.g., for OIDC redirects).
@@ -812,9 +818,6 @@ def options():
     settings_to_update['lidarr_send_to_queue'] = 'true' if 'lidarr_send_to_queue' in request.form else 'false'
     settings_to_update['sonarr_auto_rename_after_transcode'] = 'true' if 'sonarr_auto_rename_after_transcode' in request.form else 'false'
     settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
-    # Convert hours from the form back to minutes for storage
-    settings_to_update['sonarr_rescan_minutes'] = str(int(request.form.get('sonarr_rescan_hours', '1')) * 60)
-    settings_to_update['sonarr_auto_scan_enabled'] = 'true' if 'sonarr_auto_scan_enabled' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
@@ -1430,9 +1433,15 @@ def run_sonarr_rename_scan():
 
 def run_sonarr_quality_scan():
     """
-    Scans Sonarr for quality mismatches. If a series has a quality profile
-    with a cutoff higher than the quality of an individual episode file,
-    a 'quality_mismatch' job is created for investigation.
+    Scans Sonarr for quality mismatches. Compares each episode file's quality
+    against the series' quality profile to identify files that don't meet the
+    profile's cutoff. Creates 'Quality Mismatch' jobs for investigation.
+    
+    Logic:
+    1. Get all quality profiles from Sonarr
+    2. For each series, get its quality profile
+    3. For each episode with a file, compare file quality against profile cutoff
+    4. If file quality doesn't meet cutoff, create a quality mismatch job
     """
     with app.app_context():
         # Clear the cancel event first, before trying to acquire the lock
@@ -1463,9 +1472,10 @@ def run_sonarr_quality_scan():
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
 
+            # Fetch quality profiles to get profile names for logging
             profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
             profiles_res.raise_for_status()
-            quality_profiles = {p['id']: p for p in profiles_res.json()}
+            quality_profiles = {p['id']: {'name': p['name']} for p in profiles_res.json()}
 
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
             series_res.raise_for_status()
@@ -1485,19 +1495,57 @@ def run_sonarr_quality_scan():
                 series_title = series.get('title', 'Unknown Series')
                 scan_progress_state.update({"current_step": f"Checking: {series_title}", "progress": i + 1})
 
-                profile = quality_profiles.get(series['qualityProfileId'])
-                if not profile or not profile.get('cutoff'):
-                    continue # Skip series without a valid quality profile or cutoff
+                profile = quality_profiles.get(series.get('qualityProfileId'))
+                if not profile:
+                    continue  # Skip series without a valid quality profile
 
-                episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=20, verify=False)
+                # Fetch episodes with episode file data included
+                # The includeEpisodeFile parameter ensures we get quality info
+                episodes_res = requests.get(
+                    f"{base_url}/api/v3/episode?seriesId={series['id']}&includeEpisodeFile=true",
+                    headers=headers, timeout=20, verify=False
+                )
                 episodes_res.raise_for_status()
 
                 for episode in episodes_res.json():
-                    if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
-                        filepath = episode['episodeFile']['path']
-                        metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                        if cur.rowcount > 0: new_jobs_found += 1
+                    # Only check episodes that have a file
+                    if not episode.get('hasFile'):
+                        continue
+                    
+                    episode_file = episode.get('episodeFile')
+                    if not episode_file:
+                        continue
+                    
+                    # Check if the quality cutoff is not met
+                    # Sonarr API provides this flag directly when episodeFile is included
+                    quality_cutoff_not_met = episode_file.get('qualityCutoffNotMet', False)
+                    
+                    if quality_cutoff_not_met:
+                        filepath = episode_file.get('path', '')
+                        file_quality = episode_file.get('quality', {}).get('quality', {})
+                        file_quality_name = file_quality.get('name', 'Unknown')
+                        
+                        metadata = {
+                            'source': 'sonarr',
+                            'job_class': 'quality_mismatch',
+                            'seriesTitle': series['title'],
+                            'seasonNumber': episode.get('seasonNumber'),
+                            'episodeNumber': episode.get('episodeNumber'),
+                            'episodeTitle': episode.get('title', 'Unknown'),
+                            'file_quality': file_quality_name,
+                            'profile_quality': profile['name'],
+                            'seriesId': series['id'],
+                            'episodeId': episode.get('id'),
+                            'episodeFileId': episode_file.get('id')
+                        }
+                        
+                        cur.execute(
+                            "INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING",
+                            (filepath, json.dumps(metadata))
+                        )
+                        if cur.rowcount > 0:
+                            new_jobs_found += 1
+                            print(f"  -> Quality mismatch found: {series_title} S{episode.get('seasonNumber'):02d}E{episode.get('episodeNumber'):02d} - File: {file_quality_name}, Profile: {profile['name']}")
 
             conn.commit()
             message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches."
@@ -1514,6 +1562,7 @@ def run_sonarr_quality_scan():
             scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
+
 
 def run_radarr_rename_scan():
     """
