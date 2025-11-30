@@ -24,6 +24,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Arr Integration UI**: Added a dismiss button to the "Test Connection" feedback messages for Sonarr, Radarr, and Lidarr, improving user experience by allowing messages to be easily closed.
 - **Monitored Libraries UI**: Removed "Hide" switches from Plex and Internal Scanner monitored libraries/folders lists. Items are now hidden from the UI when their media type dropdown is set to "None (Ignore)".
 - **Show Ignored Toggle**: Renamed "Show Hidden" toggle to "Show Ignored" for both Plex and Internal Scanner sections to better reflect the new behavior.
+- **Scan Button Behavior**: Scan buttons for Sonarr, Radarr, and Lidarr now remain visible but become disabled during an active scan, instead of disappearing. This provides clearer feedback that a scan is in progress.
+- **Elapsed Time Format**: The scanning info box now displays elapsed time in a human-readable format (e.g., "1m 04s") instead of just seconds (e.g., "64s").
 
 ### Fixed
 - **Sonarr Rename Jobs Processing**: Fixed a critical bug where Sonarr rename jobs created with the "Create Rename Jobs in Queue" option would never be processed. Jobs were created with `awaiting_approval` status but the job processor only looked for `pending` status jobs. Now rename jobs can be released to the queue via the UI.
@@ -40,3 +42,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Scan Cancel Event Persistence**: Fixed an issue where the scan cancel event would persist between scans. If a previous scan was cancelled, subsequent scans would immediately appear cancelled. The cancel event is now cleared at the start of each scan attempt.
 - **Theme Dropdown Not Opening**: Fixed the theme dropdown not dropping down by adding explicit `type="button"` to dropdown menu items and removing duplicate Bootstrap script loading.
 - **Stats Cards Loading**: Fixed *arr stats cards not showing data by adding a null check for the tools tab element and loading stats when navigating directly to the Tools tab via URL hash.
+- **Scan Progress Box Position on Refresh**: Fixed an issue where the scan progress box would jump to the wrong section when refreshing the page during an active scan. Added `scan_source` and `scan_type` fields to the scan progress API to reliably track which integration is being scanned.

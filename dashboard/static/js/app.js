@@ -54,6 +54,19 @@ let activeScanSource = null; // 'sonarr', 'radarr', or 'lidarr'
 let progressInterval = null;
 let scanStartTime = null;
 
+/**
+ * Formats elapsed time in seconds to a human-readable string.
+ * e.g., 64 seconds becomes "1m 04s", 120 seconds becomes "2m 00s"
+ */
+function formatElapsedTime(totalSeconds) {
+    if (totalSeconds < 60) {
+        return `${totalSeconds}s`;
+    }
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+}
+
 function stopProgressPolling() {
     if (progressInterval) {
         clearInterval(progressInterval);
@@ -134,20 +147,16 @@ function resetScanUI() {
     // Hide progress bars and feedback containers for Lidarr
     if(lidarrRenameScanContainer) lidarrRenameScanContainer.style.display = 'none';
 
-    // Show scan buttons, hide cancel buttons for Sonarr
-    if(sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'inline-block';
+    // Re-enable scan buttons, hide cancel buttons for Sonarr
     if(sonarrRenameScanButton) sonarrRenameScanButton.disabled = false;
     if(sonarrQualityScanButton) sonarrQualityScanButton.disabled = false;
-    if(sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'inline-block';
     if(sonarrCancelScanButton) sonarrCancelScanButton.style.display = 'none';
 
-    // Show scan buttons, hide cancel buttons for Radarr
-    if(radarrRenameScanButton) radarrRenameScanButton.style.display = 'inline-block';
+    // Re-enable scan buttons, hide cancel buttons for Radarr
     if(radarrRenameScanButton) radarrRenameScanButton.disabled = false;
     if(radarrCancelScanButton) radarrCancelScanButton.style.display = 'none';
 
-    // Show scan buttons, hide cancel buttons for Lidarr
-    if(lidarrRenameScanButton) lidarrRenameScanButton.style.display = 'inline-block';
+    // Re-enable scan buttons, hide cancel buttons for Lidarr
     if(lidarrRenameScanButton) lidarrRenameScanButton.disabled = false;
     if(lidarrCancelScanButton) lidarrCancelScanButton.style.display = 'none';
 }
@@ -179,7 +188,7 @@ function startProgressPolling(scanType, scanSource = 'sonarr') {
             .then(data => {
                 const now = new Date();
                 const elapsedSeconds = Math.round((now - scanStartTime) / 1000);
-                if(timeEl) timeEl.textContent = `Elapsed: ${elapsedSeconds}s`;
+                if(timeEl) timeEl.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
 
                 if (data.is_running) {
                     const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
@@ -251,11 +260,11 @@ async function handleScanButtonClick(scanType, scanSource = 'sonarr') {
             isPollingForScan = true;
             showScanFeedback(`'${scanType}' scan started successfully.`, 'success', scanType, scanSource);
             
-            // Hide all scan buttons, show appropriate cancel button
-            if (sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'none';
-            if (sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'none';
-            if (radarrRenameScanButton) radarrRenameScanButton.style.display = 'none';
-            if (lidarrRenameScanButton) lidarrRenameScanButton.style.display = 'none';
+            // Keep all scan buttons visible but disabled, show appropriate cancel button
+            if (sonarrRenameScanButton) sonarrRenameScanButton.disabled = true;
+            if (sonarrQualityScanButton) sonarrQualityScanButton.disabled = true;
+            if (radarrRenameScanButton) radarrRenameScanButton.disabled = true;
+            if (lidarrRenameScanButton) lidarrRenameScanButton.disabled = true;
             
             if (scanSource === 'radarr') {
                 if (radarrCancelScanButton) radarrCancelScanButton.style.display = 'inline-block';
@@ -365,10 +374,12 @@ if (lidarrCancelScanButton) {
 // On page load, check if a scan is already running and resume polling
 fetch('/api/scan/progress').then(r => r.json()).then(data => {
     if (data.is_running) {
-        // Infer the scan type and source from the current_step message
-        let runningScanType = 'rename'; // default
-        let runningScanSource = 'sonarr'; // default
-        if (data.current_step) {
+        // Use the scan_source and scan_type fields if available, otherwise fall back to inference
+        let runningScanType = data.scan_type || 'rename';
+        let runningScanSource = data.scan_source || 'sonarr';
+        
+        // Fallback: Infer from current_step if the new fields are empty (for backwards compatibility)
+        if (!data.scan_source && data.current_step) {
             if (data.current_step.toLowerCase().includes('quality')) {
                 runningScanType = 'quality';
             }
@@ -399,11 +410,11 @@ function resumeScanUI(scanType, scanSource) {
     activeScanType = scanType;
     activeScanSource = scanSource;
     
-    // Hide all scan buttons, show appropriate cancel button
-    if (sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'none';
-    if (sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'none';
-    if (radarrRenameScanButton) radarrRenameScanButton.style.display = 'none';
-    if (lidarrRenameScanButton) lidarrRenameScanButton.style.display = 'none';
+    // Keep all scan buttons visible but disabled, show appropriate cancel button
+    if (sonarrRenameScanButton) sonarrRenameScanButton.disabled = true;
+    if (sonarrQualityScanButton) sonarrQualityScanButton.disabled = true;
+    if (radarrRenameScanButton) radarrRenameScanButton.disabled = true;
+    if (lidarrRenameScanButton) lidarrRenameScanButton.disabled = true;
     
     if (scanSource === 'radarr') {
         if (radarrCancelScanButton) radarrCancelScanButton.style.display = 'inline-block';
