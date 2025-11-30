@@ -31,13 +31,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Arr Connection Testing**: Fixed a critical bug where the "Test Connection" button for Sonarr, Radarr, and Lidarr would fail unless the settings were saved first. The test now correctly uses the values from the input fields without requiring a save.
 - **Sonarr Settings**: Corrected a bug where the `sonarr_send_to_queue` setting was not being properly handled by the backend.
 - **View Errors Button**: Fixed the "View Errors" button not working due to missing modal HTML content in the failures_modal.html template.
-
-### Bugs / To Be Fixed
-- ** *arr Scan UI**: There is a persistent race condition where cancelling a Sonarr scan can leave the scan buttons permanently disabled until a page refresh. The UI state management needs to be refactored to ensure it correctly and reliably resets after cancellation.
-- **Monitored Libraries Hide Logic**: Fixed the backend logic for determining when a library/folder is hidden. The old code looked for non-existent `hide_plex_*` and `hide_internal_*` form fields. Now `is_hidden` is correctly set based on whether the media type dropdown is set to 'none' (Ignore).
-- **Theme Dropdown**: Fixed the theme switcher dropdown not properly applying the "System" (auto) theme option. The theme now correctly resolves to the user's system preference when set to auto.
-- **Scan Progress State Race Condition**: Fixed a race condition where clicking scan buttons (Sonarr rename, Sonarr quality, Radarr rename, Lidarr rename) could leave the UI in an inconsistent "scanning" state when another scan was already in progress. The scan progress state is now properly reset when the scanner lock cannot be acquired.
-- **Arr Stats on Tools Page**: Added statistics cards to the Tools page for each enabled *arr integration:
-  - Sonarr: Shows total TV Shows, Seasons, and Episodes.
-  - Radarr: Shows total Movies.
-  - Lidarr: Shows total Artists, Albums, and Tracks.
+- ***arr Scan UI Race Condition**: Fixed a persistent race condition where cancelling an *arr scan could leave the scan buttons permanently disabled until a page refresh. The UI now properly saves scan context before async operations and always resets the UI state on errors.
+- **Scan Page Load Resume**: Fixed an issue where page load would trigger a new API call instead of just resuming the scan UI when a scan was already in progress.
+- **Scan Progress Error Detection**: Improved error detection when polling for scan progress to properly distinguish between successful scan completion and scan failures/conflicts.
+- **Theme Dropdown System Preference**: Fixed the theme switcher to respond to system preference changes when "System" (auto) mode is selected.
+- **Monitored Libraries Hide Logic**: Fixed the backend logic for determining when a library/folder is hidden. The `is_hidden` flag is now correctly set based on whether the media type dropdown is set to 'none' (Ignore).
