@@ -36,3 +36,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Scan Progress Error Detection**: Improved error detection when polling for scan progress to properly distinguish between successful scan completion and scan failures/conflicts.
 - **Theme Dropdown System Preference**: Fixed the theme switcher to respond to system preference changes when "System" (auto) mode is selected.
 - **Monitored Libraries Hide Logic**: Fixed the backend logic for determining when a library/folder is hidden. The `is_hidden` flag is now correctly set based on whether the media type dropdown is set to 'none' (Ignore).
+- **Scan Buttons Flash Issue**: Fixed a race condition in the background thread that caused scan buttons (Sonarr, Radarr, Lidarr) to flash and do nothing. The thread now uses non-blocking event checks instead of sequential waits, allowing all scan events to be processed immediately.
+- **Scan Cancel Event Persistence**: Fixed an issue where the scan cancel event would persist between scans. If a previous scan was cancelled, subsequent scans would immediately appear cancelled. The cancel event is now cleared at the start of each scan attempt.
+- **Theme Dropdown Not Opening**: Fixed the theme dropdown not dropping down by adding explicit `type="button"` to dropdown menu items and removing duplicate Bootstrap script loading.
+- **Stats Cards Loading**: Fixed *arr stats cards not showing data by adding a null check for the tools tab element and loading stats when navigating directly to the Tools tab via URL hash.
