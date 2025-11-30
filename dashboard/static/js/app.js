@@ -707,10 +707,48 @@ document.getElementById('clear-history-btn').addEventListener('click', async () 
 
 // Function to update the job queue
 let jobQueueCurrentPage = 1; // Keep track of the current page
+let jobQueueFilterType = ''; // Current type filter
+let jobQueueFilterStatus = ''; // Current status filter
+
+// Function to load filter options
+async function loadJobQueueFilters() {
+    try {
+        const response = await fetch('/api/jobs/filters');
+        const data = await response.json();
+        
+        const typeSelect = document.getElementById('job-filter-type');
+        const statusSelect = document.getElementById('job-filter-status');
+        
+        if (typeSelect && data.job_types) {
+            // Preserve current selection
+            const currentType = typeSelect.value;
+            typeSelect.innerHTML = '<option value="">All Types</option>' + 
+                data.job_types.map(t => `<option value="${t}">${t}</option>`).join('');
+            if (currentType) typeSelect.value = currentType;
+        }
+        
+        if (statusSelect && data.statuses) {
+            // Preserve current selection
+            const currentStatus = statusSelect.value;
+            statusSelect.innerHTML = '<option value="">All Statuses</option>' + 
+                data.statuses.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1).replace('_', ' ')}</option>`).join('');
+            if (currentStatus) statusSelect.value = currentStatus;
+        }
+    } catch (error) {
+        console.error('Error loading job filters:', error);
+    }
+}
+
 async function updateJobQueue(page = 1) {
     jobQueueCurrentPage = page;
+    
+    // Build query string with filters
+    let queryParams = `page=${page}`;
+    if (jobQueueFilterType) queryParams += `&type=${encodeURIComponent(jobQueueFilterType)}`;
+    if (jobQueueFilterStatus) queryParams += `&status=${encodeURIComponent(jobQueueFilterStatus)}`;
+    
     try {
-        const response = await fetch(`/api/jobs?page=${page}`);
+        const response = await fetch(`/api/jobs?${queryParams}`);
         const data = await response.json();
         const tableBody = document.getElementById('job-queue-table-body');
         tableBody.innerHTML = ''; // Clear existing rows
@@ -721,7 +759,8 @@ async function updateJobQueue(page = 1) {
         }
 
         if (data.jobs.length === 0) {
-            tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No jobs in the queue.</td></tr>';
+            const filterMsg = (jobQueueFilterType || jobQueueFilterStatus) ? 'No jobs match the current filters.' : 'No jobs in the queue.';
+            tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">${filterMsg}</td></tr>`;
             return;
         }
 
@@ -980,8 +1019,41 @@ historyStatsTab.addEventListener('shown.bs.tab', () => {
 // Update job queue when its tab is shown
 const jobsTab = document.querySelector('#jobs-tab');
 jobsTab.addEventListener('shown.bs.tab', () => {
+    loadJobQueueFilters();
     updateJobQueue();
 });
+
+// Job queue filter event listeners
+const jobFilterType = document.getElementById('job-filter-type');
+const jobFilterStatus = document.getElementById('job-filter-status');
+const jobFilterClear = document.getElementById('job-filter-clear');
+
+if (jobFilterType) {
+    jobFilterType.addEventListener('change', () => {
+        jobQueueFilterType = jobFilterType.value;
+        jobQueueCurrentPage = 1; // Reset to first page when filtering
+        updateJobQueue(1);
+    });
+}
+
+if (jobFilterStatus) {
+    jobFilterStatus.addEventListener('change', () => {
+        jobQueueFilterStatus = jobFilterStatus.value;
+        jobQueueCurrentPage = 1; // Reset to first page when filtering
+        updateJobQueue(1);
+    });
+}
+
+if (jobFilterClear) {
+    jobFilterClear.addEventListener('click', () => {
+        jobQueueFilterType = '';
+        jobQueueFilterStatus = '';
+        if (jobFilterType) jobFilterType.value = '';
+        if (jobFilterStatus) jobFilterStatus.value = '';
+        jobQueueCurrentPage = 1;
+        updateJobQueue(1);
+    });
+}
 
 // Load *arr stats when Tools tab is shown
 const toolsTab = document.querySelector('#tools-tab');

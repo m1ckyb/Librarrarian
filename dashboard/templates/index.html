@@ -171,6 +171,24 @@
                         </div>
                     </div>
                 </div>
+                <!-- Filter Options Row -->
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label for="job-filter-type" class="form-label small text-muted">Filter by Type</label>
+                        <select class="form-select form-select-sm" id="job-filter-type">
+                            <option value="">All Types</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="job-filter-status" class="form-label small text-muted">Filter by Status</label>
+                        <select class="form-select form-select-sm" id="job-filter-status">
+                            <option value="">All Statuses</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-sm btn-outline-secondary" id="job-filter-clear" title="Clear all filters"><span class="mdi mdi-filter-off"></span> Clear Filters</button>
+                    </div>
+                </div>
                 <div id="scan-status" class="mb-3"></div>
                 <div class="table-responsive">
                     <table class="table table-striped table-sm">

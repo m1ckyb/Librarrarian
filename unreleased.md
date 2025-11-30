@@ -16,6 +16,7 @@ All upcoming features and bug fixes will be documented here until they are part 
   - Added API endpoint `/api/scan/lidarr_rename` to trigger Lidarr rename scans.
   - The job processor now handles Sonarr, Radarr, and Lidarr rename jobs based on the `source` field in job metadata.
 - **VP9 Codec Support**: Added VP9 to the list of codecs eligible for re-encoding. When enabled, VP9-encoded files will be added to the transcode queue instead of being skipped.
+- **Job Queue Filtering**: Added filter dropdowns to the Job Queue tab allowing users to filter jobs by type (transcode, cleanup, Rename Job, Quality Mismatch) and status (pending, encoding, failed, etc.). Includes a "Clear Filters" button to reset the view.
 
 
 ### Changed
@@ -31,6 +32,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Scan Completion UI**: Removed the separate "Scan finished" alert popup. The progress bar now shows the completion message directly and resets the UI more quickly (2 seconds instead of 5).
 - **Sonarr Integration UI**: Removed "Rescan Time" slider and "Enable Automatic Scanning" checkbox from the Sonarr Options tab. Auto-scanning is no longer supported; scans must be triggered manually via the Tools tab.
 - **Reduced Log Noise**: Suppressed frequent polling endpoints (`/api/status` and `/api/scan/progress`) from appearing in the dashboard logs to reduce noise.
+- **Sonarr Quality Scan Output**: The Sonarr quality mismatch scan now logs a summary by show (e.g., "Show Name: 5 episode(s)") instead of listing every individual file. The final message also includes the number of affected shows.
 
 ### Fixed
 - **Sonarr Rename Jobs Processing**: Fixed a critical bug where Sonarr rename jobs created with the "Create Rename Jobs in Queue" option would never be processed. Jobs were created with `awaiting_approval` status but the job processor only looked for `pending` status jobs. Now rename jobs can be released to the queue via the UI.

@@ -911,7 +911,7 @@ def api_delete_job(job_id):
 
 @app.route('/api/jobs', methods=['GET'])
 def api_jobs():
-    """Returns a paginated list of the current job queue as JSON."""
+    """Returns a paginated and optionally filtered list of the current job queue as JSON."""
     db = get_db()
     jobs = []
     db_error = None
@@ -919,6 +919,10 @@ def api_jobs():
     page = request.args.get('page', 1, type=int)
     per_page = 50 # Number of jobs per page
     offset = (page - 1) * per_page
+    
+    # Filtering parameters
+    filter_type = request.args.get('type', '')  # Filter by job_type
+    filter_status = request.args.get('status', '')  # Filter by status
 
     if db is None:
         db_error = "Cannot connect to the PostgreSQL database."
@@ -926,13 +930,30 @@ def api_jobs():
 
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Build WHERE clause dynamically based on filters
+            where_clauses = []
+            params = []
+            
+            if filter_type:
+                where_clauses.append("job_type = %s")
+                params.append(filter_type)
+            
+            if filter_status:
+                where_clauses.append("status = %s")
+                params.append(filter_status)
+            
+            where_sql = ""
+            if where_clauses:
+                where_sql = "WHERE " + " AND ".join(where_clauses)
+            
             # Query for the paginated list of jobs
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
             # We also calculate the age of the job in minutes to detect stuck jobs.
-            cur.execute("""
+            query = f"""
                 SELECT *,
                        EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS age_minutes
                 FROM jobs
+                {where_sql}
                 ORDER BY
                     CASE status
                         WHEN 'encoding' THEN 1
@@ -942,19 +963,48 @@ def api_jobs():
                     END,
                     created_at DESC
                 LIMIT %s OFFSET %s
-            """, (per_page, offset))
+            """
+            params.extend([per_page, offset])
+            cur.execute(query, params)
             jobs = cur.fetchall()
             for job in jobs:
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
             
-            # Query for the total number of jobs to calculate total pages
-            cur.execute("SELECT COUNT(*) FROM jobs")
+            # Query for the total number of jobs to calculate total pages (respecting filters)
+            count_query = f"SELECT COUNT(*) FROM jobs {where_sql}"
+            count_params = params[:-2] if where_clauses else []  # Exclude LIMIT and OFFSET params
+            cur.execute(count_query, count_params)
             total_jobs = cur.fetchone()['count']
 
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
     return jsonify(jobs=jobs, db_error=db_error, total_jobs=total_jobs, page=page, per_page=per_page)
+
+@app.route('/api/jobs/filters', methods=['GET'])
+def api_jobs_filters():
+    """Returns the distinct job types and statuses available for filtering."""
+    db = get_db()
+    job_types = []
+    statuses = []
+    db_error = None
+
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return jsonify(job_types=job_types, statuses=statuses, db_error=db_error)
+
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT DISTINCT job_type FROM jobs ORDER BY job_type")
+            job_types = [row['job_type'] for row in cur.fetchall()]
+            
+            cur.execute("SELECT DISTINCT status FROM jobs ORDER BY status")
+            statuses = [row['status'] for row in cur.fetchall()]
+
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+
+    return jsonify(job_types=job_types, statuses=statuses, db_error=db_error)
 
 @app.route('/api/status')
 def api_status():
@@ -1485,6 +1535,8 @@ def run_sonarr_quality_scan():
             conn = get_db()
             cur = conn.cursor()
             new_jobs_found = 0
+            # Track mismatches per show for summarized logging
+            shows_with_mismatches = {}
 
             for i, series in enumerate(all_series):
                 if scan_cancel_event.is_set():
@@ -1507,6 +1559,7 @@ def run_sonarr_quality_scan():
                 )
                 episodes_res.raise_for_status()
 
+                series_mismatch_count = 0
                 for episode in episodes_res.json():
                     # Only check episodes that have a file
                     if not episode.get('hasFile'):
@@ -1545,10 +1598,21 @@ def run_sonarr_quality_scan():
                         )
                         if cur.rowcount > 0:
                             new_jobs_found += 1
-                            print(f"  -> Quality mismatch found: {series_title} S{episode.get('seasonNumber'):02d}E{episode.get('episodeNumber'):02d} - File: {file_quality_name}, Profile: {profile['name']}")
+                            series_mismatch_count += 1
+
+                # Track shows with mismatches for summary
+                if series_mismatch_count > 0:
+                    shows_with_mismatches[series_title] = series_mismatch_count
 
             conn.commit()
-            message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches."
+            
+            # Log summary by show instead of every individual file
+            if shows_with_mismatches:
+                print(f"[{datetime.now()}] Shows with quality mismatches:")
+                for show_title, count in shows_with_mismatches.items():
+                    print(f"  -> {show_title}: {count} episode(s)")
+            
+            message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches across {len(shows_with_mismatches)} shows."
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
         except Exception as e:
