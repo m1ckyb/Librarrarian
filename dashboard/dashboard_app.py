@@ -179,7 +179,7 @@ print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 7
+TARGET_SCHEMA_VERSION = 8
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -219,6 +219,10 @@ MIGRATIONS = {
     7: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('sonarr_auto_rename_after_transcode', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('radarr_auto_rename_after_transcode', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 8: Add VP9 codec setting
+    8: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('allow_vp9', 'false') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -398,6 +402,7 @@ def init_db():
                 ('keep_original', 'false'),
                 ('allow_hevc', 'false'),
                 ('allow_av1', 'false'),
+                ('allow_vp9', 'false'),
                 ('auto_update', 'false'),
                 ('clean_failures', 'false'),
                 ('debug', 'false'),
@@ -777,6 +782,7 @@ def options():
         'keep_original': 'true' if 'keep_original' in request.form else 'false',
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
+        'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
         'auto_update': 'true' if 'auto_update' in request.form else 'false',
         'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
         'debug': 'true' if 'debug' in request.form else 'false',
@@ -1415,8 +1421,9 @@ def run_sonarr_rename_scan():
             print(f"[{datetime.now()}] {error_message}")
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            # Wait a moment before clearing the "finished" message from the UI
-            time.sleep(10)
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
             scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
@@ -1501,7 +1508,9 @@ def run_sonarr_quality_scan():
             print(f"[{datetime.now()}] {error_message}")
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            time.sleep(10)
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
             scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
@@ -1603,8 +1612,9 @@ def run_radarr_rename_scan():
             print(f"[{datetime.now()}] {error_message}")
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            # Wait a moment before clearing the "finished" message from the UI
-            time.sleep(10)
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
             scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
@@ -1712,8 +1722,9 @@ def run_lidarr_rename_scan():
             print(f"[{datetime.now()}] {error_message}")
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            # Wait a moment before clearing the "finished" message from the UI
-            time.sleep(10)
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
             scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
@@ -1745,6 +1756,16 @@ def run_internal_scan(force_scan=False):
             cur.execute("SELECT filename FROM encoded_files")
             encoded_history = {row['filename'] for row in cur.fetchall()}
         
+        # Build list of codecs to skip based on settings
+        # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
+        skip_codecs = []
+        if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+            skip_codecs.extend(['hevc', 'h265'])
+        if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+            skip_codecs.append('av1')
+        if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+            skip_codecs.append('vp9')
+
         new_files_found = 0
         valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
         print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
@@ -1764,11 +1785,11 @@ def run_internal_scan(force_scan=False):
                     try:
                         # Use ffprobe to get the video codec
                         ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
-                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip()
+                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
                         
                         print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                        if codec and codec not in ['hevc', 'h265']:
-                            print(f"    -> Found non-HEVC file. Adding to queue.")
+                        if codec and codec not in skip_codecs:
+                            print(f"    -> Adding file to queue.")
                             cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                             if cur.rowcount > 0:
                                 new_files_found += 1
@@ -1823,6 +1844,16 @@ def run_plex_scan(force_scan=False):
                 cur.execute("SELECT filename FROM encoded_files")
                 encoded_history = {row['filename'] for row in cur.fetchall()}
             
+            # Build list of codecs to skip based on settings
+            # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
+            skip_codecs = []
+            if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.extend(['hevc', 'h265'])
+            if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.append('av1')
+            if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.append('vp9')
+
             new_files_found = 0
             print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
             for lib_name in plex_libraries:
@@ -1840,8 +1871,9 @@ def run_plex_scan(force_scan=False):
                     filepath = video.media[0].parts[0].file
 
                     print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                    if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
-                        print(f"    -> Found non-HEVC file. Adding to queue.")
+                    codec_lower = codec.lower() if codec else ''
+                    if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
+                        print(f"    -> Adding file to queue.")
                         cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                         if cur.rowcount > 0:
                             new_files_found += 1
