@@ -910,6 +910,57 @@ jobsTab.addEventListener('shown.bs.tab', () => {
     updateJobQueue();
 });
 
+// Load *arr stats when Tools tab is shown
+const toolsTab = document.querySelector('#tools-tab');
+toolsTab.addEventListener('shown.bs.tab', () => {
+    loadArrStats();
+});
+
+// Function to load *arr statistics
+async function loadArrStats() {
+    try {
+        const response = await fetch('/api/arr/stats');
+        const data = await response.json();
+        
+        if (!data.success) {
+            console.warn('Failed to load *arr stats:', data.error || 'Unknown error');
+            return;
+        }
+        
+        if (!data.stats) return;
+        
+        const stats = data.stats;
+        
+        // Update Sonarr stats
+        if (stats.sonarr && stats.sonarr.enabled) {
+            const showsEl = document.getElementById('sonarr-stat-shows');
+            const seasonsEl = document.getElementById('sonarr-stat-seasons');
+            const episodesEl = document.getElementById('sonarr-stat-episodes');
+            if (showsEl) showsEl.textContent = stats.sonarr.shows.toLocaleString();
+            if (seasonsEl) seasonsEl.textContent = stats.sonarr.seasons.toLocaleString();
+            if (episodesEl) episodesEl.textContent = stats.sonarr.episodes.toLocaleString();
+        }
+        
+        // Update Radarr stats
+        if (stats.radarr && stats.radarr.enabled) {
+            const moviesEl = document.getElementById('radarr-stat-movies');
+            if (moviesEl) moviesEl.textContent = stats.radarr.movies.toLocaleString();
+        }
+        
+        // Update Lidarr stats
+        if (stats.lidarr && stats.lidarr.enabled) {
+            const artistsEl = document.getElementById('lidarr-stat-artists');
+            const albumsEl = document.getElementById('lidarr-stat-albums');
+            const tracksEl = document.getElementById('lidarr-stat-tracks');
+            if (artistsEl) artistsEl.textContent = stats.lidarr.artists.toLocaleString();
+            if (albumsEl) albumsEl.textContent = stats.lidarr.albums.toLocaleString();
+            if (tracksEl) tracksEl.textContent = stats.lidarr.tracks.toLocaleString();
+        }
+    } catch (error) {
+        console.error('Error loading *arr stats:', error);
+    }
+}
+
 // Start the main update loop
 setInterval(mainUpdateLoop, 5000);
 
@@ -1172,19 +1223,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Show/Hide Logic ---
     // Set up visibility toggles BEFORE loading functions are called
-    function setupShowHiddenToggle(toggleId, listContainerId) {
+    // Items are considered "ignored" when their media type dropdown is set to "none"
+    function setupShowIgnoredToggle(toggleId, listContainerId) {
         const toggle = document.getElementById(toggleId);
         const listContainer = document.getElementById(listContainerId);
 
         const applyVisibility = () => {
             if (!listContainer) return;
-            const showHidden = toggle.checked;
+            const showIgnored = toggle.checked;
             listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                // Check the state of the "Hide" switch inside the item
-                const hideSwitch = item.querySelector('input[type="checkbox"][role="switch"]');
-                const isHidden = hideSwitch ? hideSwitch.checked : (item.dataset.isHidden === 'true');
+                // Check if the media type dropdown is set to "none" (ignored)
+                const typeDropdown = item.querySelector('select');
+                const isIgnored = typeDropdown ? typeDropdown.value === 'none' : false;
                 
-                if (isHidden && !showHidden) {
+                if (isIgnored && !showIgnored) {
                     item.style.display = 'none';
                 } else {
                     item.style.display = 'flex';
@@ -1194,9 +1246,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         toggle.addEventListener('change', applyVisibility);
 
-        // Also listen for changes on any of the hide switches within the list
+        // Also listen for changes on any of the dropdown selects within the list
         listContainer.addEventListener('change', (e) => {
-            if (e.target.matches('input[type="checkbox"][role="switch"]')) {
+            if (e.target.matches('select')) {
                 applyVisibility();
             }
         });
@@ -1204,8 +1256,8 @@ document.addEventListener('DOMContentLoaded', () => {
         // Return the function so it can be called after loading to set the initial state
         return applyVisibility;
     }
-    const applyPlexVisibility = setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
-    const applyInternalVisibility = setupShowHiddenToggle('internal-show-hidden-toggle', 'internal-folders-list');
+    const applyPlexVisibility = setupShowIgnoredToggle('plex-show-hidden-toggle', 'plex-libraries-list');
+    const applyInternalVisibility = setupShowIgnoredToggle('internal-show-hidden-toggle', 'internal-folders-list');
 
     // --- Dynamic Plex Library Loading ---
     async function loadPlexLibraries() {
@@ -1239,17 +1291,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (data.libraries && data.libraries.length > 0) {
             container.innerHTML = data.libraries.map(lib => `
-                <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${String(lib.is_hidden).toLowerCase()}">
+                <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                         <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center me-2">
                         ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
-                        <div class="form-check form-switch ms-3">
-                            <input class="form-check-input" type="checkbox" role="switch" name="hide_plex_${lib.title}" ${lib.is_hidden ? 'checked' : ''}>
-                            <label class="form-check-label">Hide</label>
-                        </div>
                     </div>
                 </div>
             `).join('');
@@ -1288,17 +1336,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (data.folders && data.folders.length > 0) {
             container.innerHTML = data.folders.map(item => `
-                <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${String(item.is_hidden).toLowerCase()}">
+                <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check">
                         <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
                         <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center me-2">
                         ${createDropdown(`type_internal_${item.name}`, item.type)}
-                        <div class="form-check form-switch ms-3">
-                            <input class="form-check-input" type="checkbox" role="switch" name="hide_internal_${item.name}" ${item.is_hidden ? 'checked' : ''}>
-                            <label class="form-check-label">Hide</label>
-                        </div>
                     </div>
                 </div>
             `).join('');
@@ -1570,9 +1614,20 @@ document.addEventListener('DOMContentLoaded', () => {
     const getStoredTheme = () => localStorage.getItem('theme');
     const setStoredTheme = theme => localStorage.setItem('theme', theme);
 
+    const getResolvedTheme = (theme) => {
+        // 'auto' should resolve to the system preference
+        if (theme === 'auto') {
+            return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
+        return theme;
+    };
+
     const setTheme = theme => {
-        document.documentElement.setAttribute('data-bs-theme', theme);
-        // Update icon based on theme
+        // Resolve 'auto' to actual theme for Bootstrap
+        const resolvedTheme = getResolvedTheme(theme);
+        document.documentElement.setAttribute('data-bs-theme', resolvedTheme);
+        
+        // Update icon based on stored theme (not resolved) to show user's selection
         if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
         else themeIcon.className = 'mdi mdi-desktop-classic';

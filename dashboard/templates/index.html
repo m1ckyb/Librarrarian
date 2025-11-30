@@ -294,7 +294,7 @@
                                             <label class="form-label"><strong>Monitored Libraries</strong></label>
                                             <div class="form-check form-switch float-end">
                                                 <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
-                                                <label class="form-check-label" for="plex-show-hidden-toggle">Show Hidden</label>
+                                                <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
                                             </div>
                                             <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;"></div>
                                         </div>
@@ -305,7 +305,7 @@
                                     <label class="form-label"><strong>Monitored Folders</strong></label>
                                     <div class="form-check form-switch float-end">
                                         <input class="form-check-input" type="checkbox" role="switch" id="internal-show-hidden-toggle">
-                                        <label class="form-check-label" for="internal-show-hidden-toggle">Show Hidden</label>
+                                        <label class="form-check-label" for="internal-show-hidden-toggle">Show Ignored</label>
                                     </div>
                                     <p class="form-text text-body-secondary">Select which folders inside your main <code>/media</code> directory you want to scan.</p>
                                     <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
@@ -573,6 +573,18 @@
                     <div class="p-3 border rounded mb-4">
                         {% if settings.get('sonarr_enabled', {}).get('setting_value') == 'true' %}
                             <h5>Sonarr Tools</h5>
+                            <!-- Sonarr Stats Cards -->
+                            <div class="row text-center g-3 mb-3" id="sonarr-stats-container">
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="sonarr-stat-shows">-</h5><p class="card-text text-muted small mb-0">TV Shows</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="sonarr-stat-seasons">-</h5><p class="card-text text-muted small mb-0">Seasons</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="sonarr-stat-episodes">-</h5><p class="card-text text-muted small mb-0">Episodes</p>
+                                </div></div></div>
+                            </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
                             <div class="d-flex justify-content-start align-items-center mb-3">
                                 <button id="sonarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
@@ -617,6 +629,12 @@
                     <div class="p-3 border rounded mb-4">
                         {% if settings.get('radarr_enabled', {}).get('setting_value') == 'true' %}
                             <h5>Radarr Tools</h5>
+                            <!-- Radarr Stats Cards -->
+                            <div class="row text-center g-3 mb-3" id="radarr-stats-container">
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="radarr-stat-movies">-</h5><p class="card-text text-muted small mb-0">Total Movies</p>
+                                </div></div></div>
+                            </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Radarr instance.</p>
                             <div class="d-flex justify-content-start align-items-center mb-3">
                                 <button id="radarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
@@ -648,6 +666,18 @@
                     <div class="p-3 border rounded mb-4">
                         {% if settings.get('lidarr_enabled', {}).get('setting_value') == 'true' %}
                             <h5>Lidarr Tools</h5>
+                            <!-- Lidarr Stats Cards -->
+                            <div class="row text-center g-3 mb-3" id="lidarr-stats-container">
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="lidarr-stat-artists">-</h5><p class="card-text text-muted small mb-0">Artists</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="lidarr-stat-albums">-</h5><p class="card-text text-muted small mb-0">Albums</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="lidarr-stat-tracks">-</h5><p class="card-text text-muted small mb-0">Tracks</p>
+                                </div></div></div>
+                            </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Lidarr instance.</p>
                             <div class="d-flex justify-content-start align-items-center mb-3">
                                 <button id="lidarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
