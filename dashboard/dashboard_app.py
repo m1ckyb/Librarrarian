@@ -1313,7 +1313,7 @@ def arr_background_thread():
             scan_thread = threading.Thread(target=run_lidarr_rename_scan)
             scan_thread.start()
 
-        time.sleep(0.1)  # Short sleep to prevent busy-waiting, check events quickly
+        time.sleep(0.5)  # Check events every 500ms for good responsiveness without high CPU usage
 
 def run_sonarr_rename_scan():
     """
