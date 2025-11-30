@@ -24,3 +24,6 @@ COPY worker/transcode.py .
 
 # Copy the centralized version file
 COPY VERSION.txt .
+
+# The command to run the application
+CMD ["python3", "transcode.py"]
