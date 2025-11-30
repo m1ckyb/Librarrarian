@@ -13,10 +13,29 @@
             display: flex;
             flex-direction: column;
         }
+        /* Dev Mode Banner */
+        .dev-mode-banner {
+            position: fixed;
+            top: 25px;
+            left: -50px;
+            background-color: #ffc107; /* Bootstrap 'warning' yellow */
+            color: #000;
+            padding: 5px 50px;
+            transform: rotate(-45deg);
+            font-weight: bold;
+            font-size: 0.8rem;
+            text-align: center;
+            z-index: 1056; /* Higher than modals */
+            box-shadow: 0 4px 8px rgba(0,0,0,0.2);
+            border: 1px solid rgba(0,0,0,0.2);
+        }
     </style>
 {% endblock %}
 
 {% block page_title %}
+    {% if devmode %}
+        <div class="dev-mode-banner">DEV MODE</div>
+    {% endif %}
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center">
             <img src="{{ url_for('static', filename='logo.png') }}" alt="CodecShift Logo" style="height: 40px;" class="me-3">
@@ -41,7 +60,7 @@
                     &times;
                 </button>
             </div>
-            {% if auth_enabled and user_name %}
+            {% if auth_enabled and user_name and not devmode %}
                 <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-3">Logout</a>
                 <span class="navbar-text">{{ greeting }}, <strong>{{ user_name }}</strong></span>
             {% endif %}
@@ -63,10 +82,16 @@
                 <button class="nav-link" id="history-stats-tab" data-bs-toggle="tab" data-bs-target="#history-stats-tab-pane" type="button" role="tab">History & Stats</button>
             </li>
             <li class="nav-item" role="presentation">
-                <button class="nav-link" id="cleanup-tab" data-bs-toggle="tab" data-bs-target="#cleanup-tab-pane" type="button" role="tab">Cleanup</button>
+                <button class="nav-link" id="tools-tab" data-bs-toggle="tab" data-bs-target="#tools-tab-pane" type="button" role="tab">Tools</button>
             </li>
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="options-tab" data-bs-toggle="tab" data-bs-target="#options-tab-pane" type="button" role="tab">Options</button>
+            </li>
+            <li class="nav-item ms-auto d-flex align-items-center d-none" id="advanced-switch-container">
+                 <div class="form-check form-switch">
+                    <input class="form-check-input" type="checkbox" role="switch" id="show-advanced-transcoding">
+                    <label class="form-check-label" for="show-advanced-transcoding">Show Advanced Options</label>
+                </div>
             </li>
         </ul>
 
@@ -283,11 +308,84 @@
                                     <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
                                 </div>
                                 <!-- Sonarr Tab -->
-                                <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Sonarr integration will be available in a future version.</p></div>
+                                <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel">
+                                    <div class="form-check form-switch mb-3">
+                                        {% set sonarr_enabled = settings.get('sonarr_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_enabled" name="sonarr_enabled" value="true" {{ 'checked' if sonarr_enabled }}>
+                                        <label class="form-check-label" for="sonarr_enabled"><strong>Enable Sonarr Integration</strong></label>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label for="sonarr_host" class="form-label"><strong>Sonarr Host URL</strong></label>
+                                            <input type="text" class="form-control" id="sonarr_host" name="sonarr_host" value="{{ settings.get('sonarr_host', {}).get('setting_value', '') }}" placeholder="http://sonarr:8989">
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="sonarr_api_key" class="form-label"><strong>API Key</strong></label>
+                                            <input type="password" class="form-control" id="sonarr_api_key" name="sonarr_api_key" value="{{ settings.get('sonarr_api_key', {}).get('setting_value', '') }}">
+                                        </div>
+                                        <div class="col-md-4">
+                                            {# Convert stored minutes to hours for the slider #}
+                                            {% set rescan_hours = (settings.get('sonarr_rescan_minutes', {}).get('setting_value', '60') | int) / 60 %}
+                                            <label for="sonarr_rescan_hours" class="form-label"><strong>Rescan Time: <span id="sonarr-rescan-value">{{ rescan_hours | round | int }}</span> hr(s)</strong></label>
+                                            <input type="range" class="form-range" id="sonarr_rescan_hours" name="sonarr_rescan_hours" min="1" max="24" step="1" value="{{ rescan_hours | round | int }}">
+                                        </div>
+                                    </div>
+                                    <div class="form-check form-switch my-3">
+                                        {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
+                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Automatic Scanning</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically run the 'Scan for Renames' and 'Scan for Quality Mismatches' functions at the specified interval.</p>
+                                    </div>
+                                    <div class="form-check form-switch mt-3">
+                                        {% set sonarr_send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_send_to_queue" name="sonarr_send_to_queue" value="true" {{ 'checked' if sonarr_send_to_queue }}>
+                                        <label class="form-check-label" for="sonarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue. When processed, the dashboard makes the necessary API calls to Sonarr to perform the rename. If disabled, this feature does nothing.</p>
+                                    </div>
+
+                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <div id="sonarr-test-status" class="mt-2"></div>
+                                </div>
                                 <!-- Radarr Tab -->
-                                <div class="tab-pane fade" id="radarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Radarr integration will be available in a future version.</p></div>
+                                <div class="tab-pane fade" id="radarr-integration-pane" role="tabpanel">
+                                    <div class="form-check form-switch mb-3">
+                                        {% set radarr_enabled = settings.get('radarr_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="radarr_enabled" name="radarr_enabled" value="true" {{ 'checked' if radarr_enabled }}>
+                                        <label class="form-check-label" for="radarr_enabled"><strong>Enable Radarr Integration</strong></label>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label for="radarr_host" class="form-label"><strong>Radarr Host URL</strong></label>
+                                            <input type="text" class="form-control" id="radarr_host" name="radarr_host" value="{{ settings.get('radarr_host', {}).get('setting_value', '') }}" placeholder="http://radarr:7878">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="radarr_api_key" class="form-label"><strong>API Key</strong></label>
+                                            <input type="password" class="form-control" id="radarr_api_key" name="radarr_api_key" value="{{ settings.get('radarr_api_key', {}).get('setting_value', '') }}">
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('radarr')">Test Connection</button>
+                                    <div id="radarr-test-status" class="mt-2"></div>
+                                </div>
                                 <!-- Lidarr Tab -->
-                                <div class="tab-pane fade" id="lidarr-integration-pane" role="tabpanel"><p class="text-muted p-3">Lidarr integration will be available in a future version.</p></div>
+                                <div class="tab-pane fade" id="lidarr-integration-pane" role="tabpanel">
+                                    <div class="form-check form-switch mb-3">
+                                        {% set lidarr_enabled = settings.get('lidarr_enabled', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="lidarr_enabled" name="lidarr_enabled" value="true" {{ 'checked' if lidarr_enabled }}>
+                                        <label class="form-check-label" for="lidarr_enabled"><strong>Enable Lidarr Integration</strong></label>
+                                    </div>
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label for="lidarr_host" class="form-label"><strong>Lidarr Host URL</strong></label>
+                                            <input type="text" class="form-control" id="lidarr_host" name="lidarr_host" value="{{ settings.get('lidarr_host', {}).get('setting_value', '') }}" placeholder="http://lidarr:8686">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label for="lidarr_api_key" class="form-label"><strong>API Key</strong></label>
+                                            <input type="password" class="form-control" id="lidarr_api_key" name="lidarr_api_key" value="{{ settings.get('lidarr_api_key', {}).get('setting_value', '') }}">
+                                        </div>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')">Test Connection</button>
+                                    <div id="lidarr-test-status" class="mt-2"></div>
+                                </div>
                             </div>
                         </div>
                         <!-- Path Mappings -->
@@ -321,10 +419,18 @@
                                 </div>
                             </div>
                         </div>
+
                         <!-- Rescan Delay Setting -->
                         <div class="row">
                             <!-- Left Column -->
                             <div class="col-md-6">
+                                <div class="mb-3 p-3 border rounded">
+                                    <h5>UI Options</h5>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="clock-24hr" name="clock_24hr" value="true" {{ 'checked' if settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true' }}>
+                                        <label class="form-check-label" for="clock-24hr">Use 24-Hour Clock</label>
+                                    </div>
+                                </div>
                                 <h5>File Handling</h5>
                                 <div class="mb-3 p-3 border rounded">
                                     <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
@@ -393,37 +499,39 @@
                             </div>
                         </div>
                         <hr class="my-4">
-                        <h5>Advanced Transcoding Settings</h5>
-                        <div class="row">
-                            <div class="col-md-6">
-                                <div class="mb-3 p-3 border rounded">
-                                    <label class="form-label"><strong>Constant Quality (CQ / CRF)</strong></label>
-                                    <p class="form-text text-body-secondary">Lower is higher quality. NVENC: 0-51. VAAPI/CPU: 0-63.</p>
-                                    <div class="input-group input-group-sm mb-2">
-                                        <span class="input-group-text" style="width: 120px;">NVIDIA (HD)</span>
-                                        <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('setting_value', 32) }}">
-                                        <span class="input-group-text" style="width: 120px;">NVIDIA (SD)</span>
-                                        <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('setting_value', 28) }}">
-                                    </div>
-                                    <div class="input-group input-group-sm mb-2">
-                                        <span class="input-group-text" style="width: 120px;">Intel/AMD (HD)</span>
-                                        <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('setting_value', 28) }}">
-                                        <span class="input-group-text" style="width: 120px;">Intel/AMD (SD)</span>
-                                        <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('setting_value', 24) }}">
-                                    </div>
-                                    <div class="input-group input-group-sm">
-                                        <span class="input-group-text" style="width: 120px;">CPU (HD)</span>
-                                        <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('setting_value', 28) }}">
-                                        <span class="input-group-text" style="width: 120px;">CPU (SD)</span>
-                                        <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('setting_value', 24) }}">
+                        <div id="advanced-transcoding-section" class="d-none">
+                            <h5>Advanced Transcoding Settings</h5>
+                            <div class="row">
+                                <div class="col-md-6">
+                                    <div class="mb-3 p-3 border rounded">
+                                        <label class="form-label"><strong>Constant Quality (CQ / CRF)</strong></label>
+                                        <p class="form-text text-body-secondary">Lower is higher quality. NVENC: 0-51. VAAPI/CPU: 0-63.</p>
+                                        <div class="input-group input-group-sm mb-2">
+                                            <span class="input-group-text" style="width: 120px;">NVIDIA (HD)</span>
+                                            <input type="number" class="form-control" name="nvenc_cq_hd" value="{{ settings.get('nvenc_cq_hd', {}).get('setting_value', 32) }}">
+                                            <span class="input-group-text" style="width: 120px;">NVIDIA (SD)</span>
+                                            <input type="number" class="form-control" name="nvenc_cq_sd" value="{{ settings.get('nvenc_cq_sd', {}).get('setting_value', 28) }}">
+                                        </div>
+                                        <div class="input-group input-group-sm mb-2">
+                                            <span class="input-group-text" style="width: 120px;">Intel/AMD (HD)</span>
+                                            <input type="number" class="form-control" name="vaapi_cq_hd" value="{{ settings.get('vaapi_cq_hd', {}).get('setting_value', 28) }}">
+                                            <span class="input-group-text" style="width: 120px;">Intel/AMD (SD)</span>
+                                            <input type="number" class="form-control" name="vaapi_cq_sd" value="{{ settings.get('vaapi_cq_sd', {}).get('setting_value', 24) }}">
+                                        </div>
+                                        <div class="input-group input-group-sm">
+                                            <span class="input-group-text" style="width: 120px;">CPU (HD)</span>
+                                            <input type="number" class="form-control" name="cpu_cq_hd" value="{{ settings.get('cpu_cq_hd', {}).get('setting_value', 28) }}">
+                                            <span class="input-group-text" style="width: 120px;">CPU (SD)</span>
+                                            <input type="number" class="form-control" name="cpu_cq_sd" value="{{ settings.get('cpu_cq_sd', {}).get('setting_value', 24) }}">
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
-                            <div class="col-md-6">
-                                <div class="mb-3 p-3 border rounded">
-                                    <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
-                                    <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
-                                    <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('setting_value', 1900) }}">                                    
+                                <div class="col-md-6">
+                                    <div class="mb-3 p-3 border rounded">
+                                        <label for="cq_width_threshold" class="form-label"><strong>HD Width Threshold</strong></label>
+                                        <p class="form-text text-body-secondary">Videos wider than this (in pixels) use the "HD" quality setting.</p>
+                                        <input type="number" class="form-control" id="cq_width_threshold" name="cq_width_threshold" value="{{ settings.get('cq_width_threshold', {}).get('setting_value', 1900) }}">                                    
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -431,17 +539,44 @@
                     </form>
                 </div>
             </div>
-            <!-- Cleanup Tab -->
-            <div class="tab-pane fade" id="cleanup-tab-pane" role="tabpanel">
+            <!-- Tools Tab -->
+            <div class="tab-pane fade" id="tools-tab-pane" role="tabpanel">
                 <div class="mt-3">
                     <div class="d-flex justify-content-between flex-wrap flex-md-nowrap align-items-center pt-3 pb-2 mb-3 border-bottom">
-                        <h1 class="h2">System Cleanup</h1>
+                        <h1 class="h2">Tools</h1>
                     </div>
-                    <p>This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers.</p>
-                    <p>This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
-                    <button class="btn btn-warning" id="create-cleanup-jobs-btn">Queue Stale File Cleanup</button>
-                    <div id="cleanup-status" class="mt-3">
-                        <!-- Status messages will appear here -->
+
+                    <!-- Sonarr Tools Section -->
+                    <div class="p-3 border rounded mb-4">
+                        {% if settings.get('sonarr_enabled', {}).get('setting_value') == 'true' %}
+                            <h5>Sonarr Tools</h5>
+                            <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
+                            <div class="btn-group" role="group">
+                                <button type="button" class="btn btn-secondary" id="manual-sonarr-scan-btn" title="Scans your library for files that do not match Sonarr's naming standard.">
+                                    <span class="mdi mdi-sync"></span> 
+                                    <span id="manual-sonarr-scan-btn-text">Scan for Renames</span>
+                                </button>
+                                <button type="button" class="btn btn-secondary" id="manual-quality-scan-btn" title="Scans your library for episodes that do not meet their series' quality profile.">
+                                    <span class="mdi mdi-quality-high"></span>
+                                    <span>Scan for Quality Mismatches</span>
+                                </button>
+                            </div>
+                            <div id="sonarr-scan-status" class="mt-3"></div>
+                        {% else %}
+                            <h5>Sonarr Tools <span class="badge bg-secondary">Disabled</span></h5>
+                            <p class="form-text text-body-secondary">
+                                To use these tools, please 
+                                <a href="#" id="enable-sonarr-link">enable the Sonarr integration in the Options tab</a>.
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <!-- System Cleanup Section -->
+                    <div class="p-3 border rounded mb-4">
+                        <h5>System Cleanup</h5>
+                        <p class="form-text text-body-secondary">This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers. This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
+                        <button class="btn btn-warning" id="create-cleanup-jobs-btn">Queue Stale File Cleanup</button>
+                        <div id="cleanup-status" class="mt-3"></div>
                     </div>
                 </div>
             </div>
@@ -551,13 +686,6 @@
                 const failCountBadge = document.getElementById('fail-count-badge');
                 const viewErrorsBtn = document.getElementById('view-errors-btn');
                 failCountBadge.innerText = failCount;
-                failCountBadge.classList.remove('text-bg-light', 'text-bg-dark'); // Reset badge color
-                
-                // Update clock
-                const clockContainer = document.getElementById('clock-container');
-                if (clockContainer) {
-                    clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${new Date().toLocaleTimeString()}</span>`;
-                }
                 
                 // Update View Errors button color
                 // Remove all potential color classes first
@@ -680,21 +808,79 @@
             }
         });
 
-        // Main update loop that runs every 5 seconds
+        async function pollScanProgress() {
+            if (!isPollingForScan) return;
+
+            try {
+                const response = await fetch('/api/scan/progress');
+                const data = await response.json();
+                const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
+
+                if (data.is_running) {
+                    const elapsed = Math.round((Date.now() - scanStartTime) / 1000);
+                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+                    sonarrScanStatusDiv.innerHTML = `
+                        <div class="progress" style="height: 20px;">
+                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
+                        </div>
+                        <div class="mt-1">
+                            <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
+                        </div>
+                    `;
+                } else {
+                    // Scan is finished
+                    isPollingForScan = false;
+                    const finalMessage = data.current_step || "Scan finished.";
+                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-success">${finalMessage}</div>`;
+                    revertActiveButton();
+                    // Refresh job queue to see results of scan
+                    if (document.querySelector('#jobs-tab.active')) {
+                        updateJobQueue();
+                    }
+                }
+            } catch (error) {
+                console.error("Error polling for scan progress:", error);
+                isPollingForScan = false;
+                revertActiveButton();
+            }
+        }
+
+        // Main data update loop. Fetches node status and other data.
         async function mainUpdateLoop() {
-            // Always update the main status (nodes, failures, clock)
             await updateStatus();
 
             // Check which tab is active and update its content if needed
             if (document.querySelector('#history-stats-tab.active')) {
                 await updateHistoryAndStats();
             }
-
-            // Update job queue if its tab is active
             if (document.querySelector('#jobs-tab.active')) {
                 await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
             }
         }
+
+        // --- Independent, Non-Blocking Timers ---
+        // This is the correct pattern to prevent UI freezes.
+
+        // --- Clock Settings (Global) ---
+        window.AppSettings = {
+            use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }}
+        };
+
+        // 1. A dedicated, lightweight timer for the clock. It does nothing else.
+        setInterval(() => {
+            const clockContainer = document.getElementById('clock-container');
+            const timeOptions = {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                hour12: !window.AppSettings.use24HourClock
+            };
+            const timeString = new Date().toLocaleTimeString([], timeOptions);
+            if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
+        }, 1000); // Runs every second.
+
+        // 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
+        setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls every second
 
         // Run initial update on page load
         updateStatus();
@@ -1077,6 +1263,57 @@
     </script>
     <script>
         document.addEventListener('DOMContentLoaded', () => {
+            const enableSonarrLink = document.getElementById('enable-sonarr-link');
+            if (enableSonarrLink) {
+                enableSonarrLink.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    // Use bootstrap's API to show the main options tab
+                    const optionsTabTrigger = document.getElementById('options-tab');
+                    const tab = new bootstrap.Tab(optionsTabTrigger);
+                    tab.show();
+
+                    // Once the main tab is shown, show the sonarr sub-tab
+                    optionsTabTrigger.addEventListener('shown.bs.tab', () => {
+                        const sonarrSubTabTrigger = document.getElementById('sonarr-integration-tab');
+                        const subTab = new bootstrap.Tab(sonarrSubTabTrigger);
+                        subTab.show();
+                    }, { once: true }); // Use 'once' so this listener only fires once
+                });
+            }
+
+            const mainTabs = document.querySelector('#mainTabs');
+            const advancedSwitchContainer = document.querySelector('#advanced-switch-container');
+
+            if (mainTabs && advancedSwitchContainer) {
+                mainTabs.addEventListener('shown.bs.tab', function (event) {
+                    if (event.target.id === 'options-tab') {
+                        advancedSwitchContainer.classList.remove('d-none');
+                    } else {
+                        advancedSwitchContainer.classList.add('d-none');
+                    }
+                });
+            }
+
+            const showAdvancedSwitch = document.getElementById('show-advanced-transcoding');
+            const advancedSection = document.getElementById('advanced-transcoding-section');
+
+            if (showAdvancedSwitch && advancedSection) {
+                showAdvancedSwitch.addEventListener('change', (event) => {
+                    if (event.target.checked) {
+                        advancedSection.classList.remove('d-none');
+                    } else {
+                        advancedSection.classList.add('d-none');
+                    }
+                });
+            }
+
+            const clockToggle = document.getElementById('clock-24hr');
+            if (clockToggle) {
+                clockToggle.addEventListener('change', (event) => {
+                    window.AppSettings.use24HourClock = event.target.checked;
+                });
+            }
+
             // Function to send the 'quit' command to a node
             window.quitNode = async function(hostname) {
                 if (!confirm(`Are you sure you want to QUIT the worker on '${hostname}'? This will stop the process immediately. The container will likely restart based on Docker policy.`)) {
@@ -1096,6 +1333,8 @@
                     console.error('Error quitting node:', error);
                 }
             }
+
+
 
             // Slider logic
             const delaySlider = document.getElementById('rescan_delay_minutes');
@@ -1180,18 +1419,31 @@
                 const listContainer = document.getElementById(listContainerId);
 
                 const applyVisibility = () => {
+                    if (!listContainer) return;
                     const showHidden = toggle.checked;
                     listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        const isItemHidden = item.dataset.isHidden === 'true';
-                        if (isItemHidden && !showHidden) {
+                        // Check the state of the "Hide" switch inside the item
+                        const hideSwitch = item.querySelector('input[type="checkbox"][role="switch"]');
+                        const isHidden = hideSwitch ? hideSwitch.checked : (item.dataset.isHidden === 'true');
+                        
+                        if (isHidden && !showHidden) {
                             item.style.display = 'none';
                         } else {
                             item.style.display = 'flex';
                         }
                     });
                 };
+
                 toggle.addEventListener('change', applyVisibility);
-                // Return the function so it can be called after loading
+
+                // Also listen for changes on any of the hide switches within the list
+                listContainer.addEventListener('change', (e) => {
+                    if (e.target.matches('input[type="checkbox"][role="switch"]')) {
+                        applyVisibility();
+                    }
+                });
+
+                // Return the function so it can be called after loading to set the initial state
                 return applyVisibility;
             }
             const applyPlexVisibility = setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
@@ -1205,7 +1457,7 @@
                     'show': 'TV Show',
                     'music': 'Music',
                     'other': 'Other Videos',
-                    'none': 'None (Hide)'
+                    'none': 'None (Ignore)'
                 };
                 const createDropdown = (name, plexType, selectedType) => {
                     // Default to music for 'artist', other for 'photo', otherwise use the saved type.
@@ -1236,6 +1488,10 @@
                             </div>
                             <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
+                                <div class="form-check form-switch ms-3">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="hide_plex_${lib.title}" ${lib.is_hidden ? 'checked' : ''}>
+                                    <label class="form-check-label">Hide</label>
+                                </div>
                             </div>
                         </div>
                     `).join('');
@@ -1260,7 +1516,7 @@
                     'show': 'TV Show',
                     'music': 'Music',
                     'other': 'Other Videos',
-                    'none': 'None (Hide)'
+                    'none': 'None (Ignore)'
                 };
                 const createDropdown = (name, selectedType) => {
                     const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
@@ -1281,6 +1537,10 @@
                             </div>
                             <div class="ms-auto d-flex align-items-center me-2">
                                 ${createDropdown(`type_internal_${item.name}`, item.type)}
+                                <div class="form-check form-switch ms-3">
+                                    <input class="form-check-input" type="checkbox" role="switch" name="hide_internal_${item.name}" ${item.is_hidden ? 'checked' : ''}>
+                                    <label class="form-check-label">Hide</label>
+                                </div>
                             </div>
                         </div>
                     `).join('');
@@ -1366,7 +1626,7 @@
                 document.getElementById('plex_path_to').disabled = !isEnabled;
             });
 
-            handleScannerChange(); // Run on page load to set initial state
+            handleScannerChange(); // Run on initial script execution to set the correct state
 
             // --- Manual Plex Scan Logic ---
             const manualScanBtn = document.getElementById('manual-scan-btn');
@@ -1394,7 +1654,120 @@
                 }
             });
 
+            // --- Sonarr Options Logic ---
+            const manualSonarrScanBtn = document.getElementById('manual-sonarr-scan-btn');
+            const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
+            const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
+            const sonarrStatusDiv = document.getElementById('sonarr-test-status');
+            const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
+            const rescanValueSpan = document.getElementById('sonarr-rescan-value');
+
+            // This element might not exist if the user has old settings, so check for it.
+            const sonarrRescanSlider = document.getElementById('sonarr_rescan_hours');
+            if (sonarrRescanSlider) {
+                sonarrRescanSlider.addEventListener('input', (event) => { rescanValueSpan.textContent = event.target.value; });
+            }
+
+
+            function updateSonarrButtonText() {
+                manualScanBtnText.innerText = sendToQueueSwitch.checked ? 'Scan for Rename Jobs' : 'Trigger Sonarr Import';
+            }
+            sendToQueueSwitch.addEventListener('change', updateSonarrButtonText);
+            updateSonarrButtonText(); // Set initial text
+
+            // --- Unified Sonarr Scanner Function ---
+            let activeButton = null; // Keep track of which button is active
+            let isPollingForScan = false; // Global flag to indicate if we should poll
+            let scanStartTime = null; // To track elapsed time
+
+            async function triggerSonarrScan(button, endpoint) {
+                button.disabled = true;
+                button.querySelector('.mdi').classList.add('mdi-spin');
+                sonarrScanStatusDiv.innerHTML = '';
+
+                try {
+                    const response = await fetch(endpoint, { method: 'POST' });
+                    const data = await response.json();
+
+                    if (data.success) {
+                        // --- Change to Cancel Button ---
+                        activeButton = button;
+                        button.classList.remove('btn-secondary');
+                        button.classList.add('btn-danger');
+                        button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
+                        button.dataset.action = 'cancel';
+                        button.disabled = false; // Re-enable as a cancel button
+                        button.querySelector('.mdi').classList.remove('mdi-spin');
+                        scanStartTime = Date.now();
+                        isPollingForScan = true; 
+                    } else {
+                        sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
+                        button.disabled = false;
+                        button.querySelector('.mdi').classList.remove('mdi-spin');
+                    }
+                } catch (error) {
+                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    button.disabled = false;
+                    button.querySelector('.mdi').classList.remove('mdi-spin');
+                }
+            }
+
+            function revertActiveButton() {
+                if (activeButton) {
+                    activeButton.classList.remove('btn-danger');
+                    activeButton.classList.add('btn-secondary');
+                    const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
+                    const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
+                    activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
+                    activeButton.dataset.action = 'scan';
+                    activeButton.disabled = false; // Ensure it's re-enabled
+                    activeButton = null;
+                }
+            }
+
+            // A single handler for all Sonarr scan buttons
+            function handleSonarrButtonClick(event) {
+                const button = event.currentTarget;
+                const action = button.dataset.action || 'scan';
+                event.preventDefault(); // Prevent any default behavior
+
+                if (action === 'scan') {
+                    if (isPollingForScan) return; // Don't start a new scan if one is running
+                    const endpoint = button.id === 'manual-sonarr-scan-btn' ? '/api/scan/rename' : '/api/scan/quality';
+                    triggerSonarrScan(button, endpoint);
+                } else if (action === 'cancel') {
+                    fetch('/api/scan/cancel', { method: 'POST' });
+                }
+            }
+
+            manualSonarrScanBtn.addEventListener('click', handleSonarrButtonClick);
+            document.getElementById('manual-quality-scan-btn').addEventListener('click', handleSonarrButtonClick);
+
             // --- Release Cleanup Jobs Logic ---
+            // --- *Arr Integration Enable/Disable Logic ---
+            function setupArrToggle(arrType) {
+                const enableToggle = document.getElementById(`${arrType}_enabled`);
+                const integrationPane = document.getElementById(`${arrType}-integration-pane`);
+                if (!enableToggle || !integrationPane) return;
+
+                const inputs = integrationPane.querySelectorAll('input:not([type=checkbox]), select, button, input[type=range]');
+
+                function updateInputsState() {
+                    inputs.forEach(input => {
+                        if (input.id !== `${arrType}_enabled`) input.disabled = !enableToggle.checked;
+                    });
+                    // Special handling for Sonarr tools
+                    if (arrType === 'sonarr') {
+                        const renameBtn = document.getElementById('manual-sonarr-scan-btn');
+                        const qualityBtn = document.getElementById('manual-quality-scan-btn');
+                        if (renameBtn && qualityBtn) [renameBtn, qualityBtn].forEach(btn => btn.disabled = !enableToggle.checked);
+                    }
+                }
+                enableToggle.addEventListener('change', updateInputsState);
+                updateInputsState(); // Set initial state on page load
+            }
+            ['sonarr', 'radarr', 'lidarr'].forEach(setupArrToggle);
+
             const releaseSelectedBtn = document.getElementById('release-selected-btn');
             const releaseAllBtn = document.getElementById('release-all-btn');
 
@@ -1474,6 +1847,34 @@
                     alert('An error occurred while trying to toggle the queue state.');
                 }
             });
+
+            // --- *Arr Connection Test Logic ---
+            window.testArrConnection = async function(arrType) {
+                const host = document.getElementById(`${arrType}_host`).value;
+                const apiKey = document.getElementById(`${arrType}_api_key`).value;
+                const statusDiv = document.getElementById(`${arrType}-test-status`);
+
+                if (!host || !apiKey) {
+                    statusDiv.innerHTML = `<div class="alert alert-warning">Host and API Key are required.</div>`;
+                    return;
+                }
+
+                statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing...`;
+
+                try {
+                    const response = await fetch(`/api/arr/test`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ arr_type: arrType, host: host, api_key: apiKey })
+                    });
+                    const data = await response.json();
+                    const alertClass = data.success ? 'alert-success' : 'alert-danger';
+                    statusDiv.innerHTML = `<div class="alert ${alertClass}">${data.message}</div>`;
+                } catch (error) {
+                    console.error(`Error testing ${arrType} connection:`, error);
+                    statusDiv.innerHTML = `<div class="alert alert-danger">An error occurred while communicating with the server.</div>`;
+                }
+            }
         });
     </script>
     <script>

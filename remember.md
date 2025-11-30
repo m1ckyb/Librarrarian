@@ -12,6 +12,7 @@ When a new chat session begins, I must first read the following files to establi
 2.  `README.md` (for project overview and deployment instructions)
 3.  `summary.md` (for a high-level feature summary)
 4.  `CHANGELOG.md` (for recent changes and version history)
+5.  `unreleased.md` (for upcoming changes and known bugs)
 
 This ensures all subsequent responses are informed by the full project context.
 
@@ -136,15 +137,17 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 
 2.  **Update `CHANGELOG.md`**:
     *   Create a new version heading with the new version number and current date (e.g., `## [1.0.0] - YYYY-MM-DD - Release Name`).
-    *   Move all content from `UNRELEASED.md` into this new section.
+    *   Move all content from `unreleased.md` into this new section.
     *   Ensure the formatting is correct and consistent with previous entries.
     *   **Do not** add an `[Unreleased]` section back to the top of `CHANGELOG.md`. This file should only contain released versions.
 
-3.  **Clear `UNRELEASED.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
+3.  **Clear `unreleased.md`**: After moving the content, reset `unreleased.md` to its default empty state, ready for the next development cycle.
 
 4.  **Update `VERSION.txt`**: Change the content of `VERSION.txt` to the new version number.
 
-5.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
+5.  **Update `docker-compose.yml`**: Update the `image` tags for the `dashboard` and `worker` services to the new version number.
+
+6.  **Update `README.md` and `summary.md`**: Review both files to see if any of the new features or significant changes from the changelog need to be reflected in the project overview or feature list. Update them as necessary.
 
 ---
 
@@ -157,3 +160,4 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 ## Agent Capabilities & Limitations
 
 *   **Shell Access**: I do not have direct access to the user's shell. I cannot run commands like `docker-compose`, `git`, or other command-line tools myself. I must always ask the user to run these commands and provide the output if needed.
+*   **File System Access**: I have full read and write access to all files within this project repository. I will make necessary changes directly without asking for permission, as per standing instructions.

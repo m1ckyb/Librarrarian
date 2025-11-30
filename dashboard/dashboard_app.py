@@ -4,7 +4,9 @@ import time
 import threading
 import uuid
 import base64
+import json
 from datetime import datetime
+import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
@@ -15,6 +17,7 @@ try:
     from psycopg2.extras import RealDictCursor
     from authlib.integrations.flask_client import OAuth
     from werkzeug.middleware.proxy_fix import ProxyFix
+    import requests
 except ImportError:
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
@@ -26,6 +29,18 @@ app = Flask(__name__)
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
+
+# --- Custom Logging Filter ---
+# This filter will suppress the noisy GET /api/scan/progress logs from appearing.
+class HealthCheckFilter(logging.Filter):
+    def filter(self, record):
+        # The log message for an access log is in record.args
+        if record.args and len(record.args) >= 3 and isinstance(record.args[2], str):
+            return '/api/scan/progress' not in record.args[2]
+        return True
+
+# Apply the filter to Werkzeug's logger (used by Flask's dev server and Gunicorn)
+logging.getLogger('werkzeug').addFilter(HealthCheckFilter())
 
 # If running behind a reverse proxy, this is crucial for url_for() to generate correct
 # external URLs (e.g., for OIDC redirects).
@@ -46,6 +61,7 @@ def setup_auth(app):
     app.config['OIDC_ENABLED'] = os.environ.get('OIDC_ENABLED', 'false').lower() == 'true'
     app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
     app.config['OIDC_PROVIDER_NAME'] = os.environ.get('OIDC_PROVIDER_NAME')
+    app.config['DEVMODE'] = os.environ.get('DEVMODE', 'false').lower() == 'true'
 
     if not app.config['AUTH_ENABLED']:
         return # Do nothing if auth is disabled
@@ -81,6 +97,15 @@ def setup_auth(app):
     @app.before_request
     def require_login():
         """Protects all routes by requiring login if authentication is enabled."""
+        # --- Dev Mode Bypass ---
+        # If dev mode is on, bypass authentication for local network requests.
+        if app.config.get('DEVMODE'):
+            remote_ip = request.remote_addr
+            if remote_ip and (remote_ip == '127.0.0.1' or remote_ip.startswith('192.168.') or remote_ip.startswith('172.')):
+                # In dev mode, we can create a dummy session for a better UI experience
+                if 'user' not in session:
+                    session['user'] = {'name': 'Dev User'}
+                return # Bypass further auth checks
         if not app.config.get('AUTH_ENABLED'):
             return
 
@@ -122,7 +147,8 @@ def setup_auth(app):
             user_name=user_name, 
             greeting=greeting,
             oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'),
-            version=get_project_version()
+            version=get_project_version(),
+            devmode=app.config.get('DEVMODE', False)
         )
 
 # Initialize authentication
@@ -147,7 +173,7 @@ print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 5
+TARGET_SCHEMA_VERSION = 6
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -178,7 +204,11 @@ MIGRATIONS = {
     # Version 5: Add 'is_hidden' flag to media sources
     5: [
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS is_hidden BOOLEAN DEFAULT false;"
-    ]
+    ],
+    # Version 6: Add metadata column for advanced job types like renaming
+    6: [
+        "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS metadata JSONB;"
+    ],
 }
 
 def run_migrations():
@@ -250,18 +280,19 @@ def close_db(error):
 def init_db():
     """Initializes the database and creates all necessary tables if they don't exist."""
     conn = get_db()
+    print("Running database initialisation...")
     if not conn:
         print("DB Init Error: Could not connect to database.")
         return
 
     with conn.cursor() as cur:
-        # Renamed from active_nodes to nodes for clarity
         cur.execute("""
             CREATE TABLE IF NOT EXISTS nodes (
                 id SERIAL PRIMARY KEY,
                 hostname VARCHAR(255) UNIQUE NOT NULL,
                 status VARCHAR(50),
                 last_heartbeat TIMESTAMP,
+                connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
                 version VARCHAR(50),
                 version_mismatch BOOLEAN DEFAULT false,
                 command VARCHAR(50) DEFAULT 'idle',
@@ -270,7 +301,10 @@ def init_db():
                 current_file TEXT
             );
         """)
-        # New table for the job queue
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE nodes TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE nodes_id_seq TO transcode;")
+        cur.execute("ALTER TABLE nodes OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS jobs (
                 id SERIAL PRIMARY KEY,
@@ -279,9 +313,14 @@ def init_db():
                 status VARCHAR(20) NOT NULL DEFAULT 'pending',
                 assigned_to VARCHAR(255),
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                metadata JSONB
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE jobs TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE jobs_id_seq TO transcode;")
+        cur.execute("ALTER TABLE jobs OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS worker_settings (
                 id SERIAL PRIMARY KEY,
@@ -289,6 +328,10 @@ def init_db():
                 setting_value TEXT
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE worker_settings TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE worker_settings_id_seq TO transcode;")
+        cur.execute("ALTER TABLE worker_settings OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS encoded_files (
                 id SERIAL PRIMARY KEY,
@@ -301,6 +344,10 @@ def init_db():
                 status VARCHAR(20)
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE encoded_files TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE encoded_files_id_seq TO transcode;")
+        cur.execute("ALTER TABLE encoded_files OWNER TO transcode;")
+
         cur.execute("""
             CREATE TABLE IF NOT EXISTS failed_files (
                 id SERIAL PRIMARY KEY,
@@ -310,7 +357,92 @@ def init_db():
                 failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE failed_files TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE failed_files_id_seq TO transcode;")
+        cur.execute("ALTER TABLE failed_files OWNER TO transcode;")
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS media_source_types (
+                id SERIAL PRIMARY KEY,
+                source_name VARCHAR(255) NOT NULL,
+                scanner_type VARCHAR(50) NOT NULL,
+                media_type VARCHAR(50) NOT NULL,
+                is_hidden BOOLEAN DEFAULT false,
+                UNIQUE(source_name, scanner_type)
+            );
+        """)
+        cur.execute("GRANT ALL PRIVILEGES ON TABLE media_source_types TO transcode;")
+        cur.execute("GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO transcode;")
+        cur.execute("ALTER TABLE media_source_types OWNER TO transcode;")
+
+        cur.execute("""
+            INSERT INTO worker_settings (setting_name, setting_value) VALUES
+                ('rescan_delay_minutes', '0'),
+                ('worker_poll_interval', '30'),
+                ('min_length', '0.5'),
+                ('backup_directory', ''),
+                ('hardware_acceleration', 'auto'),
+                ('keep_original', 'false'),
+                ('allow_hevc', 'false'),
+                ('allow_av1', 'false'),
+                ('auto_update', 'false'),
+                ('clean_failures', 'false'),
+                ('debug', 'false'),
+                ('plex_url', ''),
+                ('plex_token', ''),
+                ('plex_libraries', ''),
+                ('nvenc_cq_hd', '32'),
+                ('nvenc_cq_sd', '28'),
+                ('vaapi_cq_hd', '28'),
+                ('vaapi_cq_sd', '24'),
+                ('cpu_cq_hd', '28'),
+                ('cpu_cq_sd', '24'),
+                ('cq_width_threshold', '1900'),
+                ('plex_path_from', ''),
+                ('plex_path_to', ''),
+                ('pause_job_distribution', 'false'),
+                ('plex_path_mapping_enabled', 'true'),
+                ('media_scanner_type', 'plex'),
+                ('internal_scan_paths', ''),
+                ('sonarr_enabled', 'false'),
+                ('radarr_enabled', 'false'),
+                ('lidarr_enabled', 'false')
+            ON CONFLICT (setting_name) DO NOTHING;
+        """)
+
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS schema_version (
+                version INT PRIMARY KEY
+            );
+        """)
+        cur.execute("ALTER TABLE schema_version OWNER TO transcode;")
+
     conn.commit()
+
+def initialize_database_if_needed():
+    """
+    Checks if the database is initialized. If not, runs the full init_db() process.
+    This prevents re-running all CREATE TABLE statements on every startup.
+    """
+    conn = None
+    try:
+        # Use a direct connection to check for initialization before the app context is fully ready.
+        conn = psycopg2.connect(**DB_CONFIG)
+        with conn.cursor() as cur:
+            # Check if a key table (like schema_version) exists.
+            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
+            table_exists = cur.fetchone()[0]
+            
+            if not table_exists:
+                print("First run detected: Database not initialized. Running initial setup...")
+                # We need an app context to call init_db()
+                with app.app_context():
+                    init_db()
+            else:
+                print("Database already initialized. Skipping initial setup.")
+    except Exception as e:
+        print(f"❌ CRITICAL: Could not connect to or initialize the database: {e}")
+        sys.exit(1)
 
 def get_cluster_status():
     """Fetches node and failure data from the database."""
@@ -600,7 +732,9 @@ def logout():
     """Logs the user out."""
     session.pop('user', None)
     if app.config.get('OIDC_ENABLED') and hasattr(app, 'oauth'):
-        return redirect(app.oauth.oidc_provider.server_metadata.get('end_session_endpoint'))
+        logout_url = app.oauth.oidc_provider.server_metadata.get('end_session_endpoint')
+        if logout_url:
+            return redirect(logout_url)
     return redirect(url_for('login'))
 
 @app.route('/options', methods=['POST'])
@@ -634,7 +768,20 @@ def options():
         'plex_path_from': request.form.get('plex_path_from', ''),
         'plex_path_to': request.form.get('plex_path_to', ''),
         'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
+        'sonarr_enabled': 'true' if 'sonarr_enabled' in request.form else 'false',
+        'radarr_enabled': 'true' if 'radarr_enabled' in request.form else 'false',
+        'lidarr_enabled': 'true' if 'lidarr_enabled' in request.form else 'false',
     }
+    # Add the new *Arr settings
+    for arr_type in ['sonarr', 'radarr', 'lidarr']:
+        settings_to_update[f'{arr_type}_host'] = request.form.get(f'{arr_type}_host', '')
+        # Only update the API key if a new value is provided to avoid overwriting with blanks on password fields
+        if request.form.get(f'{arr_type}_api_key'):
+            settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
+    settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
+    # Convert hours from the form back to minutes for storage
+    settings_to_update['sonarr_rescan_minutes'] = str(int(request.form.get('sonarr_rescan_hours', '1')) * 60)
+    settings_to_update['sonarr_auto_scan_enabled'] = 'true' if 'sonarr_auto_scan_enabled' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
@@ -660,7 +807,8 @@ def options():
 
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
-                is_hidden = (media_type == 'none')
+                # A checked checkbox will be in the form, an unchecked one will not.
+                is_hidden = f'hide_plex_{source_name}' in request.form
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'plex', %s, %s)
@@ -669,7 +817,7 @@ def options():
 
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
-                is_hidden = (media_type == 'none')
+                is_hidden = f'hide_internal_{source_name}' in request.form
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'internal', %s, %s)
@@ -695,12 +843,14 @@ def api_settings():
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
-    """Clears all 'pending' jobs from the job_queue table."""
+    """
+    Clears jobs from the queue. This now clears all 'pending' transcode/cleanup jobs
+    and ALL jobs (regardless of status) that are internal-only (Rename, Quality Mismatch).
+    """
     try:
         db = get_db()
         with db.cursor() as cur:
-            # Use DELETE instead of TRUNCATE to preserve the ID sequence and avoid deleting active jobs.
-            cur.execute("DELETE FROM jobs WHERE status = 'pending';")
+            cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
         db.commit()
         return jsonify(success=True, message="Job queue cleared successfully.")
     except Exception as e:
@@ -1093,8 +1243,210 @@ def api_internal_folders():
 
 scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
+sonarr_rename_scan_event = threading.Event()
+sonarr_quality_scan_event = threading.Event()
+scan_cancel_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
+
+# --- Global state for scan progress ---
+scan_progress_state = {
+    "is_running": False, "current_step": "", "total_steps": 0, "progress": 0
+}
+
+def sonarr_background_thread():
+    """Waits for triggers to run Sonarr scans (rename, quality, etc.)."""
+    while True:
+        # Wait for either event to be set. This is a simple polling mechanism.
+        if sonarr_rename_scan_event.wait(timeout=1):
+            sonarr_rename_scan_event.clear() # Clear the event immediately
+            print(f"[{datetime.now()}] Triggering Sonarr rename scan in background thread.")
+            # Run the actual scan in a separate, non-blocking thread
+            scan_thread = threading.Thread(target=run_sonarr_rename_scan)
+            scan_thread.start()
+
+        if sonarr_quality_scan_event.wait(timeout=1):
+            sonarr_quality_scan_event.clear() # Clear the event immediately
+            print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
+            # Run the actual scan in a separate, non-blocking thread
+            scan_thread = threading.Thread(target=run_sonarr_quality_scan)
+            scan_thread.start()
+
+        time.sleep(1) # Prevent a tight loop
+
+def run_sonarr_rename_scan():
+    """
+    Handles Sonarr integration. Can either trigger Sonarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
+    """
+    with app.app_context():
+        # This function is now fully self-contained and runs in its own thread.
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
+            return
+
+        scan_cancel_event.clear() # Ensure cancel flag is down before starting
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
+
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+
+            if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
+                scan_progress_state["current_step"] = "Error: Sonarr integration is disabled."
+                return
+
+            host = settings.get('sonarr_host', {}).get('setting_value')
+            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+            send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
+
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Sonarr is not configured."
+                return
+
+            if not send_to_queue:
+                scan_progress_state["current_step"] = "Scan aborted: 'Send Rename Jobs to Queue' is disabled."
+                return
+
+            print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res.raise_for_status()
+            all_series = series_res.json()
+
+            scan_progress_state["total_steps"] = len(all_series)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0
+
+            for i, series in enumerate(all_series):
+                if scan_cancel_event.is_set():
+                    print("Rename scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
+
+                series_title = series.get('title', 'Unknown Series')
+                scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
+
+                # This is the correct pattern: trigger a scan, then check for results.
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
+                time.sleep(2) # Give Sonarr a moment to process before we query
+                rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                for episode in rename_res.json():
+                    filepath = episode.get('existingPath')
+                    if filepath:
+                        # Add the episodeFileId and seriesId to the metadata for the internal processor
+                        metadata = {
+                            'source': 'sonarr', 
+                            'seriesTitle': series['title'], 
+                            'seasonNumber': episode.get('seasonNumber'), 
+                            'episodeNumber': episode.get('episodeNumbers', [0])[0], 
+                            'episodeTitle': "Episode", 'quality': "N/A",
+                            'episodeFileId': episode.get('episodeFileId'),
+                            'seriesId': series.get('id')
+                        }
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
+
+            conn.commit()
+            message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+
+        except Exception as e:
+            error_message = f"An error occurred during the deep scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            # Wait a moment before clearing the "finished" message from the UI
+            time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            if scanner_lock.locked():
+                scanner_lock.release()
+
+def run_sonarr_quality_scan():
+    """
+    Scans Sonarr for quality mismatches. If a series has a quality profile
+    with a cutoff higher than the quality of an individual episode file,
+    a 'quality_mismatch' job is created for investigation.
+    """
+    with app.app_context():
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
+            return
+
+        scan_cancel_event.clear()
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
+        
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+
+            host = settings.get('sonarr_host', {}).get('setting_value')
+            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Sonarr is not configured."
+                return
+
+            print(f"[{datetime.now()}] Sonarr Quality Scanner: Starting scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+
+            profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
+            profiles_res.raise_for_status()
+            quality_profiles = {p['id']: p for p in profiles_res.json()}
+
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res.raise_for_status()
+            all_series = series_res.json()
+
+            scan_progress_state["total_steps"] = len(all_series)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0
+
+            for i, series in enumerate(all_series):
+                if scan_cancel_event.is_set():
+                    print("Quality scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
+
+                series_title = series.get('title', 'Unknown Series')
+                scan_progress_state.update({"current_step": f"Checking: {series_title}", "progress": i + 1})
+
+                profile = quality_profiles.get(series['qualityProfileId'])
+                if not profile or not profile.get('cutoff'):
+                    continue # Skip series without a valid quality profile or cutoff
+
+                episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=20, verify=False)
+                episodes_res.raise_for_status()
+
+                for episode in episodes_res.json():
+                    if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
+                        filepath = episode['episodeFile']['path']
+                        metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
+
+            conn.commit()
+            message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches."
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+        except Exception as e:
+            error_message = f"An error occurred during the quality scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            time.sleep(10)
+            scan_progress_state["is_running"] = False
+            if scanner_lock.locked():
+                scanner_lock.release()
 
 def run_internal_scan(force_scan=False):
     """
@@ -1245,6 +1597,34 @@ def api_trigger_scan():
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
+@app.route('/api/scan/rename', methods=['POST'])
+def api_trigger_rename_scan():
+    """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
+    if not scanner_lock.locked():
+        sonarr_rename_scan_event.set()
+        return jsonify(success=True, message="Sonarr rename scan has been triggered.")
+    return jsonify(success=False, message="Another scan is already in progress."), 409
+
+@app.route('/api/scan/quality', methods=['POST'])
+def api_trigger_quality_scan():
+    """API endpoint to manually trigger a Sonarr quality mismatch scan."""
+    if scanner_lock.locked():
+        return jsonify({"success": False, "message": "Another scan is already in progress."})
+    sonarr_quality_scan_event.set()
+    return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
+
+@app.route('/api/scan/cancel', methods=['POST'])
+def api_cancel_scan():
+    """API endpoint to signal cancellation of any active Sonarr scan."""
+    print(f"[{datetime.now()}] Scan cancellation requested via API.")
+    scan_cancel_event.set()
+    return jsonify(success=True, message="Scan cancellation signal sent.")
+
+@app.route('/api/scan/progress')
+def api_scan_progress():
+    """Returns the current progress of any active background scan."""
+    return jsonify(scan_progress_state)
+
 def run_cleanup_scan():
     """
     The core logic for scanning the media directory for stale files.
@@ -1340,6 +1720,40 @@ def release_cleanup_jobs():
         print(f"Error releasing cleanup jobs: {e}")
         return jsonify(success=False, error=str(e)), 500
 
+@app.route('/api/arr/test', methods=['POST'])
+def api_arr_test():
+    """Tests the connection to a Sonarr/Radarr/Lidarr instance."""
+    data = request.get_json()
+    arr_type = data.get('arr_type')
+    host = data.get('host')
+    api_key = data.get('api_key')
+
+    if not all([arr_type, host, api_key]):
+        return jsonify(success=False, message="Missing required parameters."), 400
+
+    # Use /api/v3/system/status for modern Sonarr/Radarr, /api/v1 for Lidarr
+    api_version = 'v1' if arr_type == 'lidarr' else 'v3'
+    test_url = f"{host.rstrip('/')}/api/{api_version}/system/status"
+    headers = {'X-Api-Key': api_key}
+
+    try:
+        # Make the request with a timeout and without SSL verification for local setups
+        response = requests.get(test_url, headers=headers, timeout=5, verify=False)
+
+        if response.status_code == 200:
+            # Check for a valid JSON response as an extra verification step
+            response_data = response.json()
+            if 'version' in response_data:
+                return jsonify(success=True, message=f"Success! Connected to {arr_type.capitalize()} version {response_data['version']}.")
+            else:
+                return jsonify(success=False, message="Connection successful, but the response was not as expected.")
+        else:
+            return jsonify(success=False, message=f"Connection failed. Status code: {response.status_code}. Check URL and API Key."), 400
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, message="Connection failed: The request timed out. Check the host address and port."), 500
+    except requests.exceptions.RequestException as e:
+        return jsonify(success=False, message=f"Connection failed: {e}. Check the host address and ensure it is reachable."), 500
+
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():
     """Toggles the paused state of the job queue."""
@@ -1359,6 +1773,8 @@ def request_job():
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
     
+    print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
+    
     # Check if the queue is paused
     settings, _ = get_worker_settings()
     if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
@@ -1370,7 +1786,8 @@ def request_job():
 
     try:
         cur.execute("BEGIN;") # Start a transaction
-        cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
+        # This query now explicitly excludes internal job types that are not meant for workers.
+        cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' AND job_type NOT IN ('Rename Job', 'Quality Mismatch') ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
         job = cur.fetchone()
 
         if job:
@@ -1436,6 +1853,7 @@ def update_job(job_id):
     elif status == 'failed':
         # For any failed job, log it and mark as failed in the queue
         cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
+        cur.execute("INSERT INTO failed_files (filename, reason, log, reported_at) VALUES (%s, %s, %s, CURRENT_TIMESTAMP)", (job['filepath'], data.get('reason'), data.get('log')))
         cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
         message = f"Job {job_id} ({job['job_type']}) failed and logged."
 
@@ -1489,17 +1907,91 @@ def cleanup_scanner_thread():
         cleanup_scan_now_event.clear() # Reset the event
         run_cleanup_scan()
 
+def sonarr_job_processor_thread():
+    """
+    This background thread periodically checks for and processes internal jobs
+    that are not meant for workers, such as Sonarr rename commands.
+    """
+    print("Sonarr Job Processor thread started.")
+    while True:
+        try:
+            with app.app_context():
+                conn = get_db()
+                if not conn:
+                    time.sleep(60) # Wait and retry if DB is down
+                    continue
+
+                cur = conn.cursor(cursor_factory=RealDictCursor)
+                
+                # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
+                cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 10 FOR UPDATE SKIP LOCKED")
+                jobs_to_process = cur.fetchall()
+                
+                if jobs_to_process:
+                    print(f"Found {len(jobs_to_process)} Sonarr rename jobs to process.")
+                    settings, _ = get_worker_settings()
+                    host = settings.get('sonarr_host', {}).get('setting_value')
+                    api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+                    
+                    if not host or not api_key:
+                        print("Sonarr is not configured. Skipping rename jobs.")
+                        time.sleep(300) # Wait 5 minutes before checking again
+                        continue
+
+                    base_url = host.rstrip('/')
+                    headers = {'X-Api-Key': api_key}
+                    
+                    for job in jobs_to_process:
+                        file_id = job.get('metadata', {}).get('episodeFileId')
+                        series_id = job.get('metadata', {}).get('seriesId')
+
+                        if not file_id or not series_id:
+                            print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
+                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            continue
+                        
+                        try:
+                            print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
+                            payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
+                            res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            res.raise_for_status()
+                            
+                            # Mark job as completed
+                            print(f"Sonarr rename job {job['id']} completed successfully.")
+                            cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                        except requests.exceptions.RequestException as e:
+                            print(f"Error processing Sonarr rename job {job['id']}: {e}")
+                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                
+                conn.commit()
+                cur.close()
+
+        except Exception as e:
+            print(f"CRITICAL ERROR in sonarr_job_processor_thread: {e}")
+            # Avoid a tight loop on critical error
+            time.sleep(300)
+        
+        # Wait 60 seconds before checking for new internal jobs
+        time.sleep(60)
+
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
+sonarr_background_scanner = threading.Thread(target=sonarr_background_thread, daemon=True)
+sonarr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
+sonarr_job_processor = threading.Thread(target=sonarr_job_processor_thread, daemon=True)
+sonarr_job_processor.start()
 
 if __name__ == '__main__':
     # Run migrations before starting the Flask app for local development
+    initialize_database_if_needed()
     run_migrations()
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
 else:
     # When run by Gunicorn in production, run migrations first
+    initialize_database_if_needed()
     run_migrations()

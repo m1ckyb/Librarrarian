@@ -48,8 +48,8 @@ API_KEY = os.environ.get('API_KEY')
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
-    "password": os.environ.get("POSTGRES_PASSWORD", "password"),
-    "dbname": os.environ.get("POSTGRES_DB", "transcode_cluster")
+    "password": os.environ.get("DB_PASSWORD"),
+    "dbname": os.environ.get("DB_NAME", "codecshift")
 }
 
 # ===========================
@@ -365,6 +365,37 @@ def cleanup_file(filepath, db, settings):
         print(f"[{datetime.now()}] FAILED cleanup for: {local_filepath}. Reason: {e}")
         return False, {"reason": "File deletion error on worker", "log": str(e)}
 
+def rename_file(filepath, db, settings, metadata):
+    """
+    Renames a file based on metadata from Sonarr/Radarr.
+    """
+    print(f"[{datetime.now()}] Starting rename for: {filepath}")
+    db.update_heartbeat('renaming', current_file=os.path.basename(filepath))
+
+    if not metadata or metadata.get('source') != 'sonarr':
+        return False, {"reason": "Invalid or missing metadata for rename job."}
+
+    try:
+        series_title = metadata.get('seriesTitle', 'Unknown Series')
+        season_number = metadata.get('seasonNumber')
+        episode_number = metadata.get('episodeNumber')
+        episode_title = metadata.get('episodeTitle', 'Unknown Episode')
+        quality = metadata.get('quality', 'Unknown Quality')
+
+        # Sanitize components for filesystem
+        series_title = re.sub(r'[<>:"/\\|?*]', '', series_title)
+        episode_title = re.sub(r'[<>:"/\\|?*]', '', episode_title)
+
+        # Construct the new filename, e.g., "Series Title - S01E01 - Episode Title [Quality].mkv"
+        new_filename = f"{series_title} - S{season_number:02d}E{episode_number:02d} - {episode_title} [{quality}]{Path(filepath).suffix}"
+        new_filepath = Path(filepath).parent / new_filename
+
+        print(f"  -> Renaming to: {new_filepath}")
+        os.rename(filepath, new_filepath)
+        return True, {"new_filename": str(new_filepath)}
+    except Exception as e:
+        return False, {"reason": "File rename operation failed on worker.", "log": str(e)}
+
 def main_loop(db):
     """The main worker loop."""
     print(f"[{datetime.now()}] Worker '{HOSTNAME}' starting up. Version: {VERSION}")
@@ -418,9 +449,11 @@ def main_loop(db):
 
         job = request_job_from_dashboard()
         if job:
-            settings = get_dashboard_settings() # Refresh settings before each job
+            settings, _ = get_dashboard_settings() # Refresh settings before each job
             if job.get('job_type') == 'cleanup':
                 success, details = cleanup_file(job['filepath'], db, settings)
+            elif job.get('job_type') == 'Rename Job':
+                success, details = rename_file(job['filepath'], db, settings, job.get('metadata'))
             else: # Default to 'transcode'
                 success, details = process_file(job['filepath'], db, settings)
             update_job_status(job['job_id'], 'completed' if success else 'failed', details)
