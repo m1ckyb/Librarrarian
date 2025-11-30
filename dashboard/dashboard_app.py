@@ -179,7 +179,7 @@ print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 6
+TARGET_SCHEMA_VERSION = 7
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -214,6 +214,11 @@ MIGRATIONS = {
     # Version 6: Add metadata column for advanced job types like renaming
     6: [
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS metadata JSONB;"
+    ],
+    # Version 7: Add auto-rename after transcode settings for Sonarr/Radarr
+    7: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('sonarr_auto_rename_after_transcode', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('radarr_auto_rename_after_transcode', 'false') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -414,7 +419,9 @@ def init_db():
                 ('internal_scan_paths', ''),
                 ('sonarr_enabled', 'false'),
                 ('radarr_enabled', 'false'),
-                ('lidarr_enabled', 'false')
+                ('lidarr_enabled', 'false'),
+                ('sonarr_auto_rename_after_transcode', 'false'),
+                ('radarr_auto_rename_after_transcode', 'false')
             ON CONFLICT (setting_name) DO NOTHING;
         """)
 
@@ -795,6 +802,8 @@ def options():
         if request.form.get(f'{arr_type}_api_key'):
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
+    settings_to_update['sonarr_auto_rename_after_transcode'] = 'true' if 'sonarr_auto_rename_after_transcode' in request.form else 'false'
+    settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
     # Convert hours from the form back to minutes for storage
     settings_to_update['sonarr_rescan_minutes'] = str(int(request.form.get('sonarr_rescan_hours', '1')) * 60)
     settings_to_update['sonarr_auto_scan_enabled'] = 'true' if 'sonarr_auto_scan_enabled' in request.form else 'false'
@@ -1731,24 +1740,31 @@ def run_cleanup_scan():
         cleanup_scanner_lock.release()
 
 @app.route('/api/jobs/release', methods=['POST'])
-def release_cleanup_jobs():
-    """Changes the status of cleanup jobs from 'awaiting_approval' to 'pending'."""
+def release_jobs():
+    """Changes the status of cleanup or Rename jobs from 'awaiting_approval' to 'pending'."""
     data = request.get_json()
     job_ids = data.get('job_ids')
     release_all = data.get('release_all', False)
+    job_type = data.get('job_type', 'cleanup')  # Default to cleanup for backwards compatibility
+
+    # Allow both single job_type and list of job_types
+    if isinstance(job_type, str):
+        job_types = (job_type,)
+    else:
+        job_types = tuple(job_type)
 
     try:
         db = get_db()
         with db.cursor() as cur:
             if release_all:
-                cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type = 'cleanup' AND status = 'awaiting_approval'")
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type IN %s AND status = 'awaiting_approval'", (job_types,))
             elif job_ids:
                 # The '%s' placeholder will be correctly formatted by psycopg2 for the IN clause
-                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type = 'cleanup' AND status = 'awaiting_approval'", (tuple(job_ids),))
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type IN %s AND status = 'awaiting_approval'", (tuple(job_ids), job_types))
         db.commit()
-        return jsonify(success=True, message="Selected cleanup jobs have been released to the queue.")
+        return jsonify(success=True, message="Selected jobs have been released to the queue.")
     except Exception as e:
-        print(f"Error releasing cleanup jobs: {e}")
+        print(f"Error releasing jobs: {e}")
         return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/arr/test', methods=['POST'])
@@ -1835,6 +1851,111 @@ def request_job():
     finally:
         cur.close()
 
+def trigger_arr_rescan_and_rename(filepath, settings):
+    """
+    Triggers a rescan in Sonarr/Radarr for the file's parent series/movie,
+    then checks if a rename is needed. This is called after a transcode completes.
+    Follows the renamarr pattern: rescan first to update mediainfo, then rename.
+    """
+    sonarr_enabled = settings.get('sonarr_enabled', {}).get('setting_value') == 'true'
+    radarr_enabled = settings.get('radarr_enabled', {}).get('setting_value') == 'true'
+    sonarr_auto_rename = settings.get('sonarr_auto_rename_after_transcode', {}).get('setting_value') == 'true'
+    radarr_auto_rename = settings.get('radarr_auto_rename_after_transcode', {}).get('setting_value') == 'true'
+
+    if not sonarr_enabled and not radarr_enabled:
+        return
+    
+    # Try Sonarr first
+    if sonarr_enabled and sonarr_auto_rename:
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all episode files to find the one matching our filepath
+                episode_files_res = requests.get(f"{base_url}/api/v3/episodefile", headers=headers, timeout=10, verify=False)
+                episode_files_res.raise_for_status()
+                
+                for ep_file in episode_files_res.json():
+                    if ep_file.get('path') == filepath:
+                        series_id = ep_file.get('seriesId')
+                        episode_file_id = ep_file.get('id')
+                        
+                        print(f"[{datetime.now()}] Found file in Sonarr. Series ID: {series_id}, File ID: {episode_file_id}")
+                        
+                        # Step 1: Trigger a rescan to update the mediainfo
+                        print(f"[{datetime.now()}] Triggering Sonarr RescanSeries for series {series_id}")
+                        rescan_payload = {'name': 'RescanSeries', 'seriesId': series_id}
+                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=False)
+                        
+                        # Give Sonarr time to rescan
+                        time.sleep(3)
+                        
+                        # Step 2: Check if rename is needed
+                        rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series_id}", headers=headers, timeout=10, verify=False)
+                        rename_res.raise_for_status()
+                        
+                        for rename_item in rename_res.json():
+                            if rename_item.get('episodeFileId') == episode_file_id:
+                                # Step 3: Trigger rename
+                                print(f"[{datetime.now()}] Triggering Sonarr rename for file {episode_file_id}")
+                                rename_payload = {"name": "RenameFiles", "seriesId": series_id, "files": [episode_file_id]}
+                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=False)
+                                print(f"[{datetime.now()}] Sonarr auto-rename triggered successfully.")
+                                break
+                        break
+            except Exception as e:
+                print(f"⚠️ Could not trigger Sonarr rescan/rename: {e}")
+
+    # Try Radarr if enabled
+    if radarr_enabled and radarr_auto_rename:
+        host = settings.get('radarr_host', {}).get('setting_value')
+        api_key = settings.get('radarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all movies to find the one matching our filepath
+                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+                movies_res.raise_for_status()
+                
+                for movie in movies_res.json():
+                    movie_file = movie.get('movieFile')
+                    if movie_file and movie_file.get('path') == filepath:
+                        movie_id = movie.get('id')
+                        movie_file_id = movie_file.get('id')
+                        
+                        print(f"[{datetime.now()}] Found file in Radarr. Movie ID: {movie_id}, File ID: {movie_file_id}")
+                        
+                        # Step 1: Trigger a rescan to update the mediainfo
+                        print(f"[{datetime.now()}] Triggering Radarr RescanMovie for movie {movie_id}")
+                        rescan_payload = {'name': 'RescanMovie', 'movieId': movie_id}
+                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=False)
+                        
+                        # Give Radarr time to rescan
+                        time.sleep(3)
+                        
+                        # Step 2: Check if rename is needed
+                        rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie_id}", headers=headers, timeout=10, verify=False)
+                        rename_res.raise_for_status()
+                        
+                        for rename_item in rename_res.json():
+                            if rename_item.get('movieFileId') == movie_file_id:
+                                # Step 3: Trigger rename
+                                print(f"[{datetime.now()}] Triggering Radarr rename for file {movie_file_id}")
+                                rename_payload = {"name": "RenameFiles", "movieId": movie_id, "files": [movie_file_id]}
+                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=False)
+                                print(f"[{datetime.now()}] Radarr auto-rename triggered successfully.")
+                                break
+                        break
+            except Exception as e:
+                print(f"⚠️ Could not trigger Radarr rescan/rename: {e}")
+
 @app.route('/api/update_job/<int:job_id>', methods=['POST'])
 def update_job(job_id):
     """Endpoint for workers to update the status of a job."""
@@ -1870,6 +1991,13 @@ def update_job(job_id):
                     plex.library.update()
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
+
+            # Trigger Sonarr/Radarr rescan and auto-rename if enabled
+            try:
+                settings, _ = get_worker_settings()
+                trigger_arr_rescan_and_rename(job['filepath'], settings)
+            except Exception as e:
+                print(f"⚠️ Could not trigger Arr rescan/rename: {e}")
 
         elif job['job_type'] == 'cleanup':
             # For cleanups, add a simplified entry to the history
