@@ -2090,13 +2090,13 @@ def api_arr_stats():
                 base_url = host.rstrip('/')
                 
                 # Get series data - includes show and season counts
-                # We sum the episodeFileCount from each series for the total episode count
+                # We sum the episodeCount from each series for the total episode count
                 series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
                 series_res.raise_for_status()
                 series_data = series_res.json()
                 stats['sonarr']['shows'] = len(series_data)
                 stats['sonarr']['seasons'] = sum(len(s.get('seasons', [])) for s in series_data)
-                stats['sonarr']['episodes'] = sum(s.get('episodeFileCount', 0) for s in series_data)
+                stats['sonarr']['episodes'] = sum(s.get('episodeCount', 0) for s in series_data)
             except Exception as e:
                 print(f"Could not fetch Sonarr stats: {e}")
 

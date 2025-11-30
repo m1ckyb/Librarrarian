@@ -43,3 +43,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Theme Dropdown Not Opening**: Fixed the theme dropdown not dropping down by adding explicit `type="button"` to dropdown menu items and removing duplicate Bootstrap script loading.
 - **Stats Cards Loading**: Fixed *arr stats cards not showing data by adding a null check for the tools tab element and loading stats when navigating directly to the Tools tab via URL hash.
 - **Scan Progress Box Position on Refresh**: Fixed an issue where the scan progress box would jump to the wrong section when refreshing the page during an active scan. Added `scan_source` and `scan_type` fields to the scan progress API to reliably track which integration is being scanned.
+- **Sonarr Episode Count**: Fixed Sonarr stats showing 0 episodes by changing from `episodeFileCount` (downloaded episodes only) to `episodeCount` (total episodes in library).
