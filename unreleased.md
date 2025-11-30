@@ -10,6 +10,11 @@ All upcoming features and bug fixes will be documented here until they are part 
   - Added "Radarr Tools" section in the Tools tab with a "Scan for Renames" button.
   - Added API endpoint `/api/scan/radarr_rename` to trigger Radarr rename scans.
   - The job processor now handles both Sonarr and Radarr rename jobs based on the `source` field in job metadata.
+- **Lidarr Rename Jobs**: Added full Lidarr rename scan support mirroring the Sonarr and Radarr functionality:
+  - Added "Create Rename Jobs in Queue" toggle in the Lidarr Options tab. If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Lidarr API.
+  - Added "Lidarr Tools" section in the Tools tab with a "Scan for Renames" button.
+  - Added API endpoint `/api/scan/lidarr_rename` to trigger Lidarr rename scans.
+  - The job processor now handles Sonarr, Radarr, and Lidarr rename jobs based on the `source` field in job metadata.
 
 ### Changed
 - **UI Text Clarity**: Renamed the "Scan for Quality" button to "Scan for Quality Mismatches" for better clarity.

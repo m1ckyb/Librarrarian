@@ -404,7 +404,13 @@
                                             <input type="password" class="form-control" id="lidarr_api_key" name="lidarr_api_key" value="{{ settings.get('lidarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')">Test Connection</button>
+                                    <div class="form-check form-switch mt-3">
+                                        {% set lidarr_send_to_queue = settings.get('lidarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="lidarr_send_to_queue" name="lidarr_send_to_queue" value="true" {{ 'checked' if lidarr_send_to_queue }}>
+                                        <label class="form-check-label" for="lidarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Lidarr API.</p>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="lidarr-test-status" class="mt-2"></div>
                                 </div>
                             </div>
@@ -634,6 +640,37 @@
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-radarr-link">enable the Radarr integration in the Options tab</a>.
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Lidarr Tools Section -->
+                    <div class="p-3 border rounded mb-4">
+                        {% if settings.get('lidarr_enabled', {}).get('setting_value') == 'true' %}
+                            <h5>Lidarr Tools</h5>
+                            <p class="form-text text-body-secondary">Run manual scans against your Lidarr instance.</p>
+                            <div class="d-flex justify-content-start align-items-center mb-3">
+                                <button id="lidarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
+                                <button id="lidarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            </div>
+
+                            <!-- Feedback & Progress for Lidarr Rename Scan -->
+                            <div id="lidarr-rename-scan-container" class="alert alert-success mt-3 progress-box" style="display: none;">
+                                <div id="lidarr-rename-scan-feedback" class="mb-2"></div>
+                                <div id="lidarr-rename-scan-progress">
+                                    <p id="lidarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                    </div>
+                                    <small id="lidarr-rename-scan-time" class="text-muted"></small>
+                                </div>
+                            </div>
+
+                        {% else %}
+                            <h5>Lidarr Tools <span class="badge bg-secondary">Disabled</span></h5>
+                            <p class="form-text text-body-secondary">
+                                To use these tools, please 
+                                <a href="#" id="enable-lidarr-link">enable the Lidarr integration in the Options tab</a>.
                             </p>
                         {% endif %}
                     </div>

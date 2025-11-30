@@ -7,6 +7,10 @@ const sonarrCancelScanButton = document.getElementById('sonarr-cancel-scan-butto
 const radarrRenameScanButton = document.getElementById('radarr-rename-scan-button');
 const radarrCancelScanButton = document.getElementById('radarr-cancel-scan-button');
 
+// Lidarr scan buttons
+const lidarrRenameScanButton = document.getElementById('lidarr-rename-scan-button');
+const lidarrCancelScanButton = document.getElementById('lidarr-cancel-scan-button');
+
 // Rename the quality scan button as requested.
 if (sonarrQualityScanButton) {
     sonarrQualityScanButton.textContent = 'Scan for Quality Mismatches';
@@ -36,9 +40,17 @@ const radarrRenameScanProgressBar = radarrRenameScanProgress ? radarrRenameScanP
 const radarrRenameScanProgressText = document.getElementById('radarr-rename-scan-progress-text');
 const radarrRenameScanTime = document.getElementById('radarr-rename-scan-time');
 
+// Progress elements for Lidarr Rename Scan
+const lidarrRenameScanContainer = document.getElementById('lidarr-rename-scan-container');
+const lidarrRenameScanFeedback = document.getElementById('lidarr-rename-scan-feedback');
+const lidarrRenameScanProgress = document.getElementById('lidarr-rename-scan-progress');
+const lidarrRenameScanProgressBar = lidarrRenameScanProgress ? lidarrRenameScanProgress.querySelector('.progress-bar') : null;
+const lidarrRenameScanProgressText = document.getElementById('lidarr-rename-scan-progress-text');
+const lidarrRenameScanTime = document.getElementById('lidarr-rename-scan-time');
+
 let isPollingForScan = false;
 let activeScanType = null;
-let activeScanSource = null; // 'sonarr' or 'radarr'
+let activeScanSource = null; // 'sonarr', 'radarr', or 'lidarr'
 let progressInterval = null;
 let scanStartTime = null;
 
@@ -61,6 +73,16 @@ function getScanElements(scanType, scanSource) {
             progressBarEl: radarrRenameScanProgressBar,
             progressTextEl: radarrRenameScanProgressText,
             timeEl: radarrRenameScanTime
+        };
+    }
+    if (scanSource === 'lidarr') {
+        return {
+            feedbackEl: lidarrRenameScanFeedback,
+            containerEl: lidarrRenameScanContainer,
+            progressEl: lidarrRenameScanProgress,
+            progressBarEl: lidarrRenameScanProgressBar,
+            progressTextEl: lidarrRenameScanProgressText,
+            timeEl: lidarrRenameScanTime
         };
     }
     // Default to Sonarr
@@ -109,6 +131,9 @@ function resetScanUI() {
     // Hide progress bars and feedback containers for Radarr
     if(radarrRenameScanContainer) radarrRenameScanContainer.style.display = 'none';
 
+    // Hide progress bars and feedback containers for Lidarr
+    if(lidarrRenameScanContainer) lidarrRenameScanContainer.style.display = 'none';
+
     // Show scan buttons, hide cancel buttons for Sonarr
     if(sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'inline-block';
     if(sonarrRenameScanButton) sonarrRenameScanButton.disabled = false;
@@ -120,6 +145,11 @@ function resetScanUI() {
     if(radarrRenameScanButton) radarrRenameScanButton.style.display = 'inline-block';
     if(radarrRenameScanButton) radarrRenameScanButton.disabled = false;
     if(radarrCancelScanButton) radarrCancelScanButton.style.display = 'none';
+
+    // Show scan buttons, hide cancel buttons for Lidarr
+    if(lidarrRenameScanButton) lidarrRenameScanButton.style.display = 'inline-block';
+    if(lidarrRenameScanButton) lidarrRenameScanButton.disabled = false;
+    if(lidarrCancelScanButton) lidarrCancelScanButton.style.display = 'none';
 }
 
 function startProgressPolling(scanType, scanSource = 'sonarr') {
@@ -186,11 +216,14 @@ async function handleScanButtonClick(scanType, scanSource = 'sonarr') {
     if (sonarrRenameScanButton) sonarrRenameScanButton.disabled = true;
     if (sonarrQualityScanButton) sonarrQualityScanButton.disabled = true;
     if (radarrRenameScanButton) radarrRenameScanButton.disabled = true;
+    if (lidarrRenameScanButton) lidarrRenameScanButton.disabled = true;
 
     // Determine the endpoint based on scan source and type
     let endpoint;
     if (scanSource === 'radarr') {
         endpoint = '/api/scan/radarr_rename';
+    } else if (scanSource === 'lidarr') {
+        endpoint = '/api/scan/lidarr_rename';
     } else {
         endpoint = scanType === 'rename' ? '/api/scan/rename' : '/api/scan/quality';
     }
@@ -207,9 +240,12 @@ async function handleScanButtonClick(scanType, scanSource = 'sonarr') {
             if (sonarrRenameScanButton) sonarrRenameScanButton.style.display = 'none';
             if (sonarrQualityScanButton) sonarrQualityScanButton.style.display = 'none';
             if (radarrRenameScanButton) radarrRenameScanButton.style.display = 'none';
+            if (lidarrRenameScanButton) lidarrRenameScanButton.style.display = 'none';
             
             if (scanSource === 'radarr') {
                 if (radarrCancelScanButton) radarrCancelScanButton.style.display = 'inline-block';
+            } else if (scanSource === 'lidarr') {
+                if (lidarrCancelScanButton) lidarrCancelScanButton.style.display = 'inline-block';
             } else {
                 if (sonarrCancelScanButton) sonarrCancelScanButton.style.display = 'inline-block';
             }
@@ -236,6 +272,10 @@ if (sonarrQualityScanButton) {
 
 if (radarrRenameScanButton) {
     radarrRenameScanButton.addEventListener('click', () => handleScanButtonClick('rename', 'radarr'));
+}
+
+if (lidarrRenameScanButton) {
+    lidarrRenameScanButton.addEventListener('click', () => handleScanButtonClick('rename', 'lidarr'));
 }
 
 if (sonarrCancelScanButton) {
@@ -272,6 +312,23 @@ if (radarrCancelScanButton) {
     });
 }
 
+if (lidarrCancelScanButton) {
+    lidarrCancelScanButton.addEventListener('click', async () => {
+        try {
+            const response = await fetch('/api/scan/cancel', { method: 'POST' });
+            const data = await response.json();
+            if (data.success) {
+                showScanFeedback('Scan cancellation requested.', 'warning', activeScanType, activeScanSource);
+                resetScanUI();
+            } else {
+                showScanFeedback('Failed to send cancellation signal.', 'danger', activeScanType, activeScanSource);
+            }
+        } catch (error) {
+            showScanFeedback('Error sending cancellation signal.', 'danger', activeScanType, activeScanSource);
+        }
+    });
+}
+
 // On page load, check if a scan is already running and resume polling
 fetch('/api/scan/progress').then(r => r.json()).then(data => {
     if (data.is_running) {
@@ -288,6 +345,9 @@ fetch('/api/scan/progress').then(r => r.json()).then(data => {
             }
             if (data.current_step.toLowerCase().includes('radarr')) {
                 runningScanSource = 'radarr';
+            }
+            if (data.current_step.toLowerCase().includes('lidarr')) {
+                runningScanSource = 'lidarr';
             }
         }
         handleScanButtonClick(runningScanType, runningScanSource); // This will effectively resume the UI state
@@ -958,6 +1018,24 @@ document.addEventListener('DOMContentLoaded', () => {
             optionsTabTrigger.addEventListener('shown.bs.tab', () => {
                 const radarrSubTabTrigger = document.getElementById('radarr-integration-tab');
                 const subTab = new bootstrap.Tab(radarrSubTabTrigger);
+                subTab.show();
+            }, { once: true }); // Use 'once' so this listener only fires once
+        });
+    }
+
+    const enableLidarrLink = document.getElementById('enable-lidarr-link');
+    if (enableLidarrLink) {
+        enableLidarrLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            // Use bootstrap's API to show the main options tab
+            const optionsTabTrigger = document.getElementById('options-tab');
+            const tab = new bootstrap.Tab(optionsTabTrigger);
+            tab.show();
+
+            // Once the main tab is shown, show the lidarr sub-tab
+            optionsTabTrigger.addEventListener('shown.bs.tab', () => {
+                const lidarrSubTabTrigger = document.getElementById('lidarr-integration-tab');
+                const subTab = new bootstrap.Tab(lidarrSubTabTrigger);
                 subTab.show();
             }, { once: true }); // Use 'once' so this listener only fires once
         });
