@@ -1379,8 +1379,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const toggle = document.getElementById(toggleId);
         const listContainer = document.getElementById(listContainerId);
 
+        if (!toggle || !listContainer) {
+            console.warn(`Could not find toggle (${toggleId}) or container (${listContainerId}) for show/hide logic`);
+            return () => {};
+        }
+
         const applyVisibility = () => {
-            if (!listContainer) return;
             const showIgnored = toggle.checked;
             listContainer.querySelectorAll('.media-source-item').forEach(item => {
                 // Check if the media type dropdown is set to "none" (ignored)
@@ -1395,16 +1399,23 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         };
 
+        // Listen for toggle changes
         toggle.addEventListener('change', applyVisibility);
 
-        // Also listen for changes on any of the dropdown selects within the list
+        // Listen for dropdown changes within the list (using event delegation)
         listContainer.addEventListener('change', (e) => {
             if (e.target.matches('select')) {
                 applyVisibility();
             }
         });
 
-        // Return the function so it can be called after loading to set the initial state
+        // Use MutationObserver to apply visibility when content is dynamically loaded
+        const observer = new MutationObserver(() => {
+            applyVisibility();
+        });
+        observer.observe(listContainer, { childList: true, subtree: true });
+
+        // Return the function so it can be called manually if needed
         return applyVisibility;
     }
     const applyPlexVisibility = setupShowIgnoredToggle('plex-show-hidden-toggle', 'plex-libraries-list');
