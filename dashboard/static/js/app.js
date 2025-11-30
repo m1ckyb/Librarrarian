@@ -201,8 +201,6 @@ async function handleScanButtonClick(scanType, scanSource = 'sonarr') {
 
         if (data.success) {
             isPollingForScan = true;
-            activeScanSource = scanSource;
-            activeScanType = scanType;
             showScanFeedback(`'${scanType}' scan started successfully.`, 'success', scanType, scanSource);
             
             // Hide all scan buttons, show appropriate cancel button
