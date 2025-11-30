@@ -1472,33 +1472,10 @@ def run_sonarr_quality_scan():
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
 
-            # Fetch quality profiles and build a map of profile ID to cutoff quality ID
+            # Fetch quality profiles to get profile names for logging
             profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
             profiles_res.raise_for_status()
-            quality_profiles = {}
-            for profile in profiles_res.json():
-                # Build a set of quality IDs that meet or exceed the cutoff
-                # The 'items' list contains the quality definitions in order
-                cutoff_id = profile.get('cutoff')
-                qualities_meeting_cutoff = set()
-                
-                # Walk through items to find all qualities at or above cutoff
-                for item in profile.get('items', []):
-                    if item.get('quality'):
-                        # Single quality item
-                        qualities_meeting_cutoff.add(item['quality']['id'])
-                    elif item.get('items'):
-                        # Quality group - add all qualities in the group
-                        for sub_item in item['items']:
-                            if sub_item.get('quality'):
-                                qualities_meeting_cutoff.add(sub_item['quality']['id'])
-                
-                quality_profiles[profile['id']] = {
-                    'name': profile['name'],
-                    'cutoff': cutoff_id,
-                    'cutoff_name': profile.get('cutoff', {}) if isinstance(profile.get('cutoff'), dict) else None,
-                    'qualities_meeting_cutoff': qualities_meeting_cutoff
-                }
+            quality_profiles = {p['id']: {'name': p['name']} for p in profiles_res.json()}
 
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
             series_res.raise_for_status()
