@@ -301,15 +301,41 @@ def validate_filepath(filepath):
             return False
             
         # Additional check: block access to sensitive system directories
+        # BUT: only block if the path would escape from under our allowed directories
+        # Since we've already confirmed the path is under an allowed base, we need to check
+        # if that allowed base itself is trying to access a forbidden directory
+        # OR if the path tries to traverse to a forbidden directory
         for sensitive in FORBIDDEN_SYSTEM_PATHS:
             try:
+                # Skip root (/) since all paths are technically under root
+                if sensitive == '/':
+                    continue
+                    
                 sensitive_real = os.path.realpath(sensitive)
                 # Check if resolved_path is under or equal to sensitive directory
                 try:
                     common = os.path.commonpath([sensitive_real, resolved_path])
                     if common == sensitive_real:
-                        print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
-                        return False
+                        # The path is under a sensitive directory
+                        # But we should only block if none of the allowed bases
+                        # are also under this sensitive directory (meaning the user
+                        # explicitly configured access to that area)
+                        allowed_under_sensitive = False
+                        for base in allowed_bases:
+                            base_real = os.path.realpath(os.path.abspath(base))
+                            try:
+                                base_common = os.path.commonpath([sensitive_real, base_real])
+                                if base_common == sensitive_real:
+                                    # The allowed base is under the sensitive directory
+                                    # so this is explicitly allowed by config
+                                    allowed_under_sensitive = True
+                                    break
+                            except ValueError:
+                                continue
+                        
+                        if not allowed_under_sensitive:
+                            print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+                            return False
                 except ValueError:
                     # Different drives or no common path - not a concern
                     continue
