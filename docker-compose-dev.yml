@@ -2,10 +2,11 @@ version: '3.8'
 
 services:
   # The Flask web dashboard service
-  dashboard:
+  librarrarian:
     build:
       context: .
       dockerfile: ./dashboard/Dockerfile
+    container_name: librarrarian      
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -53,6 +54,8 @@ services:
     build:
       context: .
       dockerfile: ./worker/Dockerfile
+    container_name: librarrarian-worker-1 #if only 1 worker, can change to just librarrarian-worker
+    hostname: librarrarian-worker-1 #if only 1 worker, can change to just librarrarian-worker    
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       db:
@@ -72,12 +75,11 @@ services:
       - AUTOSTART=${AUTOSTART:-false} # If true, worker starts processing jobs immediately
     volumes:
       - ./media:/media
-    hostname: worker-1
     # The command is now defined in the worker/Dockerfile
 
   # The PostgreSQL database service
   db:
-    image: postgres:16
+    image: postgres:16-alpine
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
