@@ -1,3 +1,8 @@
+## [0.11.2] - 2025-12-01 - Patch Release
+
+### Fixed
+- **Plex Login Modal**: Fixed a bug where the "Link Plex Account" button would not do anything. The underlying modal HTML was missing and has been added.
+
 ## [0.11.1] - 2025-12-01 - Patch Release
 
 ### Fixed

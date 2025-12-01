@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.1
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.2
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -48,7 +48,7 @@ services:
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.1
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.2
     restart: unless-stopped # or "on-failure" if you prefer
     devices:
       - /dev/dri:/dev/dri # For hardware acceleration (optional)    
