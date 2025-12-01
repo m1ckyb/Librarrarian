@@ -275,26 +275,25 @@ def validate_filepath(filepath):
         allowed_bases = list(MEDIA_PATHS) + [os.path.abspath('.')]
         
         # Check if the resolved path is within any allowed base directory
-        # Using path prefix matching with directory separators for proper boundary checking
+        # Using os.path.commonpath for robust containment checking
         is_allowed = False
         for base in allowed_bases:
             try:
                 # Normalize the base path as well
                 base_real = os.path.realpath(os.path.abspath(base))
-                # Ensure base path ends with separator for consistent comparison
-                if not base_real.endswith(os.sep):
-                    base_real += os.sep
                 
-                # For the resolved path, we add separator only if it doesn't already have one
-                # We avoid filesystem checks (like os.path.isdir) for performance and to handle
-                # paths that may not exist yet or are on slow network filesystems
-                test_path = resolved_path if resolved_path.endswith(os.sep) else resolved_path + os.sep
-                
-                # Check if resolved path is under the base directory
-                # This handles bypass attempts like '/media../etc' correctly
-                if test_path.startswith(base_real) or resolved_path == base_real.rstrip(os.sep):
-                    is_allowed = True
-                    break
+                # Use os.path.commonpath to check if resolved_path is under base_real
+                # This is the most secure way to check path containment
+                try:
+                    common = os.path.commonpath([base_real, resolved_path])
+                    # If the common path equals the base, then resolved_path is under base
+                    if common == base_real:
+                        is_allowed = True
+                        break
+                except ValueError:
+                    # commonpath raises ValueError if paths are on different drives (Windows)
+                    # or have no common path - in either case, not allowed
+                    continue
             except (ValueError, TypeError):
                 continue
         
@@ -306,12 +305,20 @@ def validate_filepath(filepath):
         # Additional check: block access to sensitive system directories
         sensitive_dirs = ['/etc', '/root', '/sys', '/proc', '/dev']
         for sensitive in sensitive_dirs:
-            sensitive_real = os.path.realpath(sensitive)
-            if not sensitive_real.endswith(os.sep):
-                sensitive_real += os.sep
-            if resolved_path.startswith(sensitive_real) or resolved_path == sensitive_real.rstrip(os.sep):
-                print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
-                return False
+            try:
+                sensitive_real = os.path.realpath(sensitive)
+                # Check if resolved_path is under or equal to sensitive directory
+                try:
+                    common = os.path.commonpath([sensitive_real, resolved_path])
+                    if common == sensitive_real:
+                        print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+                        return False
+                except ValueError:
+                    # Different drives or no common path - not a concern
+                    continue
+            except (OSError, ValueError):
+                # If we can't resolve the sensitive path, skip this check
+                continue
             
         return True
     except Exception as e:
