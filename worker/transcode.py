@@ -246,8 +246,11 @@ def translate_path_for_worker(filepath, settings):
     return filepath
 def process_file(filepath, db, settings):
     """Handles the full transcoding process for a given file using ffmpeg."""
-    print(f"[{datetime.now()}] Starting transcode for: {filepath}")
-    db.update_heartbeat('encoding', current_file=os.path.basename(filepath), progress=0, fps=0)
+    # Translate the dashboard path to the worker's local path
+    local_filepath = translate_path_for_worker(filepath, settings)
+    
+    print(f"[{datetime.now()}] Starting transcode for: {local_filepath}")
+    db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0)
 
     # --- Get settings from the dashboard ---
     hw_mode = settings.get('hardware_acceleration', 'auto')
@@ -255,7 +258,7 @@ def process_file(filepath, db, settings):
     
     # Determine which CQ value to use based on video width
     try:
-        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width", "-of", "csv=s=x:p=0", filepath]
+        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=width", "-of", "csv=s=x:p=0", local_filepath]
         width_str = subprocess.check_output(ffprobe_cmd, text=True).strip()
         video_width = int(width_str)
         cq_width_threshold = int(settings.get('cq_width_threshold', '1900'))
@@ -269,7 +272,7 @@ def process_file(filepath, db, settings):
         cq_value = settings.get(f"{hw_config['type']}_cq_sd", '24')
 
     # --- Prepare file paths ---
-    original_path = Path(filepath)
+    original_path = Path(local_filepath)
     temp_output_path = original_path.parent / f"tmp_{original_path.name}"
     final_output_path = original_path.with_suffix('.mkv') # Always output to MKV
 
@@ -310,14 +313,14 @@ def process_file(filepath, db, settings):
                 current_seconds = h * 3600 + m * 60 + s + ms / 100.0
                 progress = round((current_seconds / total_duration_seconds) * 100)
                 fps = float(fps_match.group(1)) if fps_match else 0
-                db.update_heartbeat('encoding', current_file=os.path.basename(filepath), progress=progress, fps=fps)
+                db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=progress, fps=fps)
 
     process.wait()
 
     # --- Process Results ---
     if process.returncode == 0:
-        print(f"[{datetime.now()}] Finished transcode for: {filepath}")
-        original_size = os.path.getsize(filepath)
+        print(f"[{datetime.now()}] Finished transcode for: {local_filepath}")
+        original_size = os.path.getsize(local_filepath)
         new_size = os.path.getsize(temp_output_path)
 
         # Handle file replacement
@@ -339,7 +342,7 @@ def process_file(filepath, db, settings):
 
         return True, {"original_size": original_size, "new_size": new_size}
     else:
-        print(f"[{datetime.now()}] FAILED transcode for: {filepath}. FFmpeg exited with code {process.returncode}")
+        print(f"[{datetime.now()}] FAILED transcode for: {local_filepath}. FFmpeg exited with code {process.returncode}")
         if os.path.exists(temp_output_path):
             os.remove(temp_output_path)
         return False, {"reason": f"FFmpeg failed with code {process.returncode}", "log": "".join(log_buffer)}
@@ -369,8 +372,11 @@ def rename_file(filepath, db, settings, metadata):
     """
     Renames a file based on metadata from Sonarr/Radarr.
     """
-    print(f"[{datetime.now()}] Starting rename for: {filepath}")
-    db.update_heartbeat('renaming', current_file=os.path.basename(filepath))
+    # Translate the dashboard path to the worker's local path
+    local_filepath = translate_path_for_worker(filepath, settings)
+    
+    print(f"[{datetime.now()}] Starting rename for: {local_filepath}")
+    db.update_heartbeat('renaming', current_file=os.path.basename(local_filepath))
 
     if not metadata or metadata.get('source') != 'sonarr':
         return False, {"reason": "Invalid or missing metadata for rename job."}
@@ -387,11 +393,11 @@ def rename_file(filepath, db, settings, metadata):
         episode_title = re.sub(r'[<>:"/\\|?*]', '', episode_title)
 
         # Construct the new filename, e.g., "Series Title - S01E01 - Episode Title [Quality].mkv"
-        new_filename = f"{series_title} - S{season_number:02d}E{episode_number:02d} - {episode_title} [{quality}]{Path(filepath).suffix}"
-        new_filepath = Path(filepath).parent / new_filename
+        new_filename = f"{series_title} - S{season_number:02d}E{episode_number:02d} - {episode_title} [{quality}]{Path(local_filepath).suffix}"
+        new_filepath = Path(local_filepath).parent / new_filename
 
         print(f"  -> Renaming to: {new_filepath}")
-        os.rename(filepath, new_filepath)
+        os.rename(local_filepath, new_filepath)
         return True, {"new_filename": str(new_filepath)}
     except Exception as e:
         return False, {"reason": "File rename operation failed on worker.", "log": str(e)}
