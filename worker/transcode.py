@@ -33,16 +33,27 @@ def _parse_media_paths():
     """Parse and validate MEDIA_PATHS from environment variable."""
     paths = []
     raw_paths = os.environ.get('MEDIA_PATHS', '/media').split(',')
+    # List of paths that should not be allowed as media directories
+    forbidden_roots = ['/', '/etc', '/root', '/sys', '/proc', '/dev', '/bin', '/sbin', '/usr', '/var', '/tmp']
+    
     for path in raw_paths:
         path = path.strip()
         if not path:
             continue
-        # Check for relative paths or parent directory references before normalization
-        if not os.path.isabs(path) or '..' in path:
-            print(f"⚠️ WARNING: Ignoring invalid path in MEDIA_PATHS: {path}")
+        # Check if path is absolute
+        if not os.path.isabs(path):
+            print(f"⚠️ WARNING: Ignoring relative path in MEDIA_PATHS: {path}")
             continue
-        # Normalize the path
+        # Normalize the path to resolve any .. or . components
         normalized = os.path.normpath(path)
+        # After normalization, check if the path still contains parent directory references
+        if '..' in normalized.split(os.sep):
+            print(f"⚠️ WARNING: Ignoring path with parent directory references in MEDIA_PATHS: {path}")
+            continue
+        # Reject paths that would normalize to sensitive system directories
+        if normalized in forbidden_roots:
+            print(f"⚠️ WARNING: Ignoring forbidden system path in MEDIA_PATHS: {path} -> {normalized}")
+            continue
         paths.append(normalized)
     return paths if paths else ['/media']  # Fallback to default if no valid paths
 
