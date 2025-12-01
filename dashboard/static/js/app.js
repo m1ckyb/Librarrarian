@@ -1631,7 +1631,9 @@ document.addEventListener('DOMContentLoaded', () => {
         const enableLabel = document.getElementById(`${arrType}_enabled_label`);
         if (!enableToggle || !integrationPane) return;
 
-        // Get all inputs including checkboxes, but exclude the main enable toggle
+        const mainToggleId = `${arrType}_enabled`;
+        
+        // Get all non-checkbox inputs, selects, buttons, and range inputs
         const inputs = integrationPane.querySelectorAll('input:not([type=checkbox]), select, button, input[type=range]');
         const checkboxes = integrationPane.querySelectorAll('input[type=checkbox]');
 
@@ -1645,12 +1647,12 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Disable/enable all text inputs, selects, buttons
             inputs.forEach(input => {
-                if (input.id !== `${arrType}_enabled`) input.disabled = !isEnabled;
+                if (input.id !== mainToggleId) input.disabled = !isEnabled;
             });
             
             // Disable/enable all checkboxes except the main enable toggle
             checkboxes.forEach(checkbox => {
-                if (checkbox.id !== `${arrType}_enabled`) checkbox.disabled = !isEnabled;
+                if (checkbox.id !== mainToggleId) checkbox.disabled = !isEnabled;
             });
             
             // Special handling for Sonarr tools
