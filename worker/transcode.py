@@ -27,31 +27,29 @@ except ImportError:
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 
+# Paths that should never be allowed as media directories (shared constant)
+FORBIDDEN_SYSTEM_PATHS = ['/', '/etc', '/root', '/sys', '/proc', '/dev', '/bin', '/sbin', '/usr', '/var', '/tmp']
+
 # Configurable allowed media paths for validation (comma-separated)
 # Parse and validate each path to ensure it's absolute and doesn't contain path traversal attempts
 def _parse_media_paths():
     """Parse and validate MEDIA_PATHS from environment variable."""
     paths = []
     raw_paths = os.environ.get('MEDIA_PATHS', '/media').split(',')
-    # List of paths that should not be allowed as media directories
-    forbidden_roots = ['/', '/etc', '/root', '/sys', '/proc', '/dev', '/bin', '/sbin', '/usr', '/var', '/tmp']
     
     for path in raw_paths:
         path = path.strip()
         if not path:
             continue
-        # Check if path is absolute
+        # Check if path is absolute (reject relative paths)
         if not os.path.isabs(path):
             print(f"⚠️ WARNING: Ignoring relative path in MEDIA_PATHS: {path}")
             continue
         # Normalize the path to resolve any .. or . components
         normalized = os.path.normpath(path)
-        # After normalization, check if the path still contains parent directory references
-        if '..' in normalized.split(os.sep):
-            print(f"⚠️ WARNING: Ignoring path with parent directory references in MEDIA_PATHS: {path}")
-            continue
-        # Reject paths that would normalize to sensitive system directories
-        if normalized in forbidden_roots:
+        # Reject paths that normalize to sensitive system directories
+        # This catches paths like '/media/../../etc' which normalize to '/etc'
+        if normalized in FORBIDDEN_SYSTEM_PATHS:
             print(f"⚠️ WARNING: Ignoring forbidden system path in MEDIA_PATHS: {path} -> {normalized}")
             continue
         paths.append(normalized)
@@ -303,8 +301,7 @@ def validate_filepath(filepath):
             return False
             
         # Additional check: block access to sensitive system directories
-        sensitive_dirs = ['/etc', '/root', '/sys', '/proc', '/dev']
-        for sensitive in sensitive_dirs:
+        for sensitive in FORBIDDEN_SYSTEM_PATHS:
             try:
                 sensitive_real = os.path.realpath(sensitive)
                 # Check if resolved_path is under or equal to sensitive directory
