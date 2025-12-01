@@ -270,46 +270,73 @@ def validate_filepath(filepath):
         resolved_path = os.path.realpath(os.path.abspath(filepath))
         
         # Use configurable allowed base directories from environment
-        allowed_bases = list(MEDIA_PATHS) + [os.path.abspath('.')]
+        # Normalize all base paths once to avoid redundant computation
+        allowed_bases_raw = list(MEDIA_PATHS) + [os.path.abspath('.')]
+        allowed_bases_normalized = []
+        for base in allowed_bases_raw:
+            try:
+                base_real = os.path.realpath(os.path.abspath(base))
+                allowed_bases_normalized.append(base_real)
+            except (ValueError, TypeError):
+                continue
         
         # Check if the resolved path is within any allowed base directory
         # Using os.path.commonpath for robust containment checking
         is_allowed = False
-        for base in allowed_bases:
+        for base_real in allowed_bases_normalized:
             try:
-                # Normalize the base path as well
-                base_real = os.path.realpath(os.path.abspath(base))
-                
                 # Use os.path.commonpath to check if resolved_path is under base_real
                 # This is the most secure way to check path containment
-                try:
-                    common = os.path.commonpath([base_real, resolved_path])
-                    # If the common path equals the base, then resolved_path is under base
-                    if common == base_real:
-                        is_allowed = True
-                        break
-                except ValueError:
-                    # commonpath raises ValueError if paths are on different drives (Windows)
-                    # or have no common path - in either case, not allowed
-                    continue
-            except (ValueError, TypeError):
+                common = os.path.commonpath([base_real, resolved_path])
+                # If the common path equals the base, then resolved_path is under base
+                if common == base_real:
+                    is_allowed = True
+                    break
+            except ValueError:
+                # commonpath raises ValueError if paths are on different drives (Windows)
+                # or have no common path - in either case, not allowed
                 continue
         
         if not is_allowed:
             print(f"⚠️ WARNING: Path outside allowed directories detected and blocked: {filepath}")
-            print(f"   Allowed directories: {', '.join(allowed_bases)}")
+            print(f"   Allowed directories: {', '.join(allowed_bases_raw)}")
             return False
             
         # Additional check: block access to sensitive system directories
+        # BUT: only block if the path would escape from under our allowed directories
+        # Since we've already confirmed the path is under an allowed base, we need to check
+        # if that allowed base itself is trying to access a forbidden directory
+        # OR if the path tries to traverse to a forbidden directory
         for sensitive in FORBIDDEN_SYSTEM_PATHS:
             try:
+                # Skip root (/) since all absolute paths are under root, making this check overly restrictive
+                if sensitive == '/':
+                    continue
+                    
                 sensitive_real = os.path.realpath(sensitive)
                 # Check if resolved_path is under or equal to sensitive directory
                 try:
                     common = os.path.commonpath([sensitive_real, resolved_path])
                     if common == sensitive_real:
-                        print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
-                        return False
+                        # The path is under a sensitive directory
+                        # But we should only block if none of the allowed bases
+                        # are also under this sensitive directory (meaning the user
+                        # explicitly configured access to that area)
+                        allowed_under_sensitive = False
+                        for base_real in allowed_bases_normalized:
+                            try:
+                                base_common = os.path.commonpath([sensitive_real, base_real])
+                                if base_common == sensitive_real:
+                                    # The allowed base is under the sensitive directory
+                                    # so this is explicitly allowed by config
+                                    allowed_under_sensitive = True
+                                    break
+                            except ValueError:
+                                continue
+                        
+                        if not allowed_under_sensitive:
+                            print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+                            return False
                 except ValueError:
                     # Different drives or no common path - not a concern
                     continue
