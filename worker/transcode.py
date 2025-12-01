@@ -26,8 +26,27 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
+
 # Configurable allowed media paths for validation (comma-separated)
-MEDIA_PATHS = [path.strip() for path in os.environ.get('MEDIA_PATHS', '/media').split(',') if path.strip()]
+# Parse and validate each path to ensure it's absolute and doesn't contain path traversal attempts
+def _parse_media_paths():
+    """Parse and validate MEDIA_PATHS from environment variable."""
+    paths = []
+    raw_paths = os.environ.get('MEDIA_PATHS', '/media').split(',')
+    for path in raw_paths:
+        path = path.strip()
+        if not path:
+            continue
+        # Check for relative paths or parent directory references before normalization
+        if not os.path.isabs(path) or '..' in path:
+            print(f"⚠️ WARNING: Ignoring invalid path in MEDIA_PATHS: {path}")
+            continue
+        # Normalize the path
+        normalized = os.path.normpath(path)
+        paths.append(normalized)
+    return paths if paths else ['/media']  # Fallback to default if no valid paths
+
+MEDIA_PATHS = _parse_media_paths()
 
 def get_worker_version():
     """Reads the version from the VERSION.txt file."""
@@ -238,14 +257,35 @@ def validate_filepath(filepath):
     Returns True if the path is safe, False otherwise.
     """
     try:
-        # Resolve the absolute path
-        resolved_path = os.path.abspath(filepath)
+        # Resolve the absolute path and normalize it
+        resolved_path = os.path.realpath(os.path.abspath(filepath))
         
         # Use configurable allowed base directories from environment
         allowed_bases = list(MEDIA_PATHS) + [os.path.abspath('.')]
         
-        # Check if the resolved path starts with any allowed base directory
-        is_allowed = any(resolved_path.startswith(os.path.abspath(base)) for base in allowed_bases)
+        # Check if the resolved path is within any allowed base directory
+        # Using os.path.commonpath ensures proper boundary checking
+        is_allowed = False
+        for base in allowed_bases:
+            try:
+                # Normalize the base path as well
+                base_real = os.path.realpath(os.path.abspath(base))
+                # Ensure both paths end with separator for consistent comparison
+                if not base_real.endswith(os.sep):
+                    base_real += os.sep
+                if not resolved_path.endswith(os.sep) and os.path.isdir(resolved_path):
+                    test_path = resolved_path + os.sep
+                else:
+                    test_path = resolved_path
+                
+                # Check if resolved path is under the base directory
+                # This handles cases like '/media../etc' correctly
+                if test_path.startswith(base_real) or resolved_path == base_real.rstrip(os.sep):
+                    is_allowed = True
+                    break
+            except (ValueError, TypeError):
+                # os.path.commonpath can raise ValueError if paths are on different drives (Windows)
+                continue
         
         if not is_allowed:
             print(f"⚠️ WARNING: Path outside allowed directories detected and blocked: {filepath}")
@@ -254,9 +294,13 @@ def validate_filepath(filepath):
             
         # Additional check: block access to sensitive system directories
         sensitive_dirs = ['/etc', '/root', '/sys', '/proc', '/dev']
-        if any(resolved_path.startswith(sensitive) for sensitive in sensitive_dirs):
-            print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
-            return False
+        for sensitive in sensitive_dirs:
+            sensitive_real = os.path.realpath(sensitive)
+            if not sensitive_real.endswith(os.sep):
+                sensitive_real += os.sep
+            if resolved_path.startswith(sensitive_real) or resolved_path == sensitive_real.rstrip(os.sep):
+                print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+                return False
             
         return True
     except Exception as e:
