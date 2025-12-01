@@ -71,7 +71,7 @@ services:
     depends_on:
       db: # Depends on the database being ready
         condition: service_healthy
-      dashboard: # Also depends on the dashboard being healthy
+      librarrarian: # Also depends on the dashboard being healthy
         condition: service_healthy
     environment:
       - DB_HOST=db
