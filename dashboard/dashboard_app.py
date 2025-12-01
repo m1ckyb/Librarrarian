@@ -5,6 +5,7 @@ import threading
 import uuid
 import base64
 import json
+import re
 from datetime import datetime
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
@@ -132,7 +133,6 @@ def setup_auth(app):
             if api_key and api_key == os.environ.get('API_KEY'):
                 return # API key is valid, allow access
             return jsonify(error="Authentication required. Invalid or missing API Key."), 401
-            return
 
         return redirect(url_for('login'))
 
@@ -165,6 +165,14 @@ def setup_auth(app):
 
 # Initialize authentication
 setup_auth(app)
+
+def get_arr_ssl_verify():
+    """
+    Returns whether SSL certificate verification should be enabled for *Arr API calls.
+    Can be disabled for development with self-signed certificates, but should
+    always be enabled in production to prevent man-in-the-middle attacks.
+    """
+    return os.environ.get('ARR_SSL_VERIFY', 'true').lower() == 'true'
 
 def get_project_version():
     """Reads the version from the root VERSION.txt file."""
@@ -318,6 +326,10 @@ def initialize_database_if_needed():
                 print("First run detected: Database not initialized. Running initial setup...")
                 
                 db_user = DB_CONFIG.get('user')
+                # Validate db_user to prevent SQL injection
+                # PostgreSQL identifiers can only contain alphanumeric and underscore
+                if not db_user or not re.match(r'^[a-zA-Z0-9_]+$', db_user):
+                    raise ValueError(f"Invalid database user name: {db_user}. Must contain only alphanumeric characters and underscores.")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS nodes (
@@ -1410,7 +1422,7 @@ def run_sonarr_rename_scan():
             print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan...")
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
-            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=get_arr_ssl_verify())
             series_res.raise_for_status()
             all_series = series_res.json()
             
@@ -1430,9 +1442,9 @@ def run_sonarr_rename_scan():
                 scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
     
                 # This is the correct pattern: trigger a scan, then check for results.
-                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=get_arr_ssl_verify())
                 time.sleep(2) # Give Sonarr a moment to process before we query
-                rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=False)
+                rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 for episode in rename_res.json():
                     filepath = episode.get('existingPath')
                     if filepath:
@@ -1454,7 +1466,7 @@ def run_sonarr_rename_scan():
                             # New behavior: if not selected, perform rename directly via Sonarr API
                             print(f"  -> Auto-renaming episode file {filepath} via Sonarr API.")
                             payload = {"name": "RenameFiles", "seriesId": series['id'], "files": [episode.get('episodeFileId')]}
-                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                             rename_cmd_res.raise_for_status() 
                             renames_performed += 1
     
@@ -1520,11 +1532,11 @@ def run_sonarr_quality_scan():
             base_url = host.rstrip('/')
 
             # Fetch quality profiles to get profile names for logging
-            profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
+            profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=get_arr_ssl_verify())
             profiles_res.raise_for_status()
             quality_profiles = {p['id']: {'name': p['name']} for p in profiles_res.json()}
 
-            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+            series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=get_arr_ssl_verify())
             series_res.raise_for_status()
             all_series = series_res.json()
 
@@ -1552,7 +1564,7 @@ def run_sonarr_quality_scan():
                 # The includeEpisodeFile parameter ensures we get quality info
                 episodes_res = requests.get(
                     f"{base_url}/api/v3/episode?seriesId={series['id']}&includeEpisodeFile=true",
-                    headers=headers, timeout=20, verify=False
+                    headers=headers, timeout=20, verify=get_arr_ssl_verify()
                 )
                 episodes_res.raise_for_status()
 
@@ -1664,7 +1676,7 @@ def run_radarr_rename_scan():
             print(f"[{datetime.now()}] Radarr Rename Scanner: Starting deep scan...")
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
-            movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+            movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=get_arr_ssl_verify())
             movies_res.raise_for_status()
             all_movies = movies_res.json()
             
@@ -1684,9 +1696,9 @@ def run_radarr_rename_scan():
                 scan_progress_state.update({"current_step": f"Analyzing: {movie_title}", "progress": i + 1})
 
                 # This is the correct pattern: trigger a rescan, then check for results.
-                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanMovie', 'movieId': movie['id']}, timeout=10, verify=False)
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanMovie', 'movieId': movie['id']}, timeout=10, verify=get_arr_ssl_verify())
                 time.sleep(2) # Give Radarr a moment to process before we query
-                rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie['id']}", headers=headers, timeout=10, verify=False)
+                rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie['id']}", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 for rename_item in rename_res.json():
                     filepath = rename_item.get('existingPath')
                     if filepath:
@@ -1705,7 +1717,7 @@ def run_radarr_rename_scan():
                             # Perform rename directly via Radarr API
                             print(f"  -> Auto-renaming movie file {filepath} via Radarr API.")
                             payload = {"name": "RenameFiles", "movieId": movie['id'], "files": [rename_item.get('movieFileId')]}
-                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                             rename_cmd_res.raise_for_status() 
                             renames_performed += 1
     
@@ -1771,7 +1783,7 @@ def run_lidarr_rename_scan():
             base_url = host.rstrip('/')
             
             # Lidarr uses API v1, get all artists
-            artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
+            artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=get_arr_ssl_verify())
             artists_res.raise_for_status()
             all_artists = artists_res.json()
             
@@ -1791,11 +1803,11 @@ def run_lidarr_rename_scan():
                 scan_progress_state.update({"current_step": f"Analyzing: {artist_name}", "progress": i + 1})
 
                 # Trigger a rescan for the artist, then check for rename results
-                requests.post(f"{base_url}/api/v1/command", headers=headers, json={'name': 'RescanArtist', 'artistId': artist['id']}, timeout=10, verify=False)
+                requests.post(f"{base_url}/api/v1/command", headers=headers, json={'name': 'RescanArtist', 'artistId': artist['id']}, timeout=10, verify=get_arr_ssl_verify())
                 time.sleep(2) # Give Lidarr a moment to process before we query
                 
                 # Check for files that need renaming for this artist
-                rename_res = requests.get(f"{base_url}/api/v1/rename?artistId={artist['id']}", headers=headers, timeout=10, verify=False)
+                rename_res = requests.get(f"{base_url}/api/v1/rename?artistId={artist['id']}", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 for rename_item in rename_res.json():
                     filepath = rename_item.get('existingPath')
                     if filepath:
@@ -1815,7 +1827,7 @@ def run_lidarr_rename_scan():
                             # Perform rename directly via Lidarr API
                             print(f"  -> Auto-renaming track file {filepath} via Lidarr API.")
                             payload = {"name": "RenameFiles", "artistId": artist['id'], "files": [rename_item.get('trackFileId')]}
-                            rename_cmd_res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                             rename_cmd_res.raise_for_status() 
                             renames_performed += 1
     
@@ -2243,7 +2255,7 @@ def api_arr_test():
 
     try:
         # Make the request with a timeout and without SSL verification for local setups
-        response = requests.get(test_url, headers=headers, timeout=5, verify=False)
+        response = requests.get(test_url, headers=headers, timeout=5, verify=get_arr_ssl_verify())
 
         if response.status_code == 200:
             # Check for a valid JSON response as an extra verification step
@@ -2291,7 +2303,7 @@ def api_arr_stats():
                 
                 # Get series data - includes show and season counts
                 # We sum the episodeCount from each series for the total episode count
-                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 series_res.raise_for_status()
                 series_data = series_res.json()
                 stats['sonarr']['shows'] = len(series_data)
@@ -2312,7 +2324,7 @@ def api_arr_stats():
                 base_url = host.rstrip('/')
                 
                 # Get all movies
-                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 movies_res.raise_for_status()
                 stats['radarr']['movies'] = len(movies_res.json())
             except Exception as e:
@@ -2331,11 +2343,11 @@ def api_arr_stats():
                 
                 # Get artist and album counts
                 # For tracks, we sum the trackFileCount from albums instead of fetching all track files
-                artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
+                artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 artists_res.raise_for_status()
                 stats['lidarr']['artists'] = len(artists_res.json())
                 
-                albums_res = requests.get(f"{base_url}/api/v1/album", headers=headers, timeout=10, verify=False)
+                albums_res = requests.get(f"{base_url}/api/v1/album", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 albums_res.raise_for_status()
                 albums_data = albums_res.json()
                 stats['lidarr']['albums'] = len(albums_data)
@@ -2488,7 +2500,7 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                 base_url = host.rstrip('/')
                 
                 # Get all episode files to find the one matching our filepath
-                episode_files_res = requests.get(f"{base_url}/api/v3/episodefile", headers=headers, timeout=10, verify=False)
+                episode_files_res = requests.get(f"{base_url}/api/v3/episodefile", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 episode_files_res.raise_for_status()
                 
                 for ep_file in episode_files_res.json():
@@ -2501,13 +2513,13 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                         # Step 1: Trigger a rescan to update the mediainfo
                         print(f"[{datetime.now()}] Triggering Sonarr RescanSeries for series {series_id}")
                         rescan_payload = {'name': 'RescanSeries', 'seriesId': series_id}
-                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=False)
+                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=get_arr_ssl_verify())
                         
                         # Give Sonarr time to rescan
                         time.sleep(3)
                         
                         # Step 2: Check if rename is needed
-                        rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series_id}", headers=headers, timeout=10, verify=False)
+                        rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series_id}", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                         rename_res.raise_for_status()
                         
                         for rename_item in rename_res.json():
@@ -2515,7 +2527,7 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                                 # Step 3: Trigger rename
                                 print(f"[{datetime.now()}] Triggering Sonarr rename for file {episode_file_id}")
                                 rename_payload = {"name": "RenameFiles", "seriesId": series_id, "files": [episode_file_id]}
-                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=False)
+                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=get_arr_ssl_verify())
                                 print(f"[{datetime.now()}] Sonarr auto-rename triggered successfully.")
                                 break
                         break
@@ -2533,7 +2545,7 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                 base_url = host.rstrip('/')
                 
                 # Get all movies to find the one matching our filepath
-                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                 movies_res.raise_for_status()
                 
                 for movie in movies_res.json():
@@ -2547,13 +2559,13 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                         # Step 1: Trigger a rescan to update the mediainfo
                         print(f"[{datetime.now()}] Triggering Radarr RescanMovie for movie {movie_id}")
                         rescan_payload = {'name': 'RescanMovie', 'movieId': movie_id}
-                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=False)
+                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=get_arr_ssl_verify())
                         
                         # Give Radarr time to rescan
                         time.sleep(3)
                         
                         # Step 2: Check if rename is needed
-                        rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie_id}", headers=headers, timeout=10, verify=False)
+                        rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie_id}", headers=headers, timeout=10, verify=get_arr_ssl_verify())
                         rename_res.raise_for_status()
                         
                         for rename_item in rename_res.json():
@@ -2561,7 +2573,7 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                                 # Step 3: Trigger rename
                                 print(f"[{datetime.now()}] Triggering Radarr rename for file {movie_file_id}")
                                 rename_payload = {"name": "RenameFiles", "movieId": movie_id, "files": [movie_file_id]}
-                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=False)
+                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=get_arr_ssl_verify())
                                 print(f"[{datetime.now()}] Radarr auto-rename triggered successfully.")
                                 break
                         break
@@ -2739,7 +2751,7 @@ def arr_job_processor_thread():
                                 headers = {'X-Api-Key': api_key}
                                 print(f"Processing Radarr rename for job {job['id']} (File ID: {file_id})")
                                 payload = {"name": "RenameFiles", "movieId": movie_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                                 res.raise_for_status()
                                 
                                 # Mark job as completed
@@ -2773,7 +2785,7 @@ def arr_job_processor_thread():
                                 print(f"Processing Lidarr rename for job {job['id']} (File ID: {file_id})")
                                 # Lidarr uses API v1
                                 payload = {"name": "RenameFiles", "artistId": artist_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                                 res.raise_for_status()
                                 
                                 # Mark job as completed
@@ -2806,7 +2818,7 @@ def arr_job_processor_thread():
                                 headers = {'X-Api-Key': api_key}
                                 print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
                                 payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                                 res.raise_for_status()
                                 
                                 # Mark job as completed

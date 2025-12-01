@@ -17,3 +17,11 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Worker**: Fixed a critical bug where transcode and rename jobs would fail with "No such file or directory" errors. The worker was not translating file paths from the dashboard's container paths to the worker's local paths for these job types, unlike cleanup jobs which worked correctly.
 - **Database**: Fixed a bug where database migrations would run on every startup for fresh installations. The initial database setup now correctly sets the schema version, preventing unnecessary migration attempts.
 - **UI**: Fixed the "Failed Files Log" modal which was not displaying any failed files due to a column name mismatch in the database query.
+- **Security**: Fixed unreachable return statement in authentication middleware that could have been confusing during code reviews.
+
+### Security
+- **SSL/TLS Verification**: Added configurable SSL certificate verification for *arr API integrations. A new environment variable `ARR_SSL_VERIFY` (default: `true`) now controls certificate validation. This should only be disabled in development with self-signed certificates. Previously, all *arr API calls had certificate verification disabled.
+- **Path Traversal Protection**: Added comprehensive file path validation to prevent path traversal attacks. The worker now validates all file paths before processing to prevent access to system files.
+- **SQL Injection Prevention**: Added validation for database user names used in dynamic SQL statements to prevent potential SQL injection if environment variables are compromised.
+- **Configuration Security**: Updated `.env.example` to remove example credentials and emphasize the need for secure random values. Added new `ARR_SSL_VERIFY` configuration option.
+- **Security Documentation**: Added comprehensive `SECURITY.md` file documenting security best practices, known limitations, and vulnerability reporting procedures.
