@@ -20,7 +20,9 @@ FROM python:3.14-alpine3.21
 WORKDIR /app
 
 # Install runtime dependencies (ffmpeg for transcoding, iputils for ping, curl for healthchecks)
-RUN apk add --no-cache ffmpeg iputils curl libffi
+# Add VAAPI support libraries for Intel hardware acceleration
+RUN apk add --no-cache ffmpeg iputils curl libffi \
+    libva libva-intel-driver intel-media-driver mesa-va-gallium
 
 # Copy the virtual environment from the builder stage
 COPY --from=builder /opt/venv /opt/venv

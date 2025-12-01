@@ -160,7 +160,7 @@ def get_hw_config(mode, device_path="/dev/dri/renderD128"):
     elif mode == "vaapi":
         return {
             "type": "intel", "codec": "hevc_vaapi", 
-            "hw_pre_args": ["-init_hw_device", f"vaapi=va:{device_path}", "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi", "-hwaccel_device", "va"], 
+            "hw_pre_args": ["-vaapi_device", device_path, "-hwaccel", "vaapi", "-hwaccel_output_format", "vaapi"], 
             "preset": None, "cq_flag": "-global_quality", "extra": []
         }
     else: 
