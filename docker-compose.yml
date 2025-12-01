@@ -94,7 +94,7 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${DB_USER:-transcode}", "-d", "${DB_NAME:-librarrarian}"]
+      test: ["CMD", "pg_isready", "-U", "${DB_USER:-librarrarian}", "-d", "${DB_NAME:-librarrarian}"]
       interval: 5s
       timeout: 5s
       retries: 5
