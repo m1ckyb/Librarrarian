@@ -7,6 +7,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Tools Tab**: Added a "Data Export" section that allows exporting all settings, pending jobs, encoding history, and media source configurations to a JSON backup file.
 
 ### Changed
+- **Docker**: Migrated both dashboard and worker Dockerfiles to use multi-stage builds with `python:3.14-alpine3.21` base image for significantly smaller image sizes. Replaced `apt-get` commands with Alpine's `apk` package manager.
 - **Options Tab**: The "Enable *arr Integration" label now dynamically changes to "Disable *arr Integration" when the integration is enabled, and vice versa.
 - **Options Tab**: When an *arr integration is disabled, all related options (host, API key, secondary switches like "Create Rename Jobs in Queue" and "Auto-Rename After Transcode", and the Test Connection button) are now also disabled.
 - **Tools Tab**: Simplified section headers from "*arr Tools" to just "*arr" (e.g., "Sonarr Tools" → "Sonarr").
