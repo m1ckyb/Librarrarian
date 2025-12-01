@@ -452,8 +452,12 @@ def initialize_database_if_needed():
                     );
                 """)
                 cur.execute(f"ALTER TABLE schema_version OWNER TO {db_user};")
+                # Insert the target schema version since we just created a fresh database
+                # with all tables already at the latest schema.
+                cur.execute("INSERT INTO schema_version (version) VALUES (%s) ON CONFLICT DO NOTHING", (TARGET_SCHEMA_VERSION,))
                 
                 conn.commit()
+                print(f"Database initialized at schema version {TARGET_SCHEMA_VERSION}.")
 
             else:
                 print("Database already initialized. Skipping initial setup.")
@@ -534,7 +538,8 @@ def get_failed_files_list():
     
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT filename, reason, reported_at, log FROM failed_files ORDER BY reported_at DESC")
+            # Use 'failed_at' column (actual column name) but alias it to 'reported_at' for frontend compatibility
+            cur.execute("SELECT filename, reason, failed_at AS reported_at, log FROM failed_files ORDER BY failed_at DESC")
             files = cur.fetchall()
     except Exception as e:
         db_error = f"Database query failed: {e}"
