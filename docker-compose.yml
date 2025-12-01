@@ -87,6 +87,8 @@ services:
       - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
       # --- Worker Behavior ---
       - AUTOSTART=${AUTOSTART:-false} # If true, worker starts processing jobs immediately
+      # --- Media Path Validation ---
+      - MEDIA_PATHS=${MEDIA_PATHS:-/media} # Comma-separated list of allowed media paths
     volumes:
       - ./media:/media
     # The command is now defined in the worker/Dockerfile

@@ -18,6 +18,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Database**: Fixed a bug where database migrations would run on every startup for fresh installations. The initial database setup now correctly sets the schema version, preventing unnecessary migration attempts.
 - **UI**: Fixed the "Failed Files Log" modal which was not displaying any failed files due to a column name mismatch in the database query.
 - **Security**: Fixed unreachable return statement in authentication middleware that could have been confusing during code reviews.
+- **Worker**: Fixed path validation blocking legitimate files when media is mounted at non-standard locations (e.g., `/nfs/media/` instead of `/media/`). The allowed base directories are now configurable via the `MEDIA_PATHS` environment variable.
 
 ### Security
 - **SSL/TLS Verification**: Added configurable SSL certificate verification for *arr API integrations. A new environment variable `ARR_SSL_VERIFY` (default: `true`) now controls certificate validation. This should only be disabled in development with self-signed certificates. Previously, all *arr API calls had certificate verification disabled.

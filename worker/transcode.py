@@ -26,6 +26,8 @@ except ImportError:
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
+# Configurable allowed media paths for validation (comma-separated)
+MEDIA_PATHS = os.environ.get('MEDIA_PATHS', '/media').split(',')
 
 def get_worker_version():
     """Reads the version from the VERSION.txt file."""
@@ -239,14 +241,15 @@ def validate_filepath(filepath):
         # Resolve the absolute path
         resolved_path = os.path.abspath(filepath)
         
-        # Define allowed base directories (adjust based on your deployment)
-        allowed_bases = ['/media', os.path.abspath('.')]
+        # Use configurable allowed base directories from environment
+        allowed_bases = [base.strip() for base in MEDIA_PATHS] + [os.path.abspath('.')]
         
         # Check if the resolved path starts with any allowed base directory
         is_allowed = any(resolved_path.startswith(os.path.abspath(base)) for base in allowed_bases)
         
         if not is_allowed:
             print(f"⚠️ WARNING: Path outside allowed directories detected and blocked: {filepath}")
+            print(f"   Allowed directories: {', '.join(allowed_bases)}")
             return False
             
         # Additional check: block access to sensitive system directories
