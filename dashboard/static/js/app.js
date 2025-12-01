@@ -1628,19 +1628,38 @@ document.addEventListener('DOMContentLoaded', () => {
     function setupArrToggle(arrType) {
         const enableToggle = document.getElementById(`${arrType}_enabled`);
         const integrationPane = document.getElementById(`${arrType}-integration-pane`);
+        const enableLabel = document.getElementById(`${arrType}_enabled_label`);
         if (!enableToggle || !integrationPane) return;
 
+        const mainToggleId = `${arrType}_enabled`;
+        
+        // Get all non-checkbox inputs, selects, buttons, and range inputs
         const inputs = integrationPane.querySelectorAll('input:not([type=checkbox]), select, button, input[type=range]');
+        const checkboxes = integrationPane.querySelectorAll('input[type=checkbox]');
 
         function updateInputsState() {
+            const isEnabled = enableToggle.checked;
+            
+            // Update label text
+            if (enableLabel) {
+                enableLabel.textContent = isEnabled ? 'Disable' : 'Enable';
+            }
+            
+            // Disable/enable all text inputs, selects, buttons
             inputs.forEach(input => {
-                if (input.id !== `${arrType}_enabled`) input.disabled = !enableToggle.checked;
+                if (input.id !== mainToggleId) input.disabled = !isEnabled;
             });
+            
+            // Disable/enable all checkboxes except the main enable toggle
+            checkboxes.forEach(checkbox => {
+                if (checkbox.id !== mainToggleId) checkbox.disabled = !isEnabled;
+            });
+            
             // Special handling for Sonarr tools
             if (arrType === 'sonarr') {
                 const renameBtn = document.getElementById('sonarr-rename-scan-button');
                 const qualityBtn = document.getElementById('sonarr-quality-scan-button');
-                if (renameBtn && qualityBtn) [renameBtn, qualityBtn].forEach(btn => btn.disabled = !enableToggle.checked);
+                if (renameBtn && qualityBtn) [renameBtn, qualityBtn].forEach(btn => btn.disabled = !isEnabled);
             }
         }
         enableToggle.addEventListener('change', updateInputsState);
