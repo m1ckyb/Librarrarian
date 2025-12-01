@@ -15,3 +15,5 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Fixed
 - **Backend**: Fixed a bug where failed job entries were being duplicated in the failed_files table.
 - **Worker**: Fixed a critical bug where transcode and rename jobs would fail with "No such file or directory" errors. The worker was not translating file paths from the dashboard's container paths to the worker's local paths for these job types, unlike cleanup jobs which worked correctly.
+- **Database**: Fixed a bug where database migrations would run on every startup for fresh installations. The initial database setup now correctly sets the schema version, preventing unnecessary migration attempts.
+- **UI**: Fixed the "Failed Files Log" modal which was not displaying any failed files due to a column name mismatch in the database query.
