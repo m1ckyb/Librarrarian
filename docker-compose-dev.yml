@@ -79,7 +79,7 @@ services:
 
   # The PostgreSQL database service
   db:
-    image: postgres:16
+    image: postgres:16-alpine
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
