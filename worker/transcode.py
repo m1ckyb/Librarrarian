@@ -264,27 +264,27 @@ def validate_filepath(filepath):
         allowed_bases = list(MEDIA_PATHS) + [os.path.abspath('.')]
         
         # Check if the resolved path is within any allowed base directory
-        # Using os.path.commonpath ensures proper boundary checking
+        # Using path prefix matching with directory separators for proper boundary checking
         is_allowed = False
         for base in allowed_bases:
             try:
                 # Normalize the base path as well
                 base_real = os.path.realpath(os.path.abspath(base))
-                # Ensure both paths end with separator for consistent comparison
+                # Ensure base path ends with separator for consistent comparison
                 if not base_real.endswith(os.sep):
                     base_real += os.sep
-                if not resolved_path.endswith(os.sep) and os.path.isdir(resolved_path):
-                    test_path = resolved_path + os.sep
-                else:
-                    test_path = resolved_path
+                
+                # For the resolved path, we add separator only if it doesn't already have one
+                # We avoid filesystem checks (like os.path.isdir) for performance and to handle
+                # paths that may not exist yet or are on slow network filesystems
+                test_path = resolved_path if resolved_path.endswith(os.sep) else resolved_path + os.sep
                 
                 # Check if resolved path is under the base directory
-                # This handles cases like '/media../etc' correctly
+                # This handles bypass attempts like '/media../etc' correctly
                 if test_path.startswith(base_real) or resolved_path == base_real.rstrip(os.sep):
                     is_allowed = True
                     break
             except (ValueError, TypeError):
-                # os.path.commonpath can raise ValueError if paths are on different drives (Windows)
                 continue
         
         if not is_allowed:
