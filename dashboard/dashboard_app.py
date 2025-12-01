@@ -122,7 +122,7 @@ def setup_auth(app):
             return
 
         # If the user is logged in, allow access.
-        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc']:
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health']:
             return
 
         # Block all unauthenticated API access.
