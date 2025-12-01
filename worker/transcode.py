@@ -27,7 +27,7 @@ except ImportError:
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 # Configurable allowed media paths for validation (comma-separated)
-MEDIA_PATHS = os.environ.get('MEDIA_PATHS', '/media').split(',')
+MEDIA_PATHS = [path.strip() for path in os.environ.get('MEDIA_PATHS', '/media').split(',') if path.strip()]
 
 def get_worker_version():
     """Reads the version from the VERSION.txt file."""
@@ -242,7 +242,7 @@ def validate_filepath(filepath):
         resolved_path = os.path.abspath(filepath)
         
         # Use configurable allowed base directories from environment
-        allowed_bases = [base.strip() for base in MEDIA_PATHS] + [os.path.abspath('.')]
+        allowed_bases = list(MEDIA_PATHS) + [os.path.abspath('.')]
         
         # Check if the resolved path starts with any allowed base directory
         is_allowed = any(resolved_path.startswith(os.path.abspath(base)) for base in allowed_bases)
