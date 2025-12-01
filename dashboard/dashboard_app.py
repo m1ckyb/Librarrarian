@@ -64,7 +64,7 @@ DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
-    "dbname": os.environ.get("DB_NAME", "codecshift")
+    "dbname": os.environ.get("DB_NAME", "librarrarian")
 }
 
 def setup_auth(app):
@@ -180,7 +180,7 @@ def get_project_version():
             return "unknown"
 
 # Print a startup banner to the logs
-print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
+print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 
 # ===========================
 # Database Migrations

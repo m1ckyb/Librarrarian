@@ -2,7 +2,7 @@
 <!-- The data-bs-theme attribute will be set by the script below -->
 <html lang="en"> 
 <head>
-    <meta charset="utf-8">    <title>CodecShift Dashboard</title>
+    <meta charset="utf-8">    <title>Librarrarian Dashboard</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
 
     <!-- This script must run before the body to prevent a flash of the wrong theme -->
@@ -101,7 +101,7 @@
                 <a href="#" class="text-decoration-none me-3" data-bs-toggle="modal" data-bs-target="#changelogModal">
                     <span class="mdi mdi-format-list-bulleted"></span> Changelog
                 </a>
-                <a href="https://github.com/m1ckyb/CodecShift" target="_blank" class="text-decoration-none ms-3">
+                <a href="https://github.com/m1ckyb/Librarrarian" target="_blank" class="text-decoration-none ms-3">
                     <span class="mdi mdi-github"></span> GitHub
                 </a>
             </div>
@@ -134,7 +134,7 @@
         document.addEventListener('DOMContentLoaded', () => {
             async function checkForUpdates() {
                 const internalVersion = "{{ version }}";
-                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/main/VERSION.txt";
+                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/Librarrarian/refs/heads/main/VERSION.txt";
                 const notificationSpan = document.getElementById('update-notification');
 
                 try {
