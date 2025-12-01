@@ -2,8 +2,10 @@ version: '3.8'
 
 services:
   # The Flask web dashboard service
-  dashboard:
-    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.2
+  librarrarian:
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.3 #latest production version
+    #image: ghcr.io/m1ckyb/librarrarian-dashboard:develop #latest develop version
+    container_name: librarrarian
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -29,8 +31,9 @@ services:
       - LOCAL_LOGIN_ENABLED=${LOCAL_LOGIN_ENABLED:-false}
       - LOCAL_USER=${LOCAL_USER}
       - LOCAL_PASSWORD=${LOCAL_PASSWORD}
-      # --- Development Mode ---
-      - DEVMODE=${DEVMODE:-false} # Set to 'true' to bypass auth for local IPs
+      # --- SSL/TLS Verification ---
+      - OIDC_SSL_VERIFY=${OIDC_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
+      - ARR_SSL_VERIFY=${ARR_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
       # --- Force print() statements to appear in logs immediately ---
       - PYTHONUNBUFFERED=1
     depends_on:
@@ -47,8 +50,11 @@ services:
     # The command is now defined in the dashboard/Dockerfile
 
   # The transcoding worker service
-  worker:
-    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.2
+  librarrarian-worker-1:
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.3 #latest production version
+    #image: ghcr.io/m1ckyb/librarrarian-worker:develop #latest develop version
+    container_name: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker
+    hostname: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker   
     restart: unless-stopped # or "on-failure" if you prefer
     devices:
       - /dev/dri:/dev/dri # For hardware acceleration (optional)    
@@ -66,7 +72,7 @@ services:
     depends_on:
       db: # Depends on the database being ready
         condition: service_healthy
-      dashboard: # Also depends on the dashboard being healthy
+      librarrarian: # Also depends on the dashboard being healthy
         condition: service_healthy
     environment:
       - DB_HOST=db
@@ -79,13 +85,15 @@ services:
       - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
       # --- Worker Behavior ---
       - AUTOSTART=${AUTOSTART:-false} # If true, worker starts processing jobs immediately
+      # --- Media Path Validation ---
+      - MEDIA_PATHS=${MEDIA_PATHS:-/media} # Comma-separated list of allowed media paths
     volumes:
       - ./media:/media
     # The command is now defined in the worker/Dockerfile
 
   # The PostgreSQL database service
   db:
-    image: postgres:16
+    image: postgres:16-alpine
     restart: unless-stopped
     volumes:
       - postgres_data:/var/lib/postgresql/data
