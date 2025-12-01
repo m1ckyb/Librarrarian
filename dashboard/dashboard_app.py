@@ -62,7 +62,7 @@ app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 # It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
-    "user": os.environ.get("DB_USER", "transcode"),
+    "user": os.environ.get("DB_USER", "librarrarian"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "librarrarian")
 }
@@ -122,7 +122,7 @@ def setup_auth(app):
             return
 
         # If the user is logged in, allow access.
-        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc']:
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health']:
             return
 
         # Block all unauthenticated API access.
@@ -300,151 +300,6 @@ def close_db(error):
         g.db.close()
 
 
-def init_db():
-    """Initializes the database and creates all necessary tables if they don't exist."""
-    conn = get_db()
-    print("Running database initialisation...")
-    if not conn:
-        print("DB Init Error: Could not connect to database.")
-        return
-
-    with conn.cursor() as cur:
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS nodes (
-                id SERIAL PRIMARY KEY,
-                hostname VARCHAR(255) UNIQUE NOT NULL,
-                status VARCHAR(50),
-                last_heartbeat TIMESTAMP,
-                connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                version VARCHAR(50),
-                version_mismatch BOOLEAN DEFAULT false,
-                command VARCHAR(50) DEFAULT 'idle',
-                progress REAL,
-                fps REAL,
-                current_file TEXT
-            );
-        """)
-        cur.execute("GRANT ALL PRIVILEGES ON TABLE nodes TO transcode;")
-        cur.execute("GRANT USAGE, SELECT ON SEQUENCE nodes_id_seq TO transcode;")
-        cur.execute("ALTER TABLE nodes OWNER TO transcode;")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS jobs (
-                id SERIAL PRIMARY KEY,
-                filepath TEXT NOT NULL UNIQUE,
-                job_type VARCHAR(20) NOT NULL DEFAULT 'transcode',
-                status VARCHAR(20) NOT NULL DEFAULT 'pending',
-                assigned_to VARCHAR(255),
-                created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                metadata JSONB
-            );
-        """)
-        cur.execute("GRANT ALL PRIVILEGES ON TABLE jobs TO transcode;")
-        cur.execute("GRANT USAGE, SELECT ON SEQUENCE jobs_id_seq TO transcode;")
-        cur.execute("ALTER TABLE jobs OWNER TO transcode;")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS worker_settings (
-                id SERIAL PRIMARY KEY,
-                setting_name VARCHAR(255) UNIQUE NOT NULL,
-                setting_value TEXT
-            );
-        """)
-        cur.execute("GRANT ALL PRIVILEGES ON TABLE worker_settings TO transcode;")
-        cur.execute("GRANT USAGE, SELECT ON SEQUENCE worker_settings_id_seq TO transcode;")
-        cur.execute("ALTER TABLE worker_settings OWNER TO transcode;")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS encoded_files (
-                id SERIAL PRIMARY KEY,
-                job_id INTEGER,
-                filename TEXT,
-                original_size BIGINT,
-                new_size BIGINT,
-                encoded_by TEXT,
-                encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                status VARCHAR(20)
-            );
-        """)
-        cur.execute("GRANT ALL PRIVILEGES ON TABLE encoded_files TO transcode;")
-        cur.execute("GRANT USAGE, SELECT ON SEQUENCE encoded_files_id_seq TO transcode;")
-        cur.execute("ALTER TABLE encoded_files OWNER TO transcode;")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS failed_files (
-                id SERIAL PRIMARY KEY,
-                filename TEXT,
-                reason TEXT,
-                log TEXT,
-                failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            );
-        """)
-        cur.execute("GRANT ALL PRIVILEGES ON TABLE failed_files TO transcode;")
-        cur.execute("GRANT USAGE, SELECT ON SEQUENCE failed_files_id_seq TO transcode;")
-        cur.execute("ALTER TABLE failed_files OWNER TO transcode;")
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS media_source_types (
-                id SERIAL PRIMARY KEY,
-                source_name VARCHAR(255) NOT NULL,
-                scanner_type VARCHAR(50) NOT NULL,
-                media_type VARCHAR(50) NOT NULL,
-                is_hidden BOOLEAN DEFAULT false,
-                UNIQUE(source_name, scanner_type)
-            );
-        """)
-        cur.execute("GRANT ALL PRIVILEGES ON TABLE media_source_types TO transcode;")
-        cur.execute("GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO transcode;")
-        cur.execute("ALTER TABLE media_source_types OWNER TO transcode;")
-
-        cur.execute("""
-            INSERT INTO worker_settings (setting_name, setting_value) VALUES
-                ('rescan_delay_minutes', '0'),
-                ('worker_poll_interval', '30'),
-                ('min_length', '0.5'),
-                ('backup_directory', ''),
-                ('hardware_acceleration', 'auto'),
-                ('keep_original', 'false'),
-                ('allow_hevc', 'false'),
-                ('allow_av1', 'false'),
-                ('allow_vp9', 'false'),
-                ('auto_update', 'false'),
-                ('clean_failures', 'false'),
-                ('debug', 'false'),
-                ('plex_url', ''),
-                ('plex_token', ''),
-                ('plex_libraries', ''),
-                ('nvenc_cq_hd', '32'),
-                ('nvenc_cq_sd', '28'),
-                ('vaapi_cq_hd', '28'),
-                ('vaapi_cq_sd', '24'),
-                ('cpu_cq_hd', '28'),
-                ('cpu_cq_sd', '24'),
-                ('cq_width_threshold', '1900'),
-                ('plex_path_from', ''),
-                ('plex_path_to', ''),
-                ('pause_job_distribution', 'false'),
-                ('plex_path_mapping_enabled', 'true'),
-                ('media_scanner_type', 'plex'),
-                ('internal_scan_paths', ''),
-                ('sonarr_enabled', 'false'),
-                ('radarr_enabled', 'false'),
-                ('lidarr_enabled', 'false'),
-                ('sonarr_auto_rename_after_transcode', 'false'),
-                ('radarr_auto_rename_after_transcode', 'false')
-            ON CONFLICT (setting_name) DO NOTHING;
-        """)
-
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS schema_version (
-                version INT PRIMARY KEY
-            );
-        """)
-        cur.execute("ALTER TABLE schema_version OWNER TO transcode;")
-
-    conn.commit()
-
 def initialize_database_if_needed():
     """
     Checks if the database is initialized. If not, runs the full init_db() process.
@@ -461,9 +316,145 @@ def initialize_database_if_needed():
             
             if not table_exists:
                 print("First run detected: Database not initialized. Running initial setup...")
-                # We need an app context to call init_db()
-                with app.app_context():
-                    init_db()
+                
+                db_user = DB_CONFIG.get('user')
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS nodes (
+                        id SERIAL PRIMARY KEY,
+                        hostname VARCHAR(255) UNIQUE NOT NULL,
+                        status VARCHAR(50),
+                        last_heartbeat TIMESTAMP,
+                        connected_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        version VARCHAR(50),
+                        version_mismatch BOOLEAN DEFAULT false,
+                        command VARCHAR(50) DEFAULT 'idle',
+                        progress REAL,
+                        fps REAL,
+                        current_file TEXT
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE nodes TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE nodes_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE nodes OWNER TO {db_user};")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS jobs (
+                        id SERIAL PRIMARY KEY,
+                        filepath TEXT NOT NULL UNIQUE,
+                        job_type VARCHAR(20) NOT NULL DEFAULT 'transcode',
+                        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+                        assigned_to VARCHAR(255),
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        metadata JSONB
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE jobs TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE jobs_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE jobs OWNER TO {db_user};")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS worker_settings (
+                        id SERIAL PRIMARY KEY,
+                        setting_name VARCHAR(255) UNIQUE NOT NULL,
+                        setting_value TEXT
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE worker_settings TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE worker_settings_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE worker_settings OWNER TO {db_user};")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS encoded_files (
+                        id SERIAL PRIMARY KEY,
+                        job_id INTEGER,
+                        filename TEXT,
+                        original_size BIGINT,
+                        new_size BIGINT,
+                        encoded_by TEXT,
+                        encoded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        status VARCHAR(20)
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE encoded_files TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE encoded_files_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE encoded_files OWNER TO {db_user};")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS failed_files (
+                        id SERIAL PRIMARY KEY,
+                        filename TEXT,
+                        reason TEXT,
+                        log TEXT,
+                        failed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE failed_files TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE failed_files_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE failed_files OWNER TO {db_user};")
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS media_source_types (
+                        id SERIAL PRIMARY KEY,
+                        source_name VARCHAR(255) NOT NULL,
+                        scanner_type VARCHAR(50) NOT NULL,
+                        media_type VARCHAR(50) NOT NULL,
+                        is_hidden BOOLEAN DEFAULT false,
+                        UNIQUE(source_name, scanner_type)
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE media_source_types TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE media_source_types_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE media_source_types OWNER TO {db_user};")
+
+                cur.execute("""
+                    INSERT INTO worker_settings (setting_name, setting_value) VALUES
+                        ('rescan_delay_minutes', '0'),
+                        ('worker_poll_interval', '30'),
+                        ('min_length', '0.5'),
+                        ('backup_directory', ''),
+                        ('hardware_acceleration', 'auto'),
+                        ('keep_original', 'false'),
+                        ('allow_hevc', 'false'),
+                        ('allow_av1', 'false'),
+                        ('allow_vp9', 'false'),
+                        ('auto_update', 'false'),
+                        ('clean_failures', 'false'),
+                        ('debug', 'false'),
+                        ('plex_url', ''),
+                        ('plex_token', ''),
+                        ('plex_libraries', ''),
+                        ('nvenc_cq_hd', '32'),
+                        ('nvenc_cq_sd', '28'),
+                        ('vaapi_cq_hd', '28'),
+                        ('vaapi_cq_sd', '24'),
+                        ('cpu_cq_hd', '28'),
+                        ('cpu_cq_sd', '24'),
+                        ('cq_width_threshold', '1900'),
+                        ('plex_path_from', ''),
+                        ('plex_path_to', ''),
+                        ('pause_job_distribution', 'false'),
+                        ('plex_path_mapping_enabled', 'true'),
+                        ('media_scanner_type', 'plex'),
+                        ('internal_scan_paths', ''),
+                        ('sonarr_enabled', 'false'),
+                        ('radarr_enabled', 'false'),
+                        ('lidarr_enabled', 'false'),
+                        ('sonarr_auto_rename_after_transcode', 'false'),
+                        ('radarr_auto_rename_after_transcode', 'false')
+                    ON CONFLICT (setting_name) DO NOTHING;
+                """)
+
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS schema_version (
+                        version INT PRIMARY KEY
+                    );
+                """)
+                cur.execute(f"ALTER TABLE schema_version OWNER TO {db_user};")
+                
+                conn.commit()
+
             else:
                 print("Database already initialized. Skipping initial setup.")
     except Exception as e:

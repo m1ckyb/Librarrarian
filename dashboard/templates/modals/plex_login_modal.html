@@ -1,1 +1,27 @@
-<!-- plex_login_modal.html -->
+<!-- Plex Login Modal -->
+<div class="modal fade" id="plexLoginModal" tabindex="-1" aria-labelledby="plexLoginModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="plexLoginModalLabel">Link Plex Account</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Enter your Plex.tv username and password. This is a one-time login to retrieve an authentication token. Your credentials are not stored.</p>
+                <div class="mb-3">
+                    <label for="plex-username" class="form-label">Plex Username</label>
+                    <input type="text" class="form-control" id="plex-username" autocomplete="username">
+                </div>
+                <div class="mb-3">
+                    <label for="plex-password" class="form-label">Plex Password</label>
+                    <input type="password" class="form-control" id="plex-password" autocomplete="current-password">
+                </div>
+                <div id="plex-login-status" class="mt-3"></div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                <button type="button" class="btn btn-primary" id="plex-signin-btn">Sign In</button>
+            </div>
+        </div>
+    </div>
+</div>

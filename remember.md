@@ -85,20 +85,18 @@ This ensures all subsequent responses are informed by the full project context.
 
 ## 2. Database Initialization & Startup
 
-**Problem:** On a fresh deployment, the `dashboard` and `worker` services start before the `db` container is ready and the schema is created. This causes `relation "..." does not exist` and `permission denied` errors.
+**Problem:** On a fresh deployment, the `dashboard` and `worker` services might start before the `db` container is ready, and they need a way to create the database schema from scratch.
 
-**Correct Pattern:** Use Docker's built-in Postgres initialization mechanism.
+**Correct Pattern:** The dashboard application itself is responsible for all database schema management, from initial creation to subsequent migrations. This centralizes all SQL logic within the Python application.
 
-1.  **`init.sql`:** A single `init.sql` file in the project root contains all `CREATE TABLE IF NOT EXISTS ...` statements.
-2.  **Permissions are CRITICAL:** After each `CREATE TABLE` statement, permissions **must** be granted to the application user (`transcode`). Example:
-    ```sql
-    GRANT ALL PRIVILEGES ON TABLE nodes TO transcode;
-    GRANT USAGE, SELECT ON SEQUENCE nodes_id_seq TO transcode;
-    ```
-3.  **Default Settings:** The `init.sql` script **must** populate the `worker_settings` table with a complete set of default values. This prevents the dashboard's API from failing on a fresh start.
-4.  **`docker-compose.yml` Orchestration:**
+1.  **Application-Led Initialization:** The `dashboard_app.py` script handles everything. On startup, it connects to the database. If key tables do not exist, it assumes a first-time run and executes `CREATE TABLE IF NOT EXISTS ...` commands to build the entire schema.
+2.  **Idempotent Creation:** All initial table creation SQL commands are idempotent (using `IF NOT EXISTS`), ensuring they can run safely on every application start without causing errors on an already-initialized database.
+3.  **Dynamic Permissions:** All `GRANT` and `OWNER TO` statements in the initialization and migration SQL **must** be dynamic. They should use an f-string to insert the database username from the `DB_USER` environment variable (e.g., `f"GRANT ALL PRIVILEGES ON TABLE nodes TO {db_user};"`). Hardcoding usernames like `transcode` is forbidden.
+4.  **Default Settings:** After ensuring the tables exist, the application populates the `worker_settings` table with default values using `INSERT ... ON CONFLICT DO NOTHING`.
+5.  **Migrations:** After the base schema is guaranteed to exist, the existing database migration system runs to apply any incremental changes.
+6.  **`docker-compose.yml` Orchestration:**
     *   The `db` service uses a `healthcheck` to report when it's ready.
-    *   The `init.sql` file is mounted into `/docker-entrypoint-initdb.d/init.sql` on the `db` service.
+    *   The `init.sql` file and its corresponding volume mount are **no longer used**.
     *   The `dashboard` and `worker` services have a `depends_on` condition for the `db` service to be `service_healthy`.
 
 ---
