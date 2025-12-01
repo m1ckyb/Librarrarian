@@ -1392,9 +1392,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 const isIgnored = typeDropdown ? typeDropdown.value === 'none' : false;
                 
                 if (isIgnored && !showIgnored) {
-                    item.style.display = 'none';
+                    // Use Bootstrap's d-none class to hide, as it has !important
+                    // which overrides the d-flex class's display: flex !important
+                    item.classList.add('d-none');
                 } else {
-                    item.style.display = 'flex';
+                    item.classList.remove('d-none');
                 }
             });
         };
