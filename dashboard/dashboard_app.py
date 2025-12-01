@@ -300,9 +300,15 @@ def close_db(error):
         g.db.close()
 
 
-def init_db():
-    """Initializes the database and creates all necessary tables if they don't exist."""
-    conn = get_db()
+def init_db(conn=None):
+    """Initializes the database and creates all necessary tables if they don't exist.
+    
+    Args:
+        conn: Optional database connection. If not provided, uses get_db().
+              This parameter is used during startup when db_ready_event is not yet set.
+    """
+    if conn is None:
+        conn = get_db()
     print("Running database initialisation...")
     if not conn:
         print("DB Init Error: Could not connect to database.")
@@ -461,14 +467,16 @@ def initialize_database_if_needed():
             
             if not table_exists:
                 print("First run detected: Database not initialized. Running initial setup...")
-                # We need an app context to call init_db()
-                with app.app_context():
-                    init_db()
+                # Pass the connection directly to init_db to avoid the db_ready_event deadlock
+                init_db(conn)
             else:
                 print("Database already initialized. Skipping initial setup.")
     except Exception as e:
         print(f"❌ CRITICAL: Could not connect to or initialize the database: {e}")
         sys.exit(1)
+    finally:
+        if conn:
+            conn.close()
 
 def get_cluster_status():
     """Fetches node and failure data from the database."""
