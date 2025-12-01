@@ -1839,72 +1839,100 @@ def run_internal_scan(force_scan=False):
     The core logic for scanning local directories.
     """
     with app.app_context():
-        settings, db_error = get_worker_settings()
-        if db_error:
-            return {"success": False, "message": "Database not available."}
-
-        scan_paths_str = settings.get('internal_scan_paths', {}).get('setting_value', '')
-        scan_paths = [path.strip() for path in scan_paths_str.split(',') if path.strip()]
-
-        if not scan_paths:
-            return {"success": False, "message": "Internal scanner is enabled, but no paths are configured to be scanned."}
-
-        conn = get_db()
-        cur = conn.cursor(cursor_factory=RealDictCursor)
-
-        if force_scan:
-            existing_jobs = set()
-            encoded_history = set()
-        else:
-            cur.execute("SELECT filepath FROM jobs")
-            existing_jobs = {row['filepath'] for row in cur.fetchall()}
-            cur.execute("SELECT filename FROM encoded_files")
-            encoded_history = {row['filename'] for row in cur.fetchall()}
+        # Update progress state at the start
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing internal scan...", "total_steps": 0, "progress": 0, "scan_source": "internal", "scan_type": "media"})
         
-        # Build list of codecs to skip based on settings
-        # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
-        skip_codecs = []
-        if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
-            skip_codecs.extend(['hevc', 'h265'])
-        if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
-            skip_codecs.append('av1')
-        if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
-            skip_codecs.append('vp9')
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state.update({"current_step": "Error: Database not available."})
+                return {"success": False, "message": "Database not available."}
 
-        new_files_found = 0
-        valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
-        print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+            scan_paths_str = settings.get('internal_scan_paths', {}).get('setting_value', '')
+            scan_paths = [path.strip() for path in scan_paths_str.split(',') if path.strip()]
 
-        for folder in scan_paths:
-            full_scan_path = os.path.join('/media', folder)
-            print(f"[{datetime.now()}] Internal Scanner: Scanning '{full_scan_path}'...")
-            for root, _, files in os.walk(full_scan_path):
-                for file in files:
-                    if not file.lower().endswith(valid_extensions):
-                        continue
-                    
-                    filepath = os.path.join(root, file)
-                    if filepath in existing_jobs or filepath in encoded_history:
-                        continue
+            if not scan_paths:
+                scan_progress_state.update({"current_step": "Error: No paths configured."})
+                return {"success": False, "message": "Internal scanner is enabled, but no paths are configured to be scanned."}
 
-                    try:
-                        # Use ffprobe to get the video codec
-                        ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
-                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
+            conn = get_db()
+            cur = conn.cursor(cursor_factory=RealDictCursor)
+
+            if force_scan:
+                existing_jobs = set()
+                encoded_history = set()
+            else:
+                cur.execute("SELECT filepath FROM jobs")
+                existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                cur.execute("SELECT filename FROM encoded_files")
+                encoded_history = {row['filename'] for row in cur.fetchall()}
+            
+            # Build list of codecs to skip based on settings
+            # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
+            skip_codecs = []
+            if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.extend(['hevc', 'h265'])
+            if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.append('av1')
+            if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.append('vp9')
+
+            new_files_found = 0
+            valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
+            print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+
+            # First pass: count total files to scan for progress tracking
+            total_files = 0
+            for folder in scan_paths:
+                full_scan_path = os.path.join('/media', folder)
+                for root, _, files in os.walk(full_scan_path):
+                    for file in files:
+                        if file.lower().endswith(valid_extensions):
+                            total_files += 1
+            
+            scan_progress_state.update({"total_steps": total_files})
+            files_processed = 0
+
+            for folder in scan_paths:
+                full_scan_path = os.path.join('/media', folder)
+                print(f"[{datetime.now()}] Internal Scanner: Scanning '{full_scan_path}'...")
+                scan_progress_state.update({"current_step": f"Scanning: {folder}"})
+                
+                for root, _, files in os.walk(full_scan_path):
+                    for file in files:
+                        if not file.lower().endswith(valid_extensions):
+                            continue
                         
-                        print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                        if codec and codec not in skip_codecs:
-                            print(f"    -> Adding file to queue (codec: {codec}).")
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                            if cur.rowcount > 0:
-                                new_files_found += 1
-                    except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                        print(f"    -> Could not probe file '{filepath}'. Error: {e}")
+                        files_processed += 1
+                        filepath = os.path.join(root, file)
+                        scan_progress_state.update({"current_step": f"Checking: {file}", "progress": files_processed})
+                        
+                        if filepath in existing_jobs or filepath in encoded_history:
+                            continue
 
-        conn.commit()
-        message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
-        cur.close()
-        return {"success": True, "message": message}
+                        try:
+                            # Use ffprobe to get the video codec
+                            ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
+                            codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
+                            
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            if codec and codec not in skip_codecs:
+                                print(f"    -> Adding file to queue (codec: {codec}).")
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                if cur.rowcount > 0:
+                                    new_files_found += 1
+                        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                            print(f"    -> Could not probe file '{filepath}'. Error: {e}")
+
+            conn.commit()
+            message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+            scan_progress_state.update({"current_step": message})
+            cur.close()
+            return {"success": True, "message": message}
+        finally:
+            # Clear progress state after a brief delay to let UI catch the final message
+            time.sleep(2)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
 
 def run_plex_scan(force_scan=False):
     """
@@ -1918,9 +1946,13 @@ def run_plex_scan(force_scan=False):
 
     try:
         with app.app_context():
+            # Update progress state at the start
+            scan_progress_state.update({"is_running": True, "current_step": "Initializing Plex scan...", "total_steps": 0, "progress": 0, "scan_source": "plex", "scan_type": "media"})
+            
             settings, db_error = get_worker_settings()
 
             if db_error:
+                scan_progress_state.update({"current_step": "Error: Database not available."})
                 return {"success": False, "message": "Database not available."}
 
             plex_url = settings.get('plex_url', {}).get('setting_value')
@@ -1929,14 +1961,17 @@ def run_plex_scan(force_scan=False):
             plex_libraries = [lib.strip() for lib in plex_libraries_str.split(',') if lib.strip()]
 
             if not all([plex_url, plex_token, plex_libraries]):
+                scan_progress_state.update({"current_step": "Error: Plex not fully configured."})
                 return {"success": False, "message": "Plex integration is not fully configured."}
 
             conn = get_db()
             cur = conn.cursor(cursor_factory=RealDictCursor)
 
             try:
+                scan_progress_state.update({"current_step": "Connecting to Plex server..."})
                 plex_server = PlexServer(plex_url, plex_token)
             except Exception as e:
+                scan_progress_state.update({"current_step": f"Error: Could not connect to Plex."})
                 return {"success": False, "message": f"Could not connect to Plex server: {e}"}
 
             # Only check existing jobs/history if it's NOT a forced scan
@@ -1961,10 +1996,27 @@ def run_plex_scan(force_scan=False):
 
             new_files_found = 0
             print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
+            
+            # First pass: count total items for progress tracking
+            total_items = 0
+            for lib_name in plex_libraries:
+                try:
+                    library = plex_server.library.section(title=lib_name)
+                    total_items += library.totalSize
+                except Exception:
+                    pass
+            
+            scan_progress_state.update({"total_steps": total_items})
+            items_processed = 0
+            
             for lib_name in plex_libraries:
                 library = plex_server.library.section(title=lib_name)
                 print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
+                scan_progress_state.update({"current_step": f"Scanning library: {library.title}"})
+                
                 for video in library.all():
+                    items_processed += 1
+                    
                     # Must reload to get all media part and stream details
                     video.reload()
                     
@@ -1975,6 +2027,8 @@ def run_plex_scan(force_scan=False):
                     codec = video.media[0].videoCodec
                     filepath = video.media[0].parts[0].file
                     codec_lower = codec.lower() if codec else ''
+                    
+                    scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
 
                     print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'})")
                     if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
@@ -1986,9 +2040,13 @@ def run_plex_scan(force_scan=False):
             # Commit all the inserts at the end of the scan
             conn.commit()
             message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+            scan_progress_state.update({"current_step": message})
             cur.close()
             return {"success": True, "message": message}
     finally:
+        # Clear progress state after a brief delay to let UI catch the final message
+        time.sleep(2)
+        scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
         scanner_lock.release()
 
 @app.route('/api/scan/trigger', methods=['POST'])
@@ -2286,6 +2344,70 @@ def api_arr_stats():
 
     return jsonify(success=True, stats=stats)
 
+@app.route('/api/export', methods=['GET'])
+def api_export_data():
+    """Exports all settings, job queue, and history as a JSON file for backup purposes."""
+    db = get_db()
+    if db is None:
+        return jsonify(error="Cannot connect to the PostgreSQL database."), 500
+    
+    export_data = {
+        "export_version": 1,
+        "exported_at": datetime.now().isoformat(),
+        "dashboard_version": get_project_version(),
+        "settings": {},
+        "jobs": [],
+        "encoded_files": [],
+        "failed_files": [],
+        "media_source_types": []
+    }
+    
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Export settings
+            cur.execute("SELECT setting_name, setting_value FROM worker_settings")
+            for row in cur.fetchall():
+                export_data["settings"][row['setting_name']] = row['setting_value']
+            
+            # Export jobs (pending and awaiting_approval only, not active encoding jobs)
+            cur.execute("SELECT filepath, job_type, status, created_at, metadata FROM jobs WHERE status IN ('pending', 'awaiting_approval')")
+            for row in cur.fetchall():
+                job_entry = dict(row)
+                job_entry['created_at'] = row['created_at'].isoformat() if row['created_at'] else None
+                export_data["jobs"].append(job_entry)
+            
+            # Export encoded files history
+            cur.execute("SELECT filename, original_size, new_size, encoded_by, encoded_at, status FROM encoded_files")
+            for row in cur.fetchall():
+                file_entry = dict(row)
+                file_entry['encoded_at'] = row['encoded_at'].isoformat() if row['encoded_at'] else None
+                export_data["encoded_files"].append(file_entry)
+            
+            # Export failed files
+            cur.execute("SELECT filename, reason, failed_at FROM failed_files")
+            for row in cur.fetchall():
+                fail_entry = dict(row)
+                fail_entry['failed_at'] = row['failed_at'].isoformat() if row['failed_at'] else None
+                export_data["failed_files"].append(fail_entry)
+            
+            # Export media source types
+            cur.execute("SELECT source_name, scanner_type, media_type, is_hidden FROM media_source_types")
+            export_data["media_source_types"] = [dict(row) for row in cur.fetchall()]
+        
+        # Create the response with proper headers for file download
+        response = app.response_class(
+            response=json.dumps(export_data, indent=2),
+            status=200,
+            mimetype='application/json'
+        )
+        filename = f"librarrarian_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.json"
+        response.headers['Content-Disposition'] = f'attachment; filename="{filename}"'
+        return response
+        
+    except Exception as e:
+        print(f"Error exporting data: {e}")
+        return jsonify(error=f"Export failed: {e}"), 500
+
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():
     """Toggles the paused state of the job queue."""
@@ -2497,7 +2619,6 @@ def update_job(job_id):
     elif status == 'failed':
         # For any failed job, log it and mark as failed in the queue
         cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
-        cur.execute("INSERT INTO failed_files (filename, reason, log, reported_at) VALUES (%s, %s, %s, CURRENT_TIMESTAMP)", (job['filepath'], data.get('reason'), data.get('log')))
         cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
         message = f"Job {job_id} ({job['job_type']}) failed and logged."
 
