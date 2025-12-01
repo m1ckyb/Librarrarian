@@ -229,11 +229,47 @@ def update_job_status(job_id, status, details=None):
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not update job {job_id}. {e}")
 
+def validate_filepath(filepath):
+    """
+    Validates that a filepath doesn't contain path traversal attempts.
+    Prevents security vulnerabilities from malicious paths like '../../../etc/passwd'.
+    Returns True if the path is safe, False otherwise.
+    """
+    try:
+        # Resolve the absolute path
+        resolved_path = os.path.abspath(filepath)
+        
+        # Define allowed base directories (adjust based on your deployment)
+        allowed_bases = ['/media', os.path.abspath('.')]
+        
+        # Check if the resolved path starts with any allowed base directory
+        is_allowed = any(resolved_path.startswith(os.path.abspath(base)) for base in allowed_bases)
+        
+        if not is_allowed:
+            print(f"⚠️ WARNING: Path outside allowed directories detected and blocked: {filepath}")
+            return False
+            
+        # Additional check: block access to sensitive system directories
+        sensitive_dirs = ['/etc', '/root', '/sys', '/proc', '/dev']
+        if any(resolved_path.startswith(sensitive) for sensitive in sensitive_dirs):
+            print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+            return False
+            
+        return True
+    except Exception as e:
+        print(f"⚠️ WARNING: Error validating filepath {filepath}: {e}")
+        return False
+
 def translate_path_for_worker(filepath, settings):
     """
     Translates a container-centric path from the dashboard to a path the worker can use.
     This is crucial for non-Docker workers or complex mount setups.
     """
+    # First validate the filepath for security
+    if not validate_filepath(filepath):
+        print(f"❌ ERROR: Refusing to process potentially malicious filepath: {filepath}")
+        return None
+    
     path_from = settings.get('plex_path_from')
     path_to = settings.get('plex_path_to')
 
@@ -248,6 +284,8 @@ def process_file(filepath, db, settings):
     """Handles the full transcoding process for a given file using ffmpeg."""
     # Translate the dashboard path to the worker's local path
     local_filepath = translate_path_for_worker(filepath, settings)
+    if local_filepath is None:
+        return False, {"reason": "Invalid or malicious filepath detected", "log": f"Filepath validation failed for: {filepath}"}
     
     print(f"[{datetime.now()}] Starting transcode for: {local_filepath}")
     db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0)
@@ -354,6 +392,8 @@ def cleanup_file(filepath, db, settings):
     """
     print(f"[{datetime.now()}] Starting cleanup for: {filepath}")
     local_filepath = translate_path_for_worker(filepath, settings)
+    if local_filepath is None:
+        return False, {"reason": "Invalid or malicious filepath detected", "log": f"Filepath validation failed for: {filepath}"}
     
     db.update_heartbeat('cleaning', current_file=os.path.basename(local_filepath))
     try:
@@ -374,6 +414,8 @@ def rename_file(filepath, db, settings, metadata):
     """
     # Translate the dashboard path to the worker's local path
     local_filepath = translate_path_for_worker(filepath, settings)
+    if local_filepath is None:
+        return False, {"reason": "Invalid or malicious filepath detected", "log": f"Filepath validation failed for: {filepath}"}
     
     print(f"[{datetime.now()}] Starting rename for: {local_filepath}")
     db.update_heartbeat('renaming', current_file=os.path.basename(local_filepath))

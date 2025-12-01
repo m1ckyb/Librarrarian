@@ -33,6 +33,9 @@ services:
       - LOCAL_PASSWORD=${LOCAL_PASSWORD}
       # --- Development Mode ---
       - DEVMODE=${DEVMODE:-false} # Set to 'true' to bypass auth for local IPs
+      # --- SSL/TLS Verification ---
+      - OIDC_SSL_VERIFY=${OIDC_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
+      - ARR_SSL_VERIFY=${ARR_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
       # --- Force print() statements to appear in logs immediately ---
       - PYTHONUNBUFFERED=1
     depends_on:
