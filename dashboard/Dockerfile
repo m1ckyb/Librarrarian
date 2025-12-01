@@ -1,17 +1,30 @@
-# Use a slim Python image for a smaller footprint
-FROM python:3.13-slim-bullseye
+# ====== BUILD STAGE ======
+FROM python:3.14-alpine3.21 AS builder
 
-# Set the working directory inside the container
 WORKDIR /app
 
-# Install iputils-ping curl from the OS package manager
-RUN apt-get update && apt-get install -y iputils-ping curl && apt-get clean
+# Install build dependencies for compiling Python packages
+RUN apk add --no-cache gcc musl-dev libffi-dev
 
 # Copy the requirements file from the dashboard directory
 COPY dashboard/requirements.txt .
 
-# Install the Python dependencies
+# Install the Python dependencies into a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ====== RUNTIME STAGE ======
+FROM python:3.14-alpine3.21
+
+WORKDIR /app
+
+# Install runtime dependencies (iputils for ping, curl for healthchecks)
+RUN apk add --no-cache iputils curl libffi
+
+# Copy the virtual environment from the builder stage
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
 # Copy the entire dashboard directory and the root VERSION.txt file
 COPY dashboard/ .

@@ -1,23 +1,33 @@
-# Use a Python image that includes OS build tools
-FROM python:3.13-slim-bullseye
+# ====== BUILD STAGE ======
+FROM python:3.14-alpine3.21 AS builder
 
-# Set non-interactive frontend for package installers
-ENV DEBIAN_FRONTEND=noninteractive
-
-# Install ffmpeg from the OS package manager
-RUN apt-get update && apt-get install -y ffmpeg iputils-ping curl && apt-get clean
-
-# Set the working directory inside the container
 WORKDIR /app
 
-# Ensure Python output is unbuffered
-ENV PYTHONUNBUFFERED=1
+# Install build dependencies for compiling Python packages
+RUN apk add --no-cache gcc musl-dev libffi-dev
 
 # Copy the requirements file into the container
 COPY worker/requirements.txt .
 
-# Install the Python dependencies
+# Install the Python dependencies into a virtual environment
+RUN python -m venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 RUN pip install --no-cache-dir -r requirements.txt
+
+# ====== RUNTIME STAGE ======
+FROM python:3.14-alpine3.21
+
+WORKDIR /app
+
+# Install runtime dependencies (ffmpeg for transcoding, iputils for ping, curl for healthchecks)
+RUN apk add --no-cache ffmpeg iputils curl libffi
+
+# Copy the virtual environment from the builder stage
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
+
+# Ensure Python output is unbuffered
+ENV PYTHONUNBUFFERED=1
 
 # Copy the transcode worker script into the container
 COPY worker/transcode.py .
