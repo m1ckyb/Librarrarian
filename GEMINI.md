@@ -1,6 +1,6 @@
-# Gemini Code Assist - Project Memory for CodecShift
+# Gemini Code Assist - Project Memory for Librarrarian
 
-This document is a summary of the key architectural patterns, decisions, and common pitfalls encountered during the development of the CodecShift project. It serves as a "memory" to ensure future work is consistent and efficient.
+This document is a summary of the key architectural patterns, decisions, and common pitfalls encountered during the development of the Librarrarian project. It serves as a "memory" to ensure future work is consistent and efficient.
 
 ---
 
@@ -189,7 +189,7 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 
 ## Technical Debt & Future Improvements
 
-*   **Database Name Consolidation**: The worker (`transcode.py`) currently defaults to the database name `transcode_cluster`, while the dashboard (`dashboard_app.py`) defaults to `codecshift`. This should be unified to `codecshift` in a future release. This change was temporarily reverted to maintain compatibility with existing setups.
+*   **Database Name Consolidation**: The worker (`transcode.py`) currently defaults to the database name `transcode_cluster`, while the dashboard (`dashboard_app.py`) defaults to `librarrarian`. This should be unified to `librarrarian` in a future release. This change was temporarily reverted to maintain compatibility with existing setups.
 
 ---
 

@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/m1ckyb/codecshift-dashboard:0.10.12
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.10.12
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -48,7 +48,7 @@ services:
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/m1ckyb/codecshift-worker:0.10.12
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.10.12
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       db: # Depends on the database being ready
@@ -81,7 +81,7 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-transcode}", "-d", "${POSTGRES_DB:-transcode_cluster}"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-transcode}", "-d", "${POSTGRES_DB:-librarrarian}"]
       interval: 5s
       timeout: 5s
       retries: 5

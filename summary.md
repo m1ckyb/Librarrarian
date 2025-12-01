@@ -1,6 +1,6 @@
-# CodecShift Project Summary
+# Librarrarian Project Summary
 
-**CodecShift** is a distributed video transcoding cluster designed to automate the conversion of a media library to the efficient HEVC (H.265) codec. It uses a central web dashboard to manage a fleet of worker nodes, making it easy to scale processing power across multiple machines.
+**Librarrarian** is a distributed video transcoding cluster designed to automate the conversion of a media library to the efficient HEVC (H.265) codec. It uses a central web dashboard to manage a fleet of worker nodes, making it easy to scale processing power across multiple machines.
 
 ## Core Architecture
 

@@ -38,7 +38,7 @@
     {% endif %}
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center">
-            <img src="{{ url_for('static', filename='logo.png') }}" alt="CodecShift Logo" style="height: 40px;" class="me-3">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="Librarrarian Logo" style="height: 40px;" class="me-3">
         </div>
         <div class="btn-toolbar" role="toolbar">
             <!-- Theme Switcher Dropdown -->
@@ -446,7 +446,7 @@
                                 <div class="col-md-6 mb-3">
                                     <label for="plex_path_to" class="form-label">
                                         <strong>Path in Container</strong>
-                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the CodecShift container. This should match your Docker volume mapping. e.g., /media"></span>
+                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the Librarrarian container. This should match your Docker volume mapping. e.g., /media"></span>
                                     </label>
                                     <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
                                 </div>
@@ -736,7 +736,7 @@
 
     <!-- Pass server-side data to JavaScript -->
     <script>
-        window.CodecShift = {
+        window.Librarrarian = {
             settings: {
                 use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }},
                 plexToken: "{{ settings.get('plex_token', {}).get('setting_value', '') }}",

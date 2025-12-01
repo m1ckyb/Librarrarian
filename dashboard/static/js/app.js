@@ -670,7 +670,7 @@ setInterval(() => {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
-        hour12: !window.CodecShift.settings.use24HourClock
+        hour12: !window.Librarrarian.settings.use24HourClock
     };
     const timeString = new Date().toLocaleTimeString([], timeOptions);
     if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
@@ -1268,7 +1268,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const clockToggle = document.getElementById('clock-24hr');
     if (clockToggle) {
         clockToggle.addEventListener('change', (event) => {
-            window.CodecShift.settings.use24HourClock = event.target.checked;
+            window.Librarrarian.settings.use24HourClock = event.target.checked;
         });
     }
 
@@ -1442,7 +1442,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Use the settings rendered directly into the page by the server.
         // This completely avoids any race conditions with the DOM.
-        const hasToken = window.CodecShift.settings.plexToken !== "";
+        const hasToken = window.Librarrarian.settings.plexToken !== "";
 
         if (!hasToken) {
             container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and link your account to see libraries.</p>`;
@@ -1451,7 +1451,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const response = await fetch('/api/plex/libraries');
         const data = await response.json();
-        const currentLibs = window.CodecShift.settings.plexLibraries;
+        const currentLibs = window.Librarrarian.settings.plexLibraries;
 
         if (data.libraries && data.libraries.length > 0) {
             container.innerHTML = data.libraries.map(lib => `
@@ -1496,7 +1496,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const response = await fetch('/api/internal/folders');
         const data = await response.json();
-        const currentPaths = window.CodecShift.settings.internalScanPaths;
+        const currentPaths = window.Librarrarian.settings.internalScanPaths;
 
         if (data.folders && data.folders.length > 0) {
             container.innerHTML = data.folders.map(item => `
@@ -1573,7 +1573,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Also update the manual scan button state
         const manualScanBtn = document.getElementById('manual-scan-btn');
-        const hasPlexToken = window.CodecShift.settings.plexToken !== "";
+        const hasPlexToken = window.Librarrarian.settings.plexToken !== "";
         if (scannerPlexRadio.checked && !hasPlexToken) {
             manualScanBtn.disabled = true;
             manualScanBtn.title = "Plex account must be linked to run a scan.";
@@ -1820,8 +1820,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const converter = new showdown.Converter({ simplifiedAutoLink: true, openLinksInNewWindow: true });
 
     async function determineAndLoadChangelog() {
-        const internalVersion = window.CodecShift.version;
-        const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/main/VERSION.txt";
+        const internalVersion = window.Librarrarian.version;
+        const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/Librarrarian/refs/heads/main/VERSION.txt";
 
         try {
             const response = await fetch(mainVersionUrl);
@@ -1849,7 +1849,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function loadChangelog() {
         const isDevelop = versionToggle.checked;
         const branch = isDevelop ? 'develop' : 'main';
-        const url = `https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/${branch}/CHANGELOG.md`;
+        const url = `https://raw.githubusercontent.com/m1ckyb/Librarrarian/refs/heads/${branch}/CHANGELOG.md`;
 
         changelogContent.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
         try {
