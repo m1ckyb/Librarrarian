@@ -27,6 +27,36 @@ except ImportError:
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
 DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 
+# Paths that should never be allowed as media directories (shared constant)
+FORBIDDEN_SYSTEM_PATHS = ['/', '/etc', '/root', '/sys', '/proc', '/dev', '/bin', '/sbin', '/usr', '/var', '/tmp']
+
+# Configurable allowed media paths for validation (comma-separated)
+# Parse and validate each path to ensure it's absolute and doesn't contain path traversal attempts
+def _parse_media_paths():
+    """Parse and validate MEDIA_PATHS from environment variable."""
+    paths = []
+    raw_paths = os.environ.get('MEDIA_PATHS', '/media').split(',')
+    
+    for path in raw_paths:
+        path = path.strip()
+        if not path:
+            continue
+        # Check if path is absolute (reject relative paths)
+        if not os.path.isabs(path):
+            print(f"⚠️ WARNING: Ignoring relative path in MEDIA_PATHS: {path}")
+            continue
+        # Normalize the path to resolve any .. or . components
+        normalized = os.path.normpath(path)
+        # Reject paths that normalize to sensitive system directories
+        # This catches paths like '/media/../../etc' which normalize to '/etc'
+        if normalized in FORBIDDEN_SYSTEM_PATHS:
+            print(f"⚠️ WARNING: Ignoring forbidden system path in MEDIA_PATHS: {path} -> {normalized}")
+            continue
+        paths.append(normalized)
+    return paths if paths else ['/media']  # Fallback to default if no valid paths
+
+MEDIA_PATHS = _parse_media_paths()
+
 def get_worker_version():
     """Reads the version from the VERSION.txt file."""
     try:
@@ -236,24 +266,56 @@ def validate_filepath(filepath):
     Returns True if the path is safe, False otherwise.
     """
     try:
-        # Resolve the absolute path
-        resolved_path = os.path.abspath(filepath)
+        # Resolve the absolute path and normalize it
+        resolved_path = os.path.realpath(os.path.abspath(filepath))
         
-        # Define allowed base directories (adjust based on your deployment)
-        allowed_bases = ['/media', os.path.abspath('.')]
+        # Use configurable allowed base directories from environment
+        allowed_bases = list(MEDIA_PATHS) + [os.path.abspath('.')]
         
-        # Check if the resolved path starts with any allowed base directory
-        is_allowed = any(resolved_path.startswith(os.path.abspath(base)) for base in allowed_bases)
+        # Check if the resolved path is within any allowed base directory
+        # Using os.path.commonpath for robust containment checking
+        is_allowed = False
+        for base in allowed_bases:
+            try:
+                # Normalize the base path as well
+                base_real = os.path.realpath(os.path.abspath(base))
+                
+                # Use os.path.commonpath to check if resolved_path is under base_real
+                # This is the most secure way to check path containment
+                try:
+                    common = os.path.commonpath([base_real, resolved_path])
+                    # If the common path equals the base, then resolved_path is under base
+                    if common == base_real:
+                        is_allowed = True
+                        break
+                except ValueError:
+                    # commonpath raises ValueError if paths are on different drives (Windows)
+                    # or have no common path - in either case, not allowed
+                    continue
+            except (ValueError, TypeError):
+                continue
         
         if not is_allowed:
             print(f"⚠️ WARNING: Path outside allowed directories detected and blocked: {filepath}")
+            print(f"   Allowed directories: {', '.join(allowed_bases)}")
             return False
             
         # Additional check: block access to sensitive system directories
-        sensitive_dirs = ['/etc', '/root', '/sys', '/proc', '/dev']
-        if any(resolved_path.startswith(sensitive) for sensitive in sensitive_dirs):
-            print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
-            return False
+        for sensitive in FORBIDDEN_SYSTEM_PATHS:
+            try:
+                sensitive_real = os.path.realpath(sensitive)
+                # Check if resolved_path is under or equal to sensitive directory
+                try:
+                    common = os.path.commonpath([sensitive_real, resolved_path])
+                    if common == sensitive_real:
+                        print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+                        return False
+                except ValueError:
+                    # Different drives or no common path - not a concern
+                    continue
+            except (OSError, ValueError):
+                # If we can't resolve the sensitive path, skip this check
+                continue
             
         return True
     except Exception as e:

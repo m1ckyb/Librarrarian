@@ -81,11 +81,17 @@ This is the recommended method for running Librarrarian.
     LOCAL_USER=admin
     # The password must be base64 encoded. To generate, run: echo -n 'your_password' | base64
     LOCAL_PASSWORD=eW91cl9zdXBlcl9zZWNyZXRfcGFzc3dvcmQ=
+    
+    # --- Worker Settings (Optional) ---
+    # If true, workers will automatically start processing jobs
+    AUTOSTART=false
+    
+    # Comma-separated list of allowed base directories for media files
+    # This is used for security validation to prevent path traversal attacks
+    # Default: /media
+    # Example for NFS mounts: MEDIA_PATHS=/media,/nfs/media,/mnt/storage
+    MEDIA_PATHS=/media
     ```
-    
-    ### Worker Settings
-    
-    `AUTOSTART=true` # Optional: If true, workers will automatically start processing jobs instead of waiting for a manual "Start" command from the UI.
 
 ### 3. Running the Cluster
 1.  **Log in to GHCR:**
