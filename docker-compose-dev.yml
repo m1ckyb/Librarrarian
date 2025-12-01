@@ -38,6 +38,12 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck: # This check now waits for the database to be fully initialized
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - ./media:/media
     # The command is now defined in the dashboard/Dockerfile
@@ -50,6 +56,8 @@ services:
     restart: unless-stopped # or "on-failure" if you prefer
     depends_on:
       db:
+        condition: service_healthy
+      dashboard:
         condition: service_healthy
     environment:
       - DB_HOST=db
@@ -64,6 +72,7 @@ services:
       - AUTOSTART=${AUTOSTART:-false} # If true, worker starts processing jobs immediately
     volumes:
       - ./media:/media
+    hostname: worker-1
     # The command is now defined in the worker/Dockerfile
 
   # The PostgreSQL database service
@@ -77,7 +86,7 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-transcode}", "-d", "${POSTGRES_DB:-transcode_cluster}"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-transcode}", "-d", "${POSTGRES_DB:-librarrarian}"]
       interval: 5s
       timeout: 5s
       retries: 5

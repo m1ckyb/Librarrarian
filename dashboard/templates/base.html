@@ -2,7 +2,7 @@
 <!-- The data-bs-theme attribute will be set by the script below -->
 <html lang="en"> 
 <head>
-    <meta charset="utf-8">    <title>CodecShift Dashboard</title>
+    <meta charset="utf-8">    <title>Librarrarian Dashboard</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
 
     <!-- This script must run before the body to prevent a flash of the wrong theme -->
@@ -72,6 +72,16 @@
         .footer a:hover {
             text-decoration: underline;
         }
+
+        .progress-box {
+            background-color: transparent; /* Changed */
+            border: 1px solid var(--bs-success); /* Changed to green outline */
+            border-radius: 0.25rem;
+            margin-top: 1rem;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+        }
     </style>
     {% block head %}{% endblock %}
 </head>
@@ -91,7 +101,7 @@
                 <a href="#" class="text-decoration-none me-3" data-bs-toggle="modal" data-bs-target="#changelogModal">
                     <span class="mdi mdi-format-list-bulleted"></span> Changelog
                 </a>
-                <a href="https://github.com/m1ckyb/CodecShift" target="_blank" class="text-decoration-none ms-3">
+                <a href="https://github.com/m1ckyb/Librarrarian" target="_blank" class="text-decoration-none ms-3">
                     <span class="mdi mdi-github"></span> GitHub
                 </a>
             </div>
@@ -117,13 +127,14 @@
         </div>
     </div>
 
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
     {% block scripts %}{% endblock %}
     <script>
         // --- Update Checker ---
         document.addEventListener('DOMContentLoaded', () => {
             async function checkForUpdates() {
                 const internalVersion = "{{ version }}";
-                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/main/VERSION.txt";
+                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/Librarrarian/refs/heads/main/VERSION.txt";
                 const notificationSpan = document.getElementById('update-notification');
 
                 try {
@@ -140,6 +151,84 @@
                 }
             }
             checkForUpdates();
+        });
+    </script>
+    <script>
+        // --- Tools Page Scanner Logic ---
+        $(document).ready(function() {
+            let progressPollers = {}; // Object to hold interval IDs for each scanner
+
+            function startScan(scannerType, apiEndpoint) {
+                const scanButton = $(`#trigger${scannerType}Scan`);
+                const progressBox = $(`#${scannerType.toLowerCase()}-scan-progress-box`);
+                const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
+
+                // Immediately show progress box and disable scan button
+                outputDiv.text('Starting scan...');
+                progressBox.show();
+                scanButton.prop('disabled', true);
+
+                // Make the API call to start the scan
+                $.post(apiEndpoint, function(data) {
+                    // Start polling for progress
+                    progressPollers[scannerType] = setInterval(function() {
+                        $.get(`/api/scan_progress?scanner=${scannerType.toLowerCase()}`, function(progressData) {
+                            outputDiv.text(progressData.progress);
+                            // If the scan is no longer running, stop polling
+                            if (!progressData.is_running) {
+                                stopScan(scannerType, false); // Don't call cancel API
+                            }
+                        });
+                    }, 2000); // Poll every 2 seconds
+                }).fail(function(jqXHR) {
+                    outputDiv.text(`Error starting scan: ${jqXHR.responseJSON ? jqXHR.responseJSON.error : 'Unknown error'}`);
+                    stopScan(scannerType, false);
+                });
+            }
+
+            function stopScan(scannerType, callCancelApi = true) {
+                const scanButton = $(`#trigger${scannerType}Scan`);
+                const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
+
+                // Stop the poller
+                if (progressPollers[scannerType]) {
+                    clearInterval(progressPollers[scannerType]);
+                    delete progressPollers[scannerType];
+                }
+
+                // Reset UI
+                scanButton.prop('disabled', false);
+
+                if (callCancelApi) {
+                    $.post(`/api/cancel_scan?scanner=${scannerType.toLowerCase()}`, function(data) {
+                        if (outputDiv.text()) {
+                            outputDiv.append('\n\nScan cancelled by user.');
+                        }
+                    });
+                }
+            }
+
+            // Attach event listeners if the elements exist on the page
+            $('#triggerSonarrRenameScan').click(() => startScan('SonarrRename', '/api/scan/rename'));
+            $('#triggerSonarrQualityScan').click(() => startScan('SonarrQuality', '/api/scan/quality'));
+        });
+
+        // --- Options Page Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const keepOriginalSwitch = document.getElementById('keep_original');
+            const backupDirInput = document.getElementById('backup_directory');
+
+            function toggleBackupDir() {
+                if (backupDirInput) {
+                    // The backup directory is only relevant if we are NOT keeping the original.
+                    backupDirInput.disabled = keepOriginalSwitch.checked;
+                }
+            }
+
+            if (keepOriginalSwitch) {
+                keepOriginalSwitch.addEventListener('change', toggleBackupDir);
+                toggleBackupDir(); // Run on page load to set initial state
+            }
         });
     </script>
     </body>

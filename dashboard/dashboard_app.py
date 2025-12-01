@@ -19,6 +19,7 @@ try:
     from werkzeug.middleware.proxy_fix import ProxyFix
     import requests
 except ImportError:
+    # This part is for user feedback when running locally without installing requirements
     print("❌ Error: Missing required packages for the web dashboard.")
     print("   Please run: pip install Flask psycopg2-binary")
     sys.exit(1)
@@ -26,21 +27,32 @@ except ImportError:
 # Configuration
 # ===========================
 app = Flask(__name__)
+
+# --- Thread Synchronization Event ---
+db_ready_event = threading.Event() # This will be set after migrations are complete
+
 # A secret key is required for session management (e.g., for flash messages)
 # It's recommended to set this as an environment variable in production.
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
 
+
 # --- Custom Logging Filter ---
-# This filter will suppress the noisy GET /api/scan/progress logs from appearing.
+# This filter will suppress noisy polling endpoints from appearing in the logs.
 class HealthCheckFilter(logging.Filter):
+    # Endpoints to suppress from logs (these are polled frequently by the UI)
+    SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status']
+
     def filter(self, record):
         # The log message for an access log is in record.args
         if record.args and len(record.args) >= 3 and isinstance(record.args[2], str):
-            return '/api/scan/progress' not in record.args[2]
+            log_path = record.args[2]
+            return not any(endpoint in log_path for endpoint in self.SUPPRESSED_ENDPOINTS)
         return True
 
 # Apply the filter to Werkzeug's logger (used by Flask's dev server and Gunicorn)
 logging.getLogger('werkzeug').addFilter(HealthCheckFilter())
+# Also apply to Gunicorn's access logger
+logging.getLogger('gunicorn.access').addFilter(HealthCheckFilter())
 
 # If running behind a reverse proxy, this is crucial for url_for() to generate correct
 # external URLs (e.g., for OIDC redirects).
@@ -52,7 +64,7 @@ DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
-    "dbname": os.environ.get("DB_NAME", "codecshift")
+    "dbname": os.environ.get("DB_NAME", "librarrarian")
 }
 
 def setup_auth(app):
@@ -168,12 +180,12 @@ def get_project_version():
             return "unknown"
 
 # Print a startup banner to the logs
-print(f"\nCodecShift Web Dashboard v{get_project_version()}\n")
+print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 6
+TARGET_SCHEMA_VERSION = 8
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -209,10 +221,20 @@ MIGRATIONS = {
     6: [
         "ALTER TABLE jobs ADD COLUMN IF NOT EXISTS metadata JSONB;"
     ],
+    # Version 7: Add auto-rename after transcode settings for Sonarr/Radarr
+    7: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('sonarr_auto_rename_after_transcode', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('radarr_auto_rename_after_transcode', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 8: Add VP9 codec setting
+    8: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('allow_vp9', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
 }
 
 def run_migrations():
     """Checks the current DB schema version and applies any necessary migrations."""
+    # This function is now called before the app starts serving requests.
     print("Checking database schema version...")
     try:
         conn = psycopg2.connect(**DB_CONFIG)
@@ -262,6 +284,7 @@ def run_migrations():
 # ===========================
 def get_db():
     """Opens a new database connection if there is none yet for the current application context."""
+    db_ready_event.wait() # Ensure no DB operations happen until migrations are done.
     if 'db' not in g:
         try:
             g.db = psycopg2.connect(**DB_CONFIG)
@@ -385,6 +408,7 @@ def init_db():
                 ('keep_original', 'false'),
                 ('allow_hevc', 'false'),
                 ('allow_av1', 'false'),
+                ('allow_vp9', 'false'),
                 ('auto_update', 'false'),
                 ('clean_failures', 'false'),
                 ('debug', 'false'),
@@ -406,7 +430,9 @@ def init_db():
                 ('internal_scan_paths', ''),
                 ('sonarr_enabled', 'false'),
                 ('radarr_enabled', 'false'),
-                ('lidarr_enabled', 'false')
+                ('lidarr_enabled', 'false'),
+                ('sonarr_auto_rename_after_transcode', 'false'),
+                ('radarr_auto_rename_after_transcode', 'false')
             ON CONFLICT (setting_name) DO NOTHING;
         """)
 
@@ -675,6 +701,14 @@ def dashboard():
         settings=settings
     )
 
+@app.route('/api/health')
+def api_health():
+    """A dedicated health check endpoint that waits for the DB to be ready."""
+    if db_ready_event.is_set():
+        return "OK", 200
+    else:
+        return "Database not ready", 503
+
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     """Handles user login for both OIDC and the local fallback mechanism."""
@@ -754,6 +788,7 @@ def options():
         'keep_original': 'true' if 'keep_original' in request.form else 'false',
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
+        'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
         'auto_update': 'true' if 'auto_update' in request.form else 'false',
         'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
         'debug': 'true' if 'debug' in request.form else 'false',
@@ -779,9 +814,10 @@ def options():
         if request.form.get(f'{arr_type}_api_key'):
             settings_to_update[f'{arr_type}_api_key'] = request.form.get(f'{arr_type}_api_key')
     settings_to_update['sonarr_send_to_queue'] = 'true' if 'sonarr_send_to_queue' in request.form else 'false'
-    # Convert hours from the form back to minutes for storage
-    settings_to_update['sonarr_rescan_minutes'] = str(int(request.form.get('sonarr_rescan_hours', '1')) * 60)
-    settings_to_update['sonarr_auto_scan_enabled'] = 'true' if 'sonarr_auto_scan_enabled' in request.form else 'false'
+    settings_to_update['radarr_send_to_queue'] = 'true' if 'radarr_send_to_queue' in request.form else 'false'
+    settings_to_update['lidarr_send_to_queue'] = 'true' if 'lidarr_send_to_queue' in request.form else 'false'
+    settings_to_update['sonarr_auto_rename_after_transcode'] = 'true' if 'sonarr_auto_rename_after_transcode' in request.form else 'false'
+    settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
@@ -807,8 +843,8 @@ def options():
 
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
-                # A checked checkbox will be in the form, an unchecked one will not.
-                is_hidden = f'hide_plex_{source_name}' in request.form
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'plex', %s, %s)
@@ -817,7 +853,8 @@ def options():
 
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
-                is_hidden = f'hide_internal_{source_name}' in request.form
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
                 cur.execute("""
                     INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
                     VALUES (%s, 'internal', %s, %s)
@@ -874,7 +911,7 @@ def api_delete_job(job_id):
 
 @app.route('/api/jobs', methods=['GET'])
 def api_jobs():
-    """Returns a paginated list of the current job queue as JSON."""
+    """Returns a paginated and optionally filtered list of the current job queue as JSON."""
     db = get_db()
     jobs = []
     db_error = None
@@ -882,6 +919,10 @@ def api_jobs():
     page = request.args.get('page', 1, type=int)
     per_page = 50 # Number of jobs per page
     offset = (page - 1) * per_page
+    
+    # Filtering parameters
+    filter_type = request.args.get('type', '')  # Filter by job_type
+    filter_status = request.args.get('status', '')  # Filter by status
 
     if db is None:
         db_error = "Cannot connect to the PostgreSQL database."
@@ -889,13 +930,30 @@ def api_jobs():
 
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
+            # Build WHERE clause dynamically based on filters
+            where_clauses = []
+            params = []
+            
+            if filter_type:
+                where_clauses.append("job_type = %s")
+                params.append(filter_type)
+            
+            if filter_status:
+                where_clauses.append("status = %s")
+                params.append(filter_status)
+            
+            where_sql = ""
+            if where_clauses:
+                where_sql = "WHERE " + " AND ".join(where_clauses)
+            
             # Query for the paginated list of jobs
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
             # We also calculate the age of the job in minutes to detect stuck jobs.
-            cur.execute("""
+            query = f"""
                 SELECT *,
                        EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS age_minutes
                 FROM jobs
+                {where_sql}
                 ORDER BY
                     CASE status
                         WHEN 'encoding' THEN 1
@@ -905,19 +963,49 @@ def api_jobs():
                     END,
                     created_at DESC
                 LIMIT %s OFFSET %s
-            """, (per_page, offset))
+            """
+            params.extend([per_page, offset])
+            cur.execute(query, params)
             jobs = cur.fetchall()
             for job in jobs:
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
             
-            # Query for the total number of jobs to calculate total pages
-            cur.execute("SELECT COUNT(*) FROM jobs")
+            # Query for the total number of jobs to calculate total pages (respecting filters)
+            # count_params should only include the filter parameters, not LIMIT and OFFSET
+            count_query = f"SELECT COUNT(*) FROM jobs {where_sql}"
+            count_params = params[:-2] if len(params) > 2 else []  # Exclude LIMIT and OFFSET params
+            cur.execute(count_query, count_params)
             total_jobs = cur.fetchone()['count']
 
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
     return jsonify(jobs=jobs, db_error=db_error, total_jobs=total_jobs, page=page, per_page=per_page)
+
+@app.route('/api/jobs/filters', methods=['GET'])
+def api_jobs_filters():
+    """Returns the distinct job types and statuses available for filtering."""
+    db = get_db()
+    job_types = []
+    statuses = []
+    db_error = None
+
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return jsonify(job_types=job_types, statuses=statuses, db_error=db_error)
+
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT DISTINCT job_type FROM jobs ORDER BY job_type")
+            job_types = [row['job_type'] for row in cur.fetchall()]
+            
+            cur.execute("SELECT DISTINCT status FROM jobs ORDER BY status")
+            statuses = [row['status'] for row in cur.fetchall()]
+
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+
+    return jsonify(job_types=job_types, statuses=statuses, db_error=db_error)
 
 @app.route('/api/status')
 def api_status():
@@ -1245,34 +1333,47 @@ scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
 sonarr_rename_scan_event = threading.Event()
 sonarr_quality_scan_event = threading.Event()
+radarr_rename_scan_event = threading.Event()
+lidarr_rename_scan_event = threading.Event()
 scan_cancel_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
 
 # --- Global state for scan progress ---
 scan_progress_state = {
-    "is_running": False, "current_step": "", "total_steps": 0, "progress": 0
+    "is_running": False, "current_step": "", "total_steps": 0, "progress": 0, "scan_source": "", "scan_type": ""
 }
 
-def sonarr_background_thread():
-    """Waits for triggers to run Sonarr scans (rename, quality, etc.)."""
+def arr_background_thread():
+    """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
     while True:
-        # Wait for either event to be set. This is a simple polling mechanism.
-        if sonarr_rename_scan_event.wait(timeout=1):
-            sonarr_rename_scan_event.clear() # Clear the event immediately
+        # Check all events without blocking using is_set() first
+        # This prevents the sequential blocking that was causing delays
+        if sonarr_rename_scan_event.is_set():
+            sonarr_rename_scan_event.clear()
             print(f"[{datetime.now()}] Triggering Sonarr rename scan in background thread.")
-            # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_sonarr_rename_scan)
             scan_thread.start()
 
-        if sonarr_quality_scan_event.wait(timeout=1):
-            sonarr_quality_scan_event.clear() # Clear the event immediately
+        if sonarr_quality_scan_event.is_set():
+            sonarr_quality_scan_event.clear()
             print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
-            # Run the actual scan in a separate, non-blocking thread
             scan_thread = threading.Thread(target=run_sonarr_quality_scan)
             scan_thread.start()
 
-        time.sleep(1) # Prevent a tight loop
+        if radarr_rename_scan_event.is_set():
+            radarr_rename_scan_event.clear()
+            print(f"[{datetime.now()}] Triggering Radarr rename scan in background thread.")
+            scan_thread = threading.Thread(target=run_radarr_rename_scan)
+            scan_thread.start()
+
+        if lidarr_rename_scan_event.is_set():
+            lidarr_rename_scan_event.clear()
+            print(f"[{datetime.now()}] Triggering Lidarr rename scan in background thread.")
+            scan_thread = threading.Thread(target=run_lidarr_rename_scan)
+            scan_thread.start()
+
+        time.sleep(0.5)  # Check events every 500ms for good responsiveness without high CPU usage
 
 def run_sonarr_rename_scan():
     """
@@ -1280,57 +1381,58 @@ def run_sonarr_rename_scan():
     or add 'rename' jobs to the local queue for a worker to process.
     """
     with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
         # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
 
-        scan_cancel_event.clear() # Ensure cancel flag is down before starting
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0})
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "rename"})
 
         try:
             settings, db_error = get_worker_settings()
             if db_error:
                 scan_progress_state["current_step"] = "Error: Database not available."
                 return
-
+    
             if settings.get('sonarr_enabled', {}).get('setting_value') != 'true':
                 scan_progress_state["current_step"] = "Error: Sonarr integration is disabled."
                 return
-
+    
             host = settings.get('sonarr_host', {}).get('setting_value')
             api_key = settings.get('sonarr_api_key', {}).get('setting_value')
             send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value') == 'true'
-
+    
             if not host or not api_key:
                 scan_progress_state["current_step"] = "Error: Sonarr is not configured."
                 return
-
-            if not send_to_queue:
-                scan_progress_state["current_step"] = "Scan aborted: 'Send Rename Jobs to Queue' is disabled."
-                return
-
+    
             print(f"[{datetime.now()}] Sonarr Rename Scanner: Starting deep scan...")
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
             series_res.raise_for_status()
             all_series = series_res.json()
-
+            
             scan_progress_state["total_steps"] = len(all_series)
             conn = get_db()
             cur = conn.cursor()
-            new_jobs_found = 0
-
+            new_jobs_found = 0 
+            renames_performed = 0 # NEW: Counter for direct renames
+    
             for i, series in enumerate(all_series):
                 if scan_cancel_event.is_set():
                     print("Rename scan cancelled by user.")
                     scan_progress_state["current_step"] = "Scan cancelled by user."
                     return
-
+    
                 series_title = series.get('title', 'Unknown Series')
                 scan_progress_state.update({"current_step": f"Analyzing: {series_title}", "progress": i + 1})
-
+    
                 # This is the correct pattern: trigger a scan, then check for results.
                 requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=False)
                 time.sleep(2) # Give Sonarr a moment to process before we query
@@ -1338,21 +1440,33 @@ def run_sonarr_rename_scan():
                 for episode in rename_res.json():
                     filepath = episode.get('existingPath')
                     if filepath:
-                        # Add the episodeFileId and seriesId to the metadata for the internal processor
-                        metadata = {
-                            'source': 'sonarr', 
-                            'seriesTitle': series['title'], 
-                            'seasonNumber': episode.get('seasonNumber'), 
-                            'episodeNumber': episode.get('episodeNumbers', [0])[0], 
-                            'episodeTitle': "Episode", 'quality': "N/A",
-                            'episodeFileId': episode.get('episodeFileId'),
-                            'seriesId': series.get('id')
-                        }
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                        if cur.rowcount > 0: new_jobs_found += 1
-
+                        # Determine job status or perform direct rename based on 'send_to_queue' setting
+                        if send_to_queue:
+                            job_status = 'awaiting_approval' # New behavior: if selected, awaiting approval
+                            metadata = {
+                                'source': 'sonarr',
+                                'seriesTitle': series['title'],
+                                'seasonNumber': episode.get('seasonNumber'),
+                                'episodeNumber': episode.get('episodeNumbers', [0])[0],
+                                'episodeTitle': "Episode", 'quality': "N/A",
+                                'episodeFileId': episode.get('episodeFileId'),
+                                'seriesId': series.get('id')
+                            }
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                        else:
+                            # New behavior: if not selected, perform rename directly via Sonarr API
+                            print(f"  -> Auto-renaming episode file {filepath} via Sonarr API.")
+                            payload = {"name": "RenameFiles", "seriesId": series['id'], "files": [episode.get('episodeFileId')]}
+                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res.raise_for_status() 
+                            renames_performed += 1
+    
             conn.commit()
-            message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename."
+            if send_to_queue:
+                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+            else:
+                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic renames." 
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
 
@@ -1361,25 +1475,36 @@ def run_sonarr_rename_scan():
             print(f"[{datetime.now()}] {error_message}")
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            # Wait a moment before clearing the "finished" message from the UI
-            time.sleep(10)
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0})
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
 
 def run_sonarr_quality_scan():
     """
-    Scans Sonarr for quality mismatches. If a series has a quality profile
-    with a cutoff higher than the quality of an individual episode file,
-    a 'quality_mismatch' job is created for investigation.
+    Scans Sonarr for quality mismatches. Compares each episode file's quality
+    against the series' quality profile to identify files that don't meet the
+    profile's cutoff. Creates 'Quality Mismatch' jobs for investigation.
+    
+    Logic:
+    1. Get all quality profiles from Sonarr
+    2. For each series, get its quality profile
+    3. For each episode with a file, compare file quality against profile cutoff
+    4. If file quality doesn't meet cutoff, create a quality mismatch job
     """
     with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
 
-        scan_cancel_event.clear()
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0})
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "quality"})
         
         try:
             settings, db_error = get_worker_settings()
@@ -1398,9 +1523,10 @@ def run_sonarr_quality_scan():
             headers = {'X-Api-Key': api_key}
             base_url = host.rstrip('/')
 
+            # Fetch quality profiles to get profile names for logging
             profiles_res = requests.get(f"{base_url}/api/v3/qualityprofile", headers=headers, timeout=10, verify=False)
             profiles_res.raise_for_status()
-            quality_profiles = {p['id']: p for p in profiles_res.json()}
+            quality_profiles = {p['id']: {'name': p['name']} for p in profiles_res.json()}
 
             series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
             series_res.raise_for_status()
@@ -1410,6 +1536,8 @@ def run_sonarr_quality_scan():
             conn = get_db()
             cur = conn.cursor()
             new_jobs_found = 0
+            # Track mismatches per show for summarized logging
+            shows_with_mismatches = {}
 
             for i, series in enumerate(all_series):
                 if scan_cancel_event.is_set():
@@ -1420,22 +1548,72 @@ def run_sonarr_quality_scan():
                 series_title = series.get('title', 'Unknown Series')
                 scan_progress_state.update({"current_step": f"Checking: {series_title}", "progress": i + 1})
 
-                profile = quality_profiles.get(series['qualityProfileId'])
-                if not profile or not profile.get('cutoff'):
-                    continue # Skip series without a valid quality profile or cutoff
+                profile = quality_profiles.get(series.get('qualityProfileId'))
+                if not profile:
+                    continue  # Skip series without a valid quality profile
 
-                episodes_res = requests.get(f"{base_url}/api/v3/episode?seriesId={series['id']}", headers=headers, timeout=20, verify=False)
+                # Fetch episodes with episode file data included
+                # The includeEpisodeFile parameter ensures we get quality info
+                episodes_res = requests.get(
+                    f"{base_url}/api/v3/episode?seriesId={series['id']}&includeEpisodeFile=true",
+                    headers=headers, timeout=20, verify=False
+                )
                 episodes_res.raise_for_status()
 
+                series_mismatch_count = 0
                 for episode in episodes_res.json():
-                    if episode.get('hasFile') and episode.get('episodeFile', {}).get('qualityCutoffNotMet', False):
-                        filepath = episode['episodeFile']['path']
-                        metadata = {'source': 'sonarr', 'job_class': 'quality_mismatch', 'seriesTitle': series['title'], 'seasonNumber': episode['seasonNumber'], 'episodeNumber': episode['episodeNumber'], 'episodeTitle': episode['title'], 'file_quality': episode['episodeFile']['quality']['quality']['name'], 'profile_quality': profile['name']}
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, json.dumps(metadata)))
-                        if cur.rowcount > 0: new_jobs_found += 1
+                    # Only check episodes that have a file
+                    if not episode.get('hasFile'):
+                        continue
+                    
+                    episode_file = episode.get('episodeFile')
+                    if not episode_file:
+                        continue
+                    
+                    # Check if the quality cutoff is not met
+                    # Sonarr API provides this flag directly when episodeFile is included
+                    quality_cutoff_not_met = episode_file.get('qualityCutoffNotMet', False)
+                    
+                    if quality_cutoff_not_met:
+                        filepath = episode_file.get('path', '')
+                        file_quality = episode_file.get('quality', {}).get('quality', {})
+                        file_quality_name = file_quality.get('name', 'Unknown')
+                        
+                        metadata = {
+                            'source': 'sonarr',
+                            'job_class': 'quality_mismatch',
+                            'seriesTitle': series['title'],
+                            'seasonNumber': episode.get('seasonNumber'),
+                            'episodeNumber': episode.get('episodeNumber'),
+                            'episodeTitle': episode.get('title', 'Unknown'),
+                            'file_quality': file_quality_name,
+                            'profile_quality': profile['name'],
+                            'seriesId': series['id'],
+                            'episodeId': episode.get('id'),
+                            'episodeFileId': episode_file.get('id')
+                        }
+                        
+                        cur.execute(
+                            "INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Quality Mismatch', 'pending', %s) ON CONFLICT (filepath) DO NOTHING",
+                            (filepath, json.dumps(metadata))
+                        )
+                        if cur.rowcount > 0:
+                            new_jobs_found += 1
+                            series_mismatch_count += 1
+
+                # Track shows with mismatches for summary
+                if series_mismatch_count > 0:
+                    shows_with_mismatches[series_title] = series_mismatch_count
 
             conn.commit()
-            message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches."
+            
+            # Log summary by show instead of every individual file
+            if shows_with_mismatches:
+                print(f"[{datetime.now()}] Shows with quality mismatches:")
+                for show_title, count in shows_with_mismatches.items():
+                    print(f"  -> {show_title}: {count} episode(s)")
+            
+            message = f"Sonarr quality scan complete. Found {new_jobs_found} potential mismatches across {len(shows_with_mismatches)} shows."
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
         except Exception as e:
@@ -1443,8 +1621,225 @@ def run_sonarr_quality_scan():
             print(f"[{datetime.now()}] {error_message}")
             scan_progress_state["current_step"] = f"Error: {e}"
         finally:
-            time.sleep(10)
-            scan_progress_state["is_running"] = False
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
+            if scanner_lock.locked():
+                scanner_lock.release()
+
+
+def run_radarr_rename_scan():
+    """
+    Handles Radarr integration. Can either trigger Radarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
+    """
+    with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
+        # This function is now fully self-contained and runs in its own thread.
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Radarr rename scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
+            return
+
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "radarr", "scan_type": "rename"})
+
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+    
+            if settings.get('radarr_enabled', {}).get('setting_value') != 'true':
+                scan_progress_state["current_step"] = "Error: Radarr integration is disabled."
+                return
+    
+            host = settings.get('radarr_host', {}).get('setting_value')
+            api_key = settings.get('radarr_api_key', {}).get('setting_value')
+            send_to_queue = settings.get('radarr_send_to_queue', {}).get('setting_value') == 'true'
+    
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Radarr is not configured."
+                return
+    
+            print(f"[{datetime.now()}] Radarr Rename Scanner: Starting deep scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+            movies_res.raise_for_status()
+            all_movies = movies_res.json()
+            
+            scan_progress_state["total_steps"] = len(all_movies)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0 
+            renames_performed = 0 # Counter for direct renames
+    
+            for i, movie in enumerate(all_movies):
+                if scan_cancel_event.is_set():
+                    print("Radarr rename scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
+    
+                movie_title = movie.get('title', 'Unknown Movie')
+                scan_progress_state.update({"current_step": f"Analyzing: {movie_title}", "progress": i + 1})
+
+                # This is the correct pattern: trigger a rescan, then check for results.
+                requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanMovie', 'movieId': movie['id']}, timeout=10, verify=False)
+                time.sleep(2) # Give Radarr a moment to process before we query
+                rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie['id']}", headers=headers, timeout=10, verify=False)
+                for rename_item in rename_res.json():
+                    filepath = rename_item.get('existingPath')
+                    if filepath:
+                        # Determine job status or perform direct rename based on 'send_to_queue' setting
+                        if send_to_queue:
+                            job_status = 'awaiting_approval' # If selected, awaiting approval
+                            metadata = {
+                                'source': 'radarr',
+                                'movieTitle': movie['title'],
+                                'movieId': movie.get('id'),
+                                'movieFileId': rename_item.get('movieFileId')
+                            }
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                        else:
+                            # Perform rename directly via Radarr API
+                            print(f"  -> Auto-renaming movie file {filepath} via Radarr API.")
+                            payload = {"name": "RenameFiles", "movieId": movie['id'], "files": [rename_item.get('movieFileId')]}
+                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res.raise_for_status() 
+                            renames_performed += 1
+    
+            conn.commit()
+            if send_to_queue:
+                message = f"Radarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+            else:
+                message = f"Radarr deep scan complete. Performed {renames_performed} automatic renames." 
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+
+        except Exception as e:
+            error_message = f"An error occurred during the Radarr deep scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
+            if scanner_lock.locked():
+                scanner_lock.release()
+
+def run_lidarr_rename_scan():
+    """
+    Handles Lidarr integration. Can either trigger Lidarr's API directly
+    or add 'rename' jobs to the local queue for a worker to process.
+    Uses Lidarr API v1: https://lidarr.audio/docs/api/
+    """
+    with app.app_context():
+        # Clear the cancel event first, before trying to acquire the lock
+        scan_cancel_event.clear()
+        
+        # This function is now fully self-contained and runs in its own thread.
+        if not scanner_lock.acquire(blocking=False):
+            print(f"[{datetime.now()}] Lidarr rename scan trigger ignored: Another scan is already in progress.")
+            # Reset the progress state since the API endpoint set it optimistically
+            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
+            return
+
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "lidarr", "scan_type": "rename"})
+
+        try:
+            settings, db_error = get_worker_settings()
+            if db_error:
+                scan_progress_state["current_step"] = "Error: Database not available."
+                return
+    
+            if settings.get('lidarr_enabled', {}).get('setting_value') != 'true':
+                scan_progress_state["current_step"] = "Error: Lidarr integration is disabled."
+                return
+    
+            host = settings.get('lidarr_host', {}).get('setting_value')
+            api_key = settings.get('lidarr_api_key', {}).get('setting_value')
+            send_to_queue = settings.get('lidarr_send_to_queue', {}).get('setting_value') == 'true'
+    
+            if not host or not api_key:
+                scan_progress_state["current_step"] = "Error: Lidarr is not configured."
+                return
+    
+            print(f"[{datetime.now()}] Lidarr Rename Scanner: Starting deep scan...")
+            headers = {'X-Api-Key': api_key}
+            base_url = host.rstrip('/')
+            
+            # Lidarr uses API v1, get all artists
+            artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
+            artists_res.raise_for_status()
+            all_artists = artists_res.json()
+            
+            scan_progress_state["total_steps"] = len(all_artists)
+            conn = get_db()
+            cur = conn.cursor()
+            new_jobs_found = 0 
+            renames_performed = 0 # Counter for direct renames
+    
+            for i, artist in enumerate(all_artists):
+                if scan_cancel_event.is_set():
+                    print("Lidarr rename scan cancelled by user.")
+                    scan_progress_state["current_step"] = "Scan cancelled by user."
+                    return
+    
+                artist_name = artist.get('artistName', 'Unknown Artist')
+                scan_progress_state.update({"current_step": f"Analyzing: {artist_name}", "progress": i + 1})
+
+                # Trigger a rescan for the artist, then check for rename results
+                requests.post(f"{base_url}/api/v1/command", headers=headers, json={'name': 'RescanArtist', 'artistId': artist['id']}, timeout=10, verify=False)
+                time.sleep(2) # Give Lidarr a moment to process before we query
+                
+                # Check for files that need renaming for this artist
+                rename_res = requests.get(f"{base_url}/api/v1/rename?artistId={artist['id']}", headers=headers, timeout=10, verify=False)
+                for rename_item in rename_res.json():
+                    filepath = rename_item.get('existingPath')
+                    if filepath:
+                        # Determine job status or perform direct rename based on 'send_to_queue' setting
+                        if send_to_queue:
+                            job_status = 'awaiting_approval' # If selected, awaiting approval
+                            metadata = {
+                                'source': 'lidarr',
+                                'artistName': artist['artistName'],
+                                'artistId': artist.get('id'),
+                                'trackFileId': rename_item.get('trackFileId'),
+                                'albumId': rename_item.get('albumId')
+                            }
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
+                            if cur.rowcount > 0: new_jobs_found += 1
+                        else:
+                            # Perform rename directly via Lidarr API
+                            print(f"  -> Auto-renaming track file {filepath} via Lidarr API.")
+                            payload = {"name": "RenameFiles", "artistId": artist['id'], "files": [rename_item.get('trackFileId')]}
+                            rename_cmd_res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=False)
+                            rename_cmd_res.raise_for_status() 
+                            renames_performed += 1
+    
+            conn.commit()
+            if send_to_queue:
+                message = f"Lidarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+            else:
+                message = f"Lidarr deep scan complete. Performed {renames_performed} automatic renames." 
+            scan_progress_state["current_step"] = message
+            print(f"[{datetime.now()}] {message}")
+
+        except Exception as e:
+            error_message = f"An error occurred during the Lidarr deep scan: {e}"
+            print(f"[{datetime.now()}] {error_message}")
+            scan_progress_state["current_step"] = f"Error: {e}"
+        finally:
+            # Only delay if the scan wasn't cancelled, to allow immediate retry
+            if not scan_cancel_event.is_set():
+                time.sleep(10)
+            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
             if scanner_lock.locked():
                 scanner_lock.release()
 
@@ -1475,6 +1870,16 @@ def run_internal_scan(force_scan=False):
             cur.execute("SELECT filename FROM encoded_files")
             encoded_history = {row['filename'] for row in cur.fetchall()}
         
+        # Build list of codecs to skip based on settings
+        # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
+        skip_codecs = []
+        if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+            skip_codecs.extend(['hevc', 'h265'])
+        if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+            skip_codecs.append('av1')
+        if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+            skip_codecs.append('vp9')
+
         new_files_found = 0
         valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
         print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
@@ -1494,11 +1899,11 @@ def run_internal_scan(force_scan=False):
                     try:
                         # Use ffprobe to get the video codec
                         ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
-                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip()
+                        codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
                         
                         print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                        if codec and codec not in ['hevc', 'h265']:
-                            print(f"    -> Found non-HEVC file. Adding to queue.")
+                        if codec and codec not in skip_codecs:
+                            print(f"    -> Adding file to queue (codec: {codec}).")
                             cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                             if cur.rowcount > 0:
                                 new_files_found += 1
@@ -1553,6 +1958,16 @@ def run_plex_scan(force_scan=False):
                 cur.execute("SELECT filename FROM encoded_files")
                 encoded_history = {row['filename'] for row in cur.fetchall()}
             
+            # Build list of codecs to skip based on settings
+            # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
+            skip_codecs = []
+            if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.extend(['hevc', 'h265'])
+            if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.append('av1')
+            if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+                skip_codecs.append('vp9')
+
             new_files_found = 0
             print(f"[{datetime.now()}] Plex Scanner: Starting scan of libraries: {', '.join(plex_libraries)}")
             for lib_name in plex_libraries:
@@ -1568,10 +1983,11 @@ def run_plex_scan(force_scan=False):
 
                     codec = video.media[0].videoCodec
                     filepath = video.media[0].parts[0].file
+                    codec_lower = codec.lower() if codec else ''
 
-                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                    if codec and codec not in ['hevc', 'h265'] and filepath not in existing_jobs and filepath not in encoded_history:
-                        print(f"    -> Found non-HEVC file. Adding to queue.")
+                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'})")
+                    if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
+                        print(f"    -> Adding file to queue (codec: {codec_lower}).")
                         cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                         if cur.rowcount > 0:
                             new_files_found += 1
@@ -1600,18 +2016,46 @@ def api_trigger_scan():
 @app.route('/api/scan/rename', methods=['POST'])
 def api_trigger_rename_scan():
     """API endpoint to manually trigger a Sonarr rename/import scan or add jobs to queue."""
-    if not scanner_lock.locked():
-        sonarr_rename_scan_event.set()
-        return jsonify(success=True, message="Sonarr rename scan has been triggered.")
-    return jsonify(success=False, message="Another scan is already in progress."), 409
+    if scanner_lock.locked():
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+    
+    # Immediately set the state to running to avoid a race condition with the frontend polling
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "rename"})
+    sonarr_rename_scan_event.set()
+    return jsonify(success=True, message="Sonarr rename scan has been triggered.")
 
 @app.route('/api/scan/quality', methods=['POST'])
 def api_trigger_quality_scan():
     """API endpoint to manually trigger a Sonarr quality mismatch scan."""
     if scanner_lock.locked():
-        return jsonify({"success": False, "message": "Another scan is already in progress."})
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+
+    # Immediately set the state to running
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "quality"})
     sonarr_quality_scan_event.set()
     return jsonify(success=True, message="Sonarr quality mismatch scan has been triggered.")
+
+@app.route('/api/scan/radarr_rename', methods=['POST'])
+def api_trigger_radarr_rename_scan():
+    """API endpoint to manually trigger a Radarr rename scan or add jobs to queue."""
+    if scanner_lock.locked():
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+    
+    # Immediately set the state to running to avoid a race condition with the frontend polling
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "radarr", "scan_type": "rename"})
+    radarr_rename_scan_event.set()
+    return jsonify(success=True, message="Radarr rename scan has been triggered.")
+
+@app.route('/api/scan/lidarr_rename', methods=['POST'])
+def api_trigger_lidarr_rename_scan():
+    """API endpoint to manually trigger a Lidarr rename scan or add jobs to queue."""
+    if scanner_lock.locked():
+        return jsonify(success=False, message="Another scan is already in progress."), 409
+    
+    # Immediately set the state to running to avoid a race condition with the frontend polling
+    scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "lidarr", "scan_type": "rename"})
+    lidarr_rename_scan_event.set()
+    return jsonify(success=True, message="Lidarr rename scan has been triggered.")
 
 @app.route('/api/scan/cancel', methods=['POST'])
 def api_cancel_scan():
@@ -1700,24 +2144,31 @@ def run_cleanup_scan():
         cleanup_scanner_lock.release()
 
 @app.route('/api/jobs/release', methods=['POST'])
-def release_cleanup_jobs():
-    """Changes the status of cleanup jobs from 'awaiting_approval' to 'pending'."""
+def release_jobs():
+    """Changes the status of cleanup or Rename jobs from 'awaiting_approval' to 'pending'."""
     data = request.get_json()
     job_ids = data.get('job_ids')
     release_all = data.get('release_all', False)
+    job_type = data.get('job_type', 'cleanup')  # Default to cleanup for backwards compatibility
+
+    # Allow both single job_type and list of job_types
+    if isinstance(job_type, str):
+        job_types = (job_type,)
+    else:
+        job_types = tuple(job_type)
 
     try:
         db = get_db()
         with db.cursor() as cur:
             if release_all:
-                cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type = 'cleanup' AND status = 'awaiting_approval'")
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type IN %s AND status = 'awaiting_approval'", (job_types,))
             elif job_ids:
                 # The '%s' placeholder will be correctly formatted by psycopg2 for the IN clause
-                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type = 'cleanup' AND status = 'awaiting_approval'", (tuple(job_ids),))
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type IN %s AND status = 'awaiting_approval'", (tuple(job_ids), job_types))
         db.commit()
-        return jsonify(success=True, message="Selected cleanup jobs have been released to the queue.")
+        return jsonify(success=True, message="Selected jobs have been released to the queue.")
     except Exception as e:
-        print(f"Error releasing cleanup jobs: {e}")
+        print(f"Error releasing jobs: {e}")
         return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/arr/test', methods=['POST'])
@@ -1753,6 +2204,96 @@ def api_arr_test():
         return jsonify(success=False, message="Connection failed: The request timed out. Check the host address and port."), 500
     except requests.exceptions.RequestException as e:
         return jsonify(success=False, message=f"Connection failed: {e}. Check the host address and ensure it is reachable."), 500
+
+@app.route('/api/arr/stats', methods=['GET'])
+def api_arr_stats():
+    """
+    Fetches statistics from Sonarr, Radarr, and Lidarr.
+    Returns total counts for shows/seasons/episodes, movies, and artists/albums/tracks.
+    
+    Note: The *arr APIs don't have dedicated stats/summary endpoints, so we need to 
+    fetch the full data lists and count them. This may be slow for very large libraries.
+    """
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(success=False, error=db_error), 500
+
+    stats = {
+        'sonarr': {'enabled': False, 'shows': 0, 'seasons': 0, 'episodes': 0},
+        'radarr': {'enabled': False, 'movies': 0},
+        'lidarr': {'enabled': False, 'artists': 0, 'albums': 0, 'tracks': 0}
+    }
+
+    # Sonarr stats
+    if settings.get('sonarr_enabled', {}).get('setting_value') == 'true':
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            stats['sonarr']['enabled'] = True
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get series data - includes show and season counts
+                # We sum the episodeCount from each series for the total episode count
+                series_res = requests.get(f"{base_url}/api/v3/series", headers=headers, timeout=10, verify=False)
+                series_res.raise_for_status()
+                series_data = series_res.json()
+                stats['sonarr']['shows'] = len(series_data)
+                stats['sonarr']['seasons'] = sum(len(s.get('seasons', [])) for s in series_data)
+                stats['sonarr']['episodes'] = sum(s.get('episodeCount', 0) for s in series_data)
+            except Exception as e:
+                print(f"Could not fetch Sonarr stats: {e}")
+
+    # Radarr stats
+    if settings.get('radarr_enabled', {}).get('setting_value') == 'true':
+        host = settings.get('radarr_host', {}).get('setting_value')
+        api_key = settings.get('radarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            stats['radarr']['enabled'] = True
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all movies
+                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+                movies_res.raise_for_status()
+                stats['radarr']['movies'] = len(movies_res.json())
+            except Exception as e:
+                print(f"Could not fetch Radarr stats: {e}")
+
+    # Lidarr stats
+    if settings.get('lidarr_enabled', {}).get('setting_value') == 'true':
+        host = settings.get('lidarr_host', {}).get('setting_value')
+        api_key = settings.get('lidarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            stats['lidarr']['enabled'] = True
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get artist and album counts
+                # For tracks, we sum the trackFileCount from albums instead of fetching all track files
+                artists_res = requests.get(f"{base_url}/api/v1/artist", headers=headers, timeout=10, verify=False)
+                artists_res.raise_for_status()
+                stats['lidarr']['artists'] = len(artists_res.json())
+                
+                albums_res = requests.get(f"{base_url}/api/v1/album", headers=headers, timeout=10, verify=False)
+                albums_res.raise_for_status()
+                albums_data = albums_res.json()
+                stats['lidarr']['albums'] = len(albums_data)
+                
+                # Sum up track counts from album statistics
+                stats['lidarr']['tracks'] = sum(
+                    a.get('statistics', {}).get('trackFileCount', 0) for a in albums_data
+                )
+            except Exception as e:
+                print(f"Could not fetch Lidarr stats: {e}")
+
+    return jsonify(success=True, stats=stats)
 
 @app.route('/api/queue/toggle_pause', methods=['POST'])
 def toggle_pause_queue():
@@ -1804,6 +2345,111 @@ def request_job():
     finally:
         cur.close()
 
+def trigger_arr_rescan_and_rename(filepath, settings):
+    """
+    Triggers a rescan in Sonarr/Radarr for the file's parent series/movie,
+    then checks if a rename is needed. This is called after a transcode completes.
+    Follows the renamarr pattern: rescan first to update mediainfo, then rename.
+    """
+    sonarr_enabled = settings.get('sonarr_enabled', {}).get('setting_value') == 'true'
+    radarr_enabled = settings.get('radarr_enabled', {}).get('setting_value') == 'true'
+    sonarr_auto_rename = settings.get('sonarr_auto_rename_after_transcode', {}).get('setting_value') == 'true'
+    radarr_auto_rename = settings.get('radarr_auto_rename_after_transcode', {}).get('setting_value') == 'true'
+
+    if not sonarr_enabled and not radarr_enabled:
+        return
+    
+    # Try Sonarr first
+    if sonarr_enabled and sonarr_auto_rename:
+        host = settings.get('sonarr_host', {}).get('setting_value')
+        api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all episode files to find the one matching our filepath
+                episode_files_res = requests.get(f"{base_url}/api/v3/episodefile", headers=headers, timeout=10, verify=False)
+                episode_files_res.raise_for_status()
+                
+                for ep_file in episode_files_res.json():
+                    if ep_file.get('path') == filepath:
+                        series_id = ep_file.get('seriesId')
+                        episode_file_id = ep_file.get('id')
+                        
+                        print(f"[{datetime.now()}] Found file in Sonarr. Series ID: {series_id}, File ID: {episode_file_id}")
+                        
+                        # Step 1: Trigger a rescan to update the mediainfo
+                        print(f"[{datetime.now()}] Triggering Sonarr RescanSeries for series {series_id}")
+                        rescan_payload = {'name': 'RescanSeries', 'seriesId': series_id}
+                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=False)
+                        
+                        # Give Sonarr time to rescan
+                        time.sleep(3)
+                        
+                        # Step 2: Check if rename is needed
+                        rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series_id}", headers=headers, timeout=10, verify=False)
+                        rename_res.raise_for_status()
+                        
+                        for rename_item in rename_res.json():
+                            if rename_item.get('episodeFileId') == episode_file_id:
+                                # Step 3: Trigger rename
+                                print(f"[{datetime.now()}] Triggering Sonarr rename for file {episode_file_id}")
+                                rename_payload = {"name": "RenameFiles", "seriesId": series_id, "files": [episode_file_id]}
+                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=False)
+                                print(f"[{datetime.now()}] Sonarr auto-rename triggered successfully.")
+                                break
+                        break
+            except Exception as e:
+                print(f"⚠️ Could not trigger Sonarr rescan/rename: {e}")
+
+    # Try Radarr if enabled
+    if radarr_enabled and radarr_auto_rename:
+        host = settings.get('radarr_host', {}).get('setting_value')
+        api_key = settings.get('radarr_api_key', {}).get('setting_value')
+        
+        if host and api_key:
+            try:
+                headers = {'X-Api-Key': api_key}
+                base_url = host.rstrip('/')
+                
+                # Get all movies to find the one matching our filepath
+                movies_res = requests.get(f"{base_url}/api/v3/movie", headers=headers, timeout=10, verify=False)
+                movies_res.raise_for_status()
+                
+                for movie in movies_res.json():
+                    movie_file = movie.get('movieFile')
+                    if movie_file and movie_file.get('path') == filepath:
+                        movie_id = movie.get('id')
+                        movie_file_id = movie_file.get('id')
+                        
+                        print(f"[{datetime.now()}] Found file in Radarr. Movie ID: {movie_id}, File ID: {movie_file_id}")
+                        
+                        # Step 1: Trigger a rescan to update the mediainfo
+                        print(f"[{datetime.now()}] Triggering Radarr RescanMovie for movie {movie_id}")
+                        rescan_payload = {'name': 'RescanMovie', 'movieId': movie_id}
+                        requests.post(f"{base_url}/api/v3/command", headers=headers, json=rescan_payload, timeout=10, verify=False)
+                        
+                        # Give Radarr time to rescan
+                        time.sleep(3)
+                        
+                        # Step 2: Check if rename is needed
+                        rename_res = requests.get(f"{base_url}/api/v3/rename?movieId={movie_id}", headers=headers, timeout=10, verify=False)
+                        rename_res.raise_for_status()
+                        
+                        for rename_item in rename_res.json():
+                            if rename_item.get('movieFileId') == movie_file_id:
+                                # Step 3: Trigger rename
+                                print(f"[{datetime.now()}] Triggering Radarr rename for file {movie_file_id}")
+                                rename_payload = {"name": "RenameFiles", "movieId": movie_id, "files": [movie_file_id]}
+                                requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=False)
+                                print(f"[{datetime.now()}] Radarr auto-rename triggered successfully.")
+                                break
+                        break
+            except Exception as e:
+                print(f"⚠️ Could not trigger Radarr rescan/rename: {e}")
+
 @app.route('/api/update_job/<int:job_id>', methods=['POST'])
 def update_job(job_id):
     """Endpoint for workers to update the status of a job."""
@@ -1840,6 +2486,13 @@ def update_job(job_id):
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
 
+            # Trigger Sonarr/Radarr rescan and auto-rename if enabled
+            try:
+                settings, _ = get_worker_settings()
+                trigger_arr_rescan_and_rename(job['filepath'], settings)
+            except Exception as e:
+                print(f"⚠️ Could not trigger Arr rescan/rename: {e}")
+
         elif job['job_type'] == 'cleanup':
             # For cleanups, add a simplified entry to the history
             cur.execute(
@@ -1866,8 +2519,13 @@ def update_job(job_id):
 
 def plex_scanner_thread():
     """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Plex Scanner thread is now active.")
+
     while True:
         print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
+
         # Use the rescan delay from settings, default to 0 (disabled)
         delay = 0 
         try:
@@ -1900,19 +2558,26 @@ def plex_scanner_thread():
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Cleanup Scanner thread is now active.")
     while True:
+
         # Wait indefinitely until the event is set
         cleanup_scan_now_event.wait()
         print(f"[{datetime.now()}] Manual cleanup scan trigger received.")
         cleanup_scan_now_event.clear() # Reset the event
         run_cleanup_scan()
 
-def sonarr_job_processor_thread():
+def arr_job_processor_thread():
     """
     This background thread periodically checks for and processes internal jobs
-    that are not meant for workers, such as Sonarr rename commands.
+    that are not meant for workers, such as Sonarr/Radarr/Lidarr rename commands.
     """
-    print("Sonarr Job Processor thread started.")
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Arr Job Processor thread is now active.")
+
     while True:
         try:
             with app.app_context():
@@ -1922,53 +2587,124 @@ def sonarr_job_processor_thread():
                     continue
 
                 cur = conn.cursor(cursor_factory=RealDictCursor)
+                settings, _ = get_worker_settings()
                 
                 # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
                 cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 10 FOR UPDATE SKIP LOCKED")
                 jobs_to_process = cur.fetchall()
                 
                 if jobs_to_process:
-                    print(f"Found {len(jobs_to_process)} Sonarr rename jobs to process.")
-                    settings, _ = get_worker_settings()
-                    host = settings.get('sonarr_host', {}).get('setting_value')
-                    api_key = settings.get('sonarr_api_key', {}).get('setting_value')
-                    
-                    if not host or not api_key:
-                        print("Sonarr is not configured. Skipping rename jobs.")
-                        time.sleep(300) # Wait 5 minutes before checking again
-                        continue
-
-                    base_url = host.rstrip('/')
-                    headers = {'X-Api-Key': api_key}
+                    print(f"Found {len(jobs_to_process)} rename jobs to process.")
                     
                     for job in jobs_to_process:
-                        file_id = job.get('metadata', {}).get('episodeFileId')
-                        series_id = job.get('metadata', {}).get('seriesId')
-
-                        if not file_id or not series_id:
-                            print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
-                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                            continue
+                        metadata = job.get('metadata', {})
+                        source = metadata.get('source', 'sonarr')  # Default to sonarr for backwards compatibility
                         
-                        try:
-                            print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
-                            payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
-                            res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
-                            res.raise_for_status()
+                        if source == 'radarr':
+                            # Process Radarr rename job
+                            host = settings.get('radarr_host', {}).get('setting_value')
+                            api_key = settings.get('radarr_api_key', {}).get('setting_value')
                             
-                            # Mark job as completed
-                            print(f"Sonarr rename job {job['id']} completed successfully.")
-                            cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            if not host or not api_key:
+                                print(f"Radarr is not configured. Skipping job {job['id']}.")
+                                continue
+                            
+                            file_id = metadata.get('movieFileId')
+                            movie_id = metadata.get('movieId')
 
-                        except requests.exceptions.RequestException as e:
-                            print(f"Error processing Sonarr rename job {job['id']}: {e}")
-                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            if not file_id or not movie_id:
+                                print(f"Failing job {job['id']}: Missing 'movieFileId' or 'movieId' in metadata.")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                continue
+                            
+                            try:
+                                base_url = host.rstrip('/')
+                                headers = {'X-Api-Key': api_key}
+                                print(f"Processing Radarr rename for job {job['id']} (File ID: {file_id})")
+                                payload = {"name": "RenameFiles", "movieId": movie_id, "files": [file_id]}
+                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res.raise_for_status()
+                                
+                                # Mark job as completed
+                                print(f"Radarr rename job {job['id']} completed successfully.")
+                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                            except requests.exceptions.RequestException as e:
+                                print(f"Error processing Radarr rename job {job['id']}: {e}")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        
+                        elif source == 'lidarr':
+                            # Process Lidarr rename job
+                            host = settings.get('lidarr_host', {}).get('setting_value')
+                            api_key = settings.get('lidarr_api_key', {}).get('setting_value')
+                            
+                            if not host or not api_key:
+                                print(f"Lidarr is not configured. Skipping job {job['id']}.")
+                                continue
+                            
+                            file_id = metadata.get('trackFileId')
+                            artist_id = metadata.get('artistId')
+
+                            if not file_id or not artist_id:
+                                print(f"Failing job {job['id']}: Missing 'trackFileId' or 'artistId' in metadata.")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                continue
+                            
+                            try:
+                                base_url = host.rstrip('/')
+                                headers = {'X-Api-Key': api_key}
+                                print(f"Processing Lidarr rename for job {job['id']} (File ID: {file_id})")
+                                # Lidarr uses API v1
+                                payload = {"name": "RenameFiles", "artistId": artist_id, "files": [file_id]}
+                                res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res.raise_for_status()
+                                
+                                # Mark job as completed
+                                print(f"Lidarr rename job {job['id']} completed successfully.")
+                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                            except requests.exceptions.RequestException as e:
+                                print(f"Error processing Lidarr rename job {job['id']}: {e}")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        
+                        else:
+                            # Process Sonarr rename job (default)
+                            host = settings.get('sonarr_host', {}).get('setting_value')
+                            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
+                            
+                            if not host or not api_key:
+                                print(f"Sonarr is not configured. Skipping job {job['id']}.")
+                                continue
+
+                            file_id = metadata.get('episodeFileId')
+                            series_id = metadata.get('seriesId')
+
+                            if not file_id or not series_id:
+                                print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                continue
+                            
+                            try:
+                                base_url = host.rstrip('/')
+                                headers = {'X-Api-Key': api_key}
+                                print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
+                                payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
+                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=False)
+                                res.raise_for_status()
+                                
+                                # Mark job as completed
+                                print(f"Sonarr rename job {job['id']} completed successfully.")
+                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                            except requests.exceptions.RequestException as e:
+                                print(f"Error processing Sonarr rename job {job['id']}: {e}")
+                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
                 
                 conn.commit()
                 cur.close()
 
         except Exception as e:
-            print(f"CRITICAL ERROR in sonarr_job_processor_thread: {e}")
+            print(f"CRITICAL ERROR in arr_job_processor_thread: {e}")
             # Avoid a tight loop on critical error
             time.sleep(300)
         
@@ -1978,20 +2714,23 @@ def sonarr_job_processor_thread():
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
-sonarr_background_scanner = threading.Thread(target=sonarr_background_thread, daemon=True)
-sonarr_background_scanner.start()
+arr_background_scanner = threading.Thread(target=arr_background_thread, daemon=True)
+arr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
-sonarr_job_processor = threading.Thread(target=sonarr_job_processor_thread, daemon=True)
-sonarr_job_processor.start()
+arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
+arr_job_processor.start()
 
 if __name__ == '__main__':
-    # Run migrations before starting the Flask app for local development
+    # For local development, run migrations then start the app
     initialize_database_if_needed()
     run_migrations()
+    db_ready_event.set() # Signal to all threads that the DB is ready
     # Use host='0.0.0.0' to make the app accessible on your network
     app.run(debug=True, host='0.0.0.0', port=5000)
 else:
-    # When run by Gunicorn in production, run migrations first
+    # When run by Gunicorn in production, run migrations first, then signal ready.
+    # Gunicorn will then start the Flask app.
     initialize_database_if_needed()
     run_migrations()
+    db_ready_event.set()

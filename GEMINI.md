@@ -2,6 +2,7 @@
 
 This document is a summary of the key architectural patterns, decisions, and common pitfalls encountered during the development of the Librarrarian project. It serves as a "memory" to ensure future work is consistent and efficient.
 
+---
 
 ## Project File Structure
 
@@ -42,7 +43,7 @@ worker/transcode.py          # The main script for the worker node. It requests 
 
 When a new chat session begins, I must first read the following files to establish a complete understanding of the project's current state, architecture, and purpose:
 
-1.  `remember.md` (for architectural principles and workflows)
+1.  `GEMINI.md` (for architectural principles and workflows)
 2.  `README.md` (for project overview and deployment instructions)
 3.  `summary.md` (for a high-level feature summary)
 4.  `CHANGELOG.md` (for recent changes and version history)
@@ -187,6 +188,8 @@ When requested to **"Make a <type> release"**, where `<type>` is `Patch`, `Minor
 ---
 
 ## Technical Debt & Future Improvements
+
+*   ~~**Database Name Consolidation**: This has been resolved. Both the worker and dashboard now default to the database name `librarrarian`.~~
 
 ---
 

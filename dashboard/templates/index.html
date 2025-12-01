@@ -38,7 +38,7 @@
     {% endif %}
     <div class="d-flex justify-content-between align-items-center mb-2">
         <div class="d-flex align-items-center">
-            <img src="{{ url_for('static', filename='logo.png') }}" alt="CodecShift Logo" style="height: 40px;" class="me-3">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="Librarrarian Logo" style="height: 40px;" class="me-3">
         </div>
         <div class="btn-toolbar" role="toolbar">
             <!-- Theme Switcher Dropdown -->
@@ -47,9 +47,9 @@
                     <span id="theme-icon" class="mdi"></span> Theme
                 </button>
                 <ul class="dropdown-menu" aria-labelledby="themeDropdown">
-                    <li><button class="dropdown-item d-flex align-items-center" data-theme-value="light"><span class="mdi mdi-weather-sunny me-2"></span> Light</button></li>
-                    <li><button class="dropdown-item d-flex align-items-center" data-theme-value="dark"><span class="mdi mdi-weather-night me-2"></span> Dark</button></li>
-                    <li><button class="dropdown-item d-flex align-items-center" data-theme-value="auto"><span class="mdi mdi-desktop-classic me-2"></span> System</button></li>
+                    <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="light"><span class="mdi mdi-weather-sunny me-2"></span> Light</button></li>
+                    <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="dark"><span class="mdi mdi-weather-night me-2"></span> Dark</button></li>
+                    <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="auto"><span class="mdi mdi-desktop-classic me-2"></span> System</button></li>
                 </ul>
             </div>
             <div class="btn-group me-2" role="group">
@@ -160,19 +160,40 @@
                             <div class="btn-group me-2" role="group" aria-label="Main queue controls">
                                 <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
                             </div>
-                            <div class="btn-group" role="group" aria-label="Cleanup and clear controls">
-                                <button class="btn btn-info" id="release-selected-btn" title="Release selected cleanup jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
-                                <button class="btn btn-info" id="release-all-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-lock-open-variant-outline"></span> Release All</button>
+                            <div class="btn-group me-2" role="group" aria-label="Cleanup and clear controls">
+                                <button class="btn btn-info" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
+                                <button class="btn btn-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
+                                <button class="btn btn-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
+                            </div>
+                            <div class="btn-group" role="group" aria-label="Clear controls">
                                 <button class="btn btn-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
                             </div>
                         </div>
+                    </div>
+                </div>
+                <!-- Filter Options Row -->
+                <div class="row mb-3">
+                    <div class="col-md-3">
+                        <label for="job-filter-type" class="form-label small text-muted">Filter by Type</label>
+                        <select class="form-select form-select-sm" id="job-filter-type">
+                            <option value="">All Types</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3">
+                        <label for="job-filter-status" class="form-label small text-muted">Filter by Status</label>
+                        <select class="form-select form-select-sm" id="job-filter-status">
+                            <option value="">All Statuses</option>
+                        </select>
+                    </div>
+                    <div class="col-md-3 d-flex align-items-end">
+                        <button class="btn btn-sm btn-outline-secondary" id="job-filter-clear" title="Clear all filters"><span class="mdi mdi-filter-off"></span> Clear Filters</button>
                     </div>
                 </div>
                 <div id="scan-status" class="mb-3"></div>
                 <div class="table-responsive">
                     <table class="table table-striped table-sm">
                         <thead>
-                            <tr><th><input type="checkbox" id="select-all-cleanup" title="Select all visible cleanup jobs"></th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th><th>Actions</th></tr>
+                            <tr><th><input type="checkbox" id="select-all-cleanup" title="Select all visible jobs awaiting approval"></th><th>File Path</th><th>Type</th><th>Status</th><th>Assigned To</th><th>Created</th><th>Actions</th></tr>
                         </thead>
                         <tbody id="job-queue-table-body"></tbody>
                     </table>
@@ -291,7 +312,7 @@
                                             <label class="form-label"><strong>Monitored Libraries</strong></label>
                                             <div class="form-check form-switch float-end">
                                                 <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
-                                                <label class="form-check-label" for="plex-show-hidden-toggle">Show Hidden</label>
+                                                <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
                                             </div>
                                             <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;"></div>
                                         </div>
@@ -302,7 +323,7 @@
                                     <label class="form-label"><strong>Monitored Folders</strong></label>
                                     <div class="form-check form-switch float-end">
                                         <input class="form-check-input" type="checkbox" role="switch" id="internal-show-hidden-toggle">
-                                        <label class="form-check-label" for="internal-show-hidden-toggle">Show Hidden</label>
+                                        <label class="form-check-label" for="internal-show-hidden-toggle">Show Ignored</label>
                                     </div>
                                     <p class="form-text text-body-secondary">Select which folders inside your main <code>/media</code> directory you want to scan.</p>
                                     <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
@@ -315,32 +336,26 @@
                                         <label class="form-check-label" for="sonarr_enabled"><strong>Enable Sonarr Integration</strong></label>
                                     </div>
                                     <div class="row">
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="sonarr_host" class="form-label"><strong>Sonarr Host URL</strong></label>
                                             <input type="text" class="form-control" id="sonarr_host" name="sonarr_host" value="{{ settings.get('sonarr_host', {}).get('setting_value', '') }}" placeholder="http://sonarr:8989">
                                         </div>
-                                        <div class="col-md-4">
+                                        <div class="col-md-6">
                                             <label for="sonarr_api_key" class="form-label"><strong>API Key</strong></label>
                                             <input type="password" class="form-control" id="sonarr_api_key" name="sonarr_api_key" value="{{ settings.get('sonarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
-                                        <div class="col-md-4">
-                                            {# Convert stored minutes to hours for the slider #}
-                                            {% set rescan_hours = (settings.get('sonarr_rescan_minutes', {}).get('setting_value', '60') | int) / 60 %}
-                                            <label for="sonarr_rescan_hours" class="form-label"><strong>Rescan Time: <span id="sonarr-rescan-value">{{ rescan_hours | round | int }}</span> hr(s)</strong></label>
-                                            <input type="range" class="form-range" id="sonarr_rescan_hours" name="sonarr_rescan_hours" min="1" max="24" step="1" value="{{ rescan_hours | round | int }}">
-                                        </div>
-                                    </div>
-                                    <div class="form-check form-switch my-3">
-                                        {% set sonarr_auto_scan = settings.get('sonarr_auto_scan_enabled', {}).get('setting_value', 'false') == 'true' %}
-                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_scan_enabled" name="sonarr_auto_scan_enabled" value="true" {{ 'checked' if sonarr_auto_scan }}>
-                                        <label class="form-check-label" for="sonarr_auto_scan_enabled"><strong>Enable Automatic Scanning</strong></label>
-                                        <p class="form-text text-body-secondary">If enabled, the dashboard will automatically run the 'Scan for Renames' and 'Scan for Quality Mismatches' functions at the specified interval.</p>
                                     </div>
                                     <div class="form-check form-switch mt-3">
                                         {% set sonarr_send_to_queue = settings.get('sonarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
                                         <input class="form-check-input" type="checkbox" role="switch" id="sonarr_send_to_queue" name="sonarr_send_to_queue" value="true" {{ 'checked' if sonarr_send_to_queue }}>
                                         <label class="form-check-label" for="sonarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
-                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue. When processed, the dashboard makes the necessary API calls to Sonarr to perform the rename. If disabled, this feature does nothing.</p>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Sonarr API.</p>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        {% set sonarr_auto_rename = settings.get('sonarr_auto_rename_after_transcode', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="sonarr_auto_rename_after_transcode" name="sonarr_auto_rename_after_transcode" value="true" {{ 'checked' if sonarr_auto_rename }}>
+                                        <label class="form-check-label" for="sonarr_auto_rename_after_transcode"><strong>Auto-Rename After Transcode</strong></label>
+                                        <p class="form-text text-body-secondary">When a transcode completes, automatically trigger Sonarr to rescan the file and rename it if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.</p>
                                     </div>
 
                                     <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
@@ -363,7 +378,19 @@
                                             <input type="password" class="form-control" id="radarr_api_key" name="radarr_api_key" value="{{ settings.get('radarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('radarr')">Test Connection</button>
+                                    <div class="form-check form-switch mt-3">
+                                        {% set radarr_send_to_queue = settings.get('radarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="radarr_send_to_queue" name="radarr_send_to_queue" value="true" {{ 'checked' if radarr_send_to_queue }}>
+                                        <label class="form-check-label" for="radarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Radarr API.</p>
+                                    </div>
+                                    <div class="form-check form-switch mb-3">
+                                        {% set radarr_auto_rename = settings.get('radarr_auto_rename_after_transcode', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="radarr_auto_rename_after_transcode" name="radarr_auto_rename_after_transcode" value="true" {{ 'checked' if radarr_auto_rename }}>
+                                        <label class="form-check-label" for="radarr_auto_rename_after_transcode"><strong>Auto-Rename After Transcode</strong></label>
+                                        <p class="form-text text-body-secondary">When a transcode completes, automatically trigger Radarr to rescan the file and rename it if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.</p>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('radarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="radarr-test-status" class="mt-2"></div>
                                 </div>
                                 <!-- Lidarr Tab -->
@@ -383,7 +410,13 @@
                                             <input type="password" class="form-control" id="lidarr_api_key" name="lidarr_api_key" value="{{ settings.get('lidarr_api_key', {}).get('setting_value', '') }}">
                                         </div>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')">Test Connection</button>
+                                    <div class="form-check form-switch mt-3">
+                                        {% set lidarr_send_to_queue = settings.get('lidarr_send_to_queue', {}).get('setting_value', 'false') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="lidarr_send_to_queue" name="lidarr_send_to_queue" value="true" {{ 'checked' if lidarr_send_to_queue }}>
+                                        <label class="form-check-label" for="lidarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
+                                        <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Lidarr API.</p>
+                                    </div>
+                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="lidarr-test-status" class="mt-2"></div>
                                 </div>
                             </div>
@@ -413,7 +446,7 @@
                                 <div class="col-md-6 mb-3">
                                     <label for="plex_path_to" class="form-label">
                                         <strong>Path in Container</strong>
-                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the CodecShift container. This should match your Docker volume mapping. e.g., /media"></span>
+                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the Librarrarian container. This should match your Docker volume mapping. e.g., /media"></span>
                                     </label>
                                     <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
                                 </div>
@@ -431,58 +464,8 @@
                                         <label class="form-check-label" for="clock-24hr">Use 24-Hour Clock</label>
                                     </div>
                                 </div>
-                                <h5>File Handling</h5>
                                 <div class="mb-3 p-3 border rounded">
-                                    <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
-                                    <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
-                                    <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <div class="form-check form-switch mb-2">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="keep_original" name="keep_original" value="true" {{ 'checked' if settings.get('keep_original', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="keep_original"><strong>Keep Original File</strong></label>
-                                    </div>
-                                    <label for="backup_directory" class="form-label"><strong>Backup Directory</strong></label>
-                                    <p class="form-text text-body-secondary">If specified, move original files here instead of deleting them. Requires "Keep Original" to be off.</p>
-                                    <input type="text" class="form-control" id="backup_directory" name="backup_directory" value="{{ settings.get('backup_directory', {}).get('setting_value', '') }}" placeholder="/path/to/backups">
-                                </div>
-                            </div>
-                            <!-- Right Column -->
-                            <div class="col-md-6">
-                                <h5>Transcoding &amp; System</h5>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label for="rescan_delay_minutes" class="form-label"><strong>Automatic Rescan Delay</strong></label>
-                                    <p class="form-text text-body-secondary">Time in minutes between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
-                                    <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label for="worker_poll_interval" class="form-label"><strong>Worker Poll Interval</strong></label>
-                                    <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
-                                    <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label class="form-label"><strong>Hardware Acceleration</strong></label>
-                                    <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
-                                    {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}
-                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_auto" value="auto" {{ 'checked' if accel == 'auto' }}><label class="form-check-label" for="accel_auto">Auto</label></div>
-                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_nvidia" value="nvidia" {{ 'checked' if accel == 'nvidia' }}><label class="form-check-label" for="accel_nvidia">NVIDIA NVENC</label></div>
-                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_qsv" value="qsv" {{ 'checked' if accel == 'qsv' }}><label class="form-check-label" for="accel_qsv">Intel QSV</label></div>
-                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_vaapi" value="vaapi" {{ 'checked' if accel == 'vaapi' }}><label class="form-check-label" for="accel_vaapi">VA-API</label></div>
-                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_cpu" value="cpu" {{ 'checked' if accel == 'cpu' }}><label class="form-check-label" for="accel_cpu">CPU Only</label></div>
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label class="form-label"><strong>Allowed Codecs</strong></label>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="allow_hevc">Allow HEVC (H.265)</label>
-                                    </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_av1" name="allow_av1" value="true" {{ 'checked' if settings.get('allow_av1', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="allow_av1">Allow AV1</label>
-                                    </div>
-                                </div>
-                                <div class="mb-3 p-3 border rounded">
-                                    <label class="form-label"><strong>Maintenance</strong></label>
+                                    <h5>Maintenance</h5>
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="auto_update" name="auto_update" value="true" {{ 'checked' if settings.get('auto_update', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="auto_update">Enable Worker Auto-Update</label>
@@ -494,6 +477,56 @@
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="debug">Enable Debug Logging</label>
+                                    </div>
+                                </div>
+                                <div class="mb-3 p-3 border rounded">
+                                    <h5>File Handling</h5>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="keep_original" name="keep_original" value="true" {{ 'checked' if settings.get('keep_original', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="keep_original"><strong>Keep Original File</strong></label>
+                                    </div>
+                                    <label for="backup_directory" class="form-label"><strong>Backup Directory</strong></label>
+                                    <p class="form-text text-body-secondary">If specified, move original files here instead of deleting them. Requires "Keep Original" to be off.</p>
+                                    <input type="text" class="form-control" id="backup_directory" name="backup_directory" value="{{ settings.get('backup_directory', {}).get('setting_value', '') }}" placeholder="/path/to/backups">
+                                </div>
+                            </div>
+                            <!-- Right Column -->
+                            <div class="col-md-6">
+                                <div class="mb-3 p-3 border rounded">
+                                    <h5>Transcoding &amp; System</h5>
+                                    <label for="rescan_delay_minutes" class="form-label"><strong>Automatic Rescan Delay</strong></label>
+                                    <p class="form-text text-body-secondary">Time in minutes between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
+                                    <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
+                                    <hr>
+                                    <label for="worker_poll_interval" class="form-label"><strong>Worker Poll Interval</strong></label>
+                                    <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
+                                    <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">
+                                    <hr>
+                                    <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
+                                    <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
+                                    <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">
+                                    <hr>
+                                    <label class="form-label"><strong>Hardware Acceleration</strong></label>
+                                    <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
+                                    {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_auto" value="auto" {{ 'checked' if accel == 'auto' }}><label class="form-check-label" for="accel_auto">Auto</label></div>
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_nvidia" value="nvidia" {{ 'checked' if accel == 'nvidia' }}><label class="form-check-label" for="accel_nvidia">NVIDIA NVENC</label></div>
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_qsv" value="qsv" {{ 'checked' if accel == 'qsv' }}><label class="form-check-label" for="accel_qsv">Intel QSV</label></div>
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_vaapi" value="vaapi" {{ 'checked' if accel == 'vaapi' }}><label class="form-check-label" for="accel_vaapi">VA-API</label></div>
+                                    <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_cpu" value="cpu" {{ 'checked' if accel == 'cpu' }}><label class="form-check-label" for="accel_cpu">CPU Only</label></div>
+                                    <hr>
+                                    <label class="form-label"><strong>Codecs Eligible for Re-Encoding</strong></label>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="allow_hevc">HEVC (H.265)</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_av1" name="allow_av1" value="true" {{ 'checked' if settings.get('allow_av1', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="allow_av1">AV1</label>
+                                    </div>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="allow_vp9" name="allow_vp9" value="true" {{ 'checked' if settings.get('allow_vp9', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="allow_vp9">VP9</label>
                                     </div>
                                 </div>
                             </div>
@@ -550,23 +583,134 @@
                     <div class="p-3 border rounded mb-4">
                         {% if settings.get('sonarr_enabled', {}).get('setting_value') == 'true' %}
                             <h5>Sonarr Tools</h5>
-                            <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
-                            <div class="btn-group" role="group">
-                                <button type="button" class="btn btn-secondary" id="manual-sonarr-scan-btn" title="Scans your library for files that do not match Sonarr's naming standard.">
-                                    <span class="mdi mdi-sync"></span> 
-                                    <span id="manual-sonarr-scan-btn-text">Scan for Renames</span>
-                                </button>
-                                <button type="button" class="btn btn-secondary" id="manual-quality-scan-btn" title="Scans your library for episodes that do not meet their series' quality profile.">
-                                    <span class="mdi mdi-quality-high"></span>
-                                    <span>Scan for Quality Mismatches</span>
-                                </button>
+                            <!-- Sonarr Stats Cards -->
+                            <div class="row text-center g-3 mb-3" id="sonarr-stats-container">
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="sonarr-stat-shows">-</h5><p class="card-text text-muted small mb-0">TV Shows</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="sonarr-stat-seasons">-</h5><p class="card-text text-muted small mb-0">Seasons</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="sonarr-stat-episodes">-</h5><p class="card-text text-muted small mb-0">Episodes</p>
+                                </div></div></div>
                             </div>
-                            <div id="sonarr-scan-status" class="mt-3"></div>
+                            <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
+                            <div class="d-flex justify-content-start align-items-center mb-3">
+                                <button id="sonarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
+                                <button id="sonarr-quality-scan-button" class="btn btn-info me-2"><i class="mdi mdi-television-classic me-1"></i>Scan for Quality</button>
+                                <button id="sonarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            </div>
+
+                            <!-- Feedback & Progress for Rename Scan -->
+                            <div id="sonarr-rename-scan-container" class="alert alert-success mt-3 progress-box" style="display: none;">
+                                <div id="sonarr-rename-scan-feedback" class="mb-2"></div>
+                                <div id="sonarr-rename-scan-progress">
+                                    <p id="sonarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                    </div>
+                                    <small id="sonarr-rename-scan-time" class="text-muted"></small>
+                                </div>
+                            </div>
+
+                            <!-- Feedback & Progress for Quality Scan -->
+                            <div id="sonarr-quality-scan-container" class="alert alert-info mt-3 progress-box" style="display: none;">
+                                <div id="sonarr-quality-scan-feedback" class="mb-2"></div>
+                                <div id="sonarr-quality-scan-progress">
+                                    <p id="sonarr-quality-scan-progress-text" class="mb-1">Scanning for quality mismatches...</p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width: 0%;">0%</div>
+                                    </div>
+                                    <small id="sonarr-quality-scan-time" class="text-muted"></small>
+                                </div>
+                            </div>
+
                         {% else %}
                             <h5>Sonarr Tools <span class="badge bg-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-sonarr-link">enable the Sonarr integration in the Options tab</a>.
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Radarr Tools Section -->
+                    <div class="p-3 border rounded mb-4">
+                        {% if settings.get('radarr_enabled', {}).get('setting_value') == 'true' %}
+                            <h5>Radarr Tools</h5>
+                            <!-- Radarr Stats Cards -->
+                            <div class="row text-center g-3 mb-3" id="radarr-stats-container">
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="radarr-stat-movies">-</h5><p class="card-text text-muted small mb-0">Total Movies</p>
+                                </div></div></div>
+                            </div>
+                            <p class="form-text text-body-secondary">Run manual scans against your Radarr instance.</p>
+                            <div class="d-flex justify-content-start align-items-center mb-3">
+                                <button id="radarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
+                                <button id="radarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            </div>
+
+                            <!-- Feedback & Progress for Radarr Rename Scan -->
+                            <div id="radarr-rename-scan-container" class="alert alert-success mt-3 progress-box" style="display: none;">
+                                <div id="radarr-rename-scan-feedback" class="mb-2"></div>
+                                <div id="radarr-rename-scan-progress">
+                                    <p id="radarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                    </div>
+                                    <small id="radarr-rename-scan-time" class="text-muted"></small>
+                                </div>
+                            </div>
+
+                        {% else %}
+                            <h5>Radarr Tools <span class="badge bg-secondary">Disabled</span></h5>
+                            <p class="form-text text-body-secondary">
+                                To use these tools, please 
+                                <a href="#" id="enable-radarr-link">enable the Radarr integration in the Options tab</a>.
+                            </p>
+                        {% endif %}
+                    </div>
+
+                    <!-- Lidarr Tools Section -->
+                    <div class="p-3 border rounded mb-4">
+                        {% if settings.get('lidarr_enabled', {}).get('setting_value') == 'true' %}
+                            <h5>Lidarr Tools</h5>
+                            <!-- Lidarr Stats Cards -->
+                            <div class="row text-center g-3 mb-3" id="lidarr-stats-container">
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="lidarr-stat-artists">-</h5><p class="card-text text-muted small mb-0">Artists</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="lidarr-stat-albums">-</h5><p class="card-text text-muted small mb-0">Albums</p>
+                                </div></div></div>
+                                <div class="col-md-4"><div class="card bg-body-secondary"><div class="card-body py-2">
+                                    <h5 class="card-title mb-0" id="lidarr-stat-tracks">-</h5><p class="card-text text-muted small mb-0">Tracks</p>
+                                </div></div></div>
+                            </div>
+                            <p class="form-text text-body-secondary">Run manual scans against your Lidarr instance.</p>
+                            <div class="d-flex justify-content-start align-items-center mb-3">
+                                <button id="lidarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
+                                <button id="lidarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            </div>
+
+                            <!-- Feedback & Progress for Lidarr Rename Scan -->
+                            <div id="lidarr-rename-scan-container" class="alert alert-success mt-3 progress-box" style="display: none;">
+                                <div id="lidarr-rename-scan-feedback" class="mb-2"></div>
+                                <div id="lidarr-rename-scan-progress">
+                                    <p id="lidarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
+                                    <div class="progress" style="height: 20px;">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                    </div>
+                                    <small id="lidarr-rename-scan-time" class="text-muted"></small>
+                                </div>
+                            </div>
+
+                        {% else %}
+                            <h5>Lidarr Tools <span class="badge bg-secondary">Disabled</span></h5>
+                            <p class="form-text text-body-secondary">
+                                To use these tools, please 
+                                <a href="#" id="enable-lidarr-link">enable the Lidarr integration in the Options tab</a>.
                             </p>
                         {% endif %}
                     </div>
@@ -584,1412 +728,28 @@
 {% endblock %}
 
 {% block scripts %}
-    <!-- Failures Modal -->
-    <div class="modal fade" id="failuresModal" tabindex="-1" aria-labelledby="failuresModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-xl modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h1 class="modal-title fs-5" id="failuresModalLabel">Failed Transcodes</h1>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <table class="table table-hover">
-                        <thead>
-                            <tr>
-                                <th>File</th>
-                                <th>Reason</th>
-                                <th>Reported At</th>
-                                <th>Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="failures-table-body"></tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Modals -->
+    {% include 'modals/failures_modal.html' %}
+    {% include 'modals/node_options_modal.html' %}
+    {% include 'modals/plex_login_modal.html' %}
+    {% include 'modals/changelog_modal.html' %}
 
-    <!-- Per-Node Options Modal -->
-    <div class="modal fade" id="nodeOptionsModal" tabindex="-1">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title" id="nodeOptionsModalTitle">Node Options</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p>More per-node options will be available here in the future.</p>
-                    <button id="quit-node-btn" class="btn btn-danger w-100">Quit Worker Process</button>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- Pass server-side data to JavaScript -->
     <script>
-        // Function to create an HTML element for a single node
-        function createNodeCard(node) {
-            const isIdle = node.status === 'idle' || node.percent === 0;
-            return `
-            <div class="card mb-3">
-                <div id="node-${node.hostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
-                    <span>
-                        <span class="health-icon me-2" title="Calculating...">●</span>${node.hostname}
-                        ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
-                    </span>
-                    <div>
-                        <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                        <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'running' || node.status === 'paused' ? 'disabled' : ''}>Start</button>
-                        <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.status === 'idle' || node.status === 'finishing' ? 'disabled' : ''}>Stop</button>
-                        <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.status}')" ${node.status === 'idle' ? 'disabled' : ''}>${node.status === 'paused' ? 'Resume' : 'Pause'}</button>
-                        <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
-                    </div>
-                </div>
-                <div class="card-body">
-                    ${node.percent > 0 ? `
-                        <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.current_file || 'N/A'}</p>
-                        <div class="progress" role="progressbar">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-${node.color}" style="width: ${node.percent}%">
-                                <b>${node.percent}%</b>
-                            </div>
-                        </div>
-                    ` : `
-                        <div class="text-center p-3">
-                            <h5 class="card-title text-muted">${node.status === 'paused' ? 'Paused' : (node.status === 'finishing' ? 'Finishing...' : (node.current_file || 'Idle'))}</h5>
-                        </div>
-                    `}
-                </div>
-                <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
-                    <span class="text-muted small">Uptime: ${node.uptime_str || 'N/A'}</span>
-                    <div>
-                    ${node.percent > 0 ? `
-                        <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
-                        <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
-                        <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
-                    ` : `
-                        <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.current_file || 'Idle')}</span>
-                    `}
-                    </div>
-                </div>
-            </div>`;
-        }
-
-        // Main function to fetch data and update the DOM
-        async function updateStatus() {
-            try {
-                const response = await fetch('/api/status');
-                if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
-                }
-                const data = await response.json();
-
-                // Update summary badges
-                const failCount = data.fail_count;
-                const failCountBadge = document.getElementById('fail-count-badge');
-                const viewErrorsBtn = document.getElementById('view-errors-btn');
-                failCountBadge.innerText = failCount;
-                
-                // Update View Errors button color
-                // Remove all potential color classes first
-                viewErrorsBtn.classList.remove('btn-danger', 'btn-success', 'btn-warning');
-                const clearErrorsBtn = document.getElementById('clear-errors-btn');
-                clearErrorsBtn.style.display = (failCount > 0) ? 'inline-block' : 'none';
-
-                // If there are errors, the button is always red.
-                if (failCount > 0) {
-                    viewErrorsBtn.classList.add('btn-danger');
-                    failCountBadge.classList.add('text-bg-light');
-                }
-                
-                // Update DB error alert
-                const errorAlert = document.getElementById('db-error-alert');
-                if (data.db_error) {
-                    errorAlert.innerHTML = `<strong>Database Error:</strong> ${data.db_error}`;
-                    errorAlert.classList.remove('d-none');
-                } else {
-                    errorAlert.classList.add('d-none');
-                }
-
-                // --- Update Pause Queue Button State ---
-                const pauseQueueBtn = document.getElementById('pause-queue-btn');
-                if (data.queue_paused) {
-                    pauseQueueBtn.classList.remove('btn-warning');
-                    pauseQueueBtn.classList.add('btn-success');
-                    pauseQueueBtn.innerHTML = `<span class="mdi mdi-play"></span> Resume Queue`;
-                    pauseQueueBtn.title = "Resume the distribution of new jobs to workers";
-                } else {
-                    pauseQueueBtn.classList.remove('btn-success');
-                    pauseQueueBtn.classList.add('btn-warning');
-                    pauseQueueBtn.innerHTML = `<span class="mdi mdi-pause"></span> Pause Queue`;
-                    pauseQueueBtn.title = "Pause the distribution of new jobs to workers";
-                }
-
-                // Update nodes list
-                const nodesContainer = document.getElementById('nodes-container');
-                if (data.nodes && data.nodes.length > 0) {
-                    nodesContainer.innerHTML = data.nodes.map(createNodeCard).join('');
-                } else {
-                    nodesContainer.innerHTML = `
-                    <div class="text-center p-5">
-                        <p class="text-muted">No active nodes found.</p>
-                    </div>`;
-                }
-
-                // --- NEW: Update Health Icons ---
-                data.nodes.forEach(node => {
-                    const cardHeader = document.getElementById(`node-${node.hostname}`);
-                    if (cardHeader) {
-                        const healthIcon = cardHeader.querySelector('.health-icon');
-                        if (node.age < 30) {
-                            healthIcon.style.color = 'green';
-                            healthIcon.title = `Healthy (last seen ${Math.round(node.age)}s ago)`;
-                        } else if (node.age < 60) {
-                            healthIcon.style.color = 'orange';
-                            healthIcon.title = `Warning (last seen ${Math.round(node.age)}s ago)`;
-                        } else {
-                            healthIcon.style.color = 'red';
-                            healthIcon.title = `Critical (last seen ${Math.round(node.age)}s ago)`;
-                        }
-                    }
-                });
-            } catch (error) {
-                console.error("Failed to fetch status:", error);
-                const errorAlert = document.getElementById('db-error-alert');
-                errorAlert.innerHTML = `<strong>Frontend Error:</strong> Could not fetch status from the server.`;
-                errorAlert.classList.remove('d-none');
-            }
-        }
-
-        // Function to fetch and display failures in the modal
-        document.getElementById('view-errors-btn').addEventListener('click', async () => {
-            const tableBody = document.getElementById('failures-table-body');
-            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
-            try {
-                const response = await fetch('/api/failures');
-                const data = await response.json();
-                if (data.files && data.files.length > 0) {
-                    tableBody.innerHTML = data.files.map((file, index) => `
-                        <tr>
-                            <td style="word-break: break-all;">${file.filename}</td>
-                            <td>${file.reason}</td>
-                            <td>${file.reported_at}</td>
-                            <td>
-                                <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
-                                    View Log
-                                </button>
-                            </td>
-                        </tr>
-                        <tr class="collapse" id="collapse-log-${index}">
-                            <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
-                        </tr>
-                    `).join('');
-                } else {
-                    tableBody.innerHTML = '<tr><td colspan="3" class="text-center">No failed files found.</td></tr>';
-                }
-            } catch (error) {
-                tableBody.innerHTML = '<tr><td colspan="3" class="text-center text-danger">Failed to load errors.</td></tr>';
-            }
-        });
-
-        // Function to clear all failures
-        document.getElementById('clear-errors-btn').addEventListener('click', async () => {
-            if (!confirm('Are you sure you want to permanently clear all failed file logs? This action cannot be undone.')) {
-                return;
-            }
-            try {
-                const response = await fetch('/api/failures/clear', { method: 'POST' });
-                if (response.ok) {
-                    // Manually close the modal if it's open
-                    const modal = bootstrap.Modal.getInstance(document.getElementById('failuresModal'));
-                    if (modal) modal.hide();
-                    // Refresh the status to update the count
-                    updateStatus();
-                }
-            } catch (error) {
-                alert('An error occurred while trying to clear the failures.');
-            }
-        });
-
-        async function pollScanProgress() {
-            if (!isPollingForScan) return;
-
-            try {
-                const response = await fetch('/api/scan/progress');
-                const data = await response.json();
-                const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
-
-                if (data.is_running) {
-                    const elapsed = Math.round((Date.now() - scanStartTime) / 1000);
-                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
-                    sonarrScanStatusDiv.innerHTML = `
-                        <div class="progress" style="height: 20px;">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
-                        </div>
-                        <div class="mt-1">
-                            <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
-                        </div>
-                    `;
-                } else {
-                    // Scan is finished
-                    isPollingForScan = false;
-                    const finalMessage = data.current_step || "Scan finished.";
-                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-success">${finalMessage}</div>`;
-                    revertActiveButton();
-                    // Refresh job queue to see results of scan
-                    if (document.querySelector('#jobs-tab.active')) {
-                        updateJobQueue();
-                    }
-                }
-            } catch (error) {
-                console.error("Error polling for scan progress:", error);
-                isPollingForScan = false;
-                revertActiveButton();
-            }
-        }
-
-        // Main data update loop. Fetches node status and other data.
-        async function mainUpdateLoop() {
-            await updateStatus();
-
-            // Check which tab is active and update its content if needed
-            if (document.querySelector('#history-stats-tab.active')) {
-                await updateHistoryAndStats();
-            }
-            if (document.querySelector('#jobs-tab.active')) {
-                await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
-            }
-        }
-
-        // --- Independent, Non-Blocking Timers ---
-        // This is the correct pattern to prevent UI freezes.
-
-        // --- Clock Settings (Global) ---
-        window.AppSettings = {
-            use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }}
+        window.Librarrarian = {
+            settings: {
+                use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }},
+                plexToken: "{{ settings.get('plex_token', {}).get('setting_value', '') }}",
+                plexLibraries: "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
+                internalScanPaths: "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',').filter(Boolean)
+            },
+            version: "{{ version }}"
         };
-
-        // 1. A dedicated, lightweight timer for the clock. It does nothing else.
-        setInterval(() => {
-            const clockContainer = document.getElementById('clock-container');
-            const timeOptions = {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                hour12: !window.AppSettings.use24HourClock
-            };
-            const timeString = new Date().toLocaleTimeString([], timeOptions);
-            if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
-        }, 1000); // Runs every second.
-
-        // 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
-        setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls every second
-
-        // Run initial update on page load
-        updateStatus();
-
-        // Initialize all tooltips on the page after the DOM is ready
-        var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-        var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-            return new bootstrap.Tooltip(tooltipTriggerEl)
-        });
-
-        // Function to clear all history
-        document.getElementById('clear-history-btn').addEventListener('click', async () => {
-            if (!confirm('Are you sure you want to permanently clear the entire transcode history? This action cannot be undone.')) {
-                return;
-            }
-            try {
-                const response = await fetch('/api/history/clear', { method: 'POST' });
-                if (response.ok) {
-                    // Refresh the history table to show it's empty
-                    updateHistoryAndStats();
-                }
-            } catch (error) {
-                console.error('Error clearing history:', error);
-                alert('An error occurred while trying to clear the history.');
-            }
-        });
-
-        // Function to update the job queue
-        let jobQueueCurrentPage = 1; // Keep track of the current page
-        async function updateJobQueue(page = 1) {
-            jobQueueCurrentPage = page;
-            try {
-                const response = await fetch(`/api/jobs?page=${page}`);
-                const data = await response.json();
-                const tableBody = document.getElementById('job-queue-table-body');
-                tableBody.innerHTML = ''; // Clear existing rows
-
-                if (data.db_error) {
-                    tableBody.innerHTML = `<tr><td colspan="6" class="text-danger">Database Error: ${data.db_error}</td></tr>`;
-                    return;
-                }
-
-                if (data.jobs.length === 0) {
-                    tableBody.innerHTML = '<tr><td colspan="7" class="text-center text-muted">No jobs in the queue.</td></tr>';
-                    return;
-                }
-
-                // Build the entire table HTML at once and set it. This is much more efficient
-                // and prevents the "ghost row" rendering bug.
-                const rowsHtml = data.jobs.map(job => `
-                    <tr>
-                        <td>
-                            ${job.job_type === 'cleanup' && job.status === 'awaiting_approval' ? 
-                                `<input type="checkbox" class="form-check-input cleanup-checkbox" data-job-id="${job.id}">` : 
-                                job.id 
-                            }
-                        </td>
-                        <td style="word-break: break-all;">${job.filepath}</td>
-                        <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
-                        <td>
-                            ${job.status === 'encoding' ? 
-                                `<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
-                            job.status === 'awaiting_approval' ?
-                                `<span class="badge text-bg-warning">Awaiting Approval</span>` :
-                            job.status === 'pending' ?
-                                `<span class="badge text-bg-secondary">Pending</span>` :
-                            job.status === 'failed' ?
-                                `<span class="badge text-bg-danger">Failed</span>` :
-                                `<span class="badge text-bg-warning">${job.status}</span>`
-                            }
-                        </td>
-                        <td>${job.assigned_to || 'N/A'}</td>
-                        <td>${new Date(job.created_at).toLocaleString()}</td>
-                        <td>
-                            ${['pending', 'awaiting_approval', 'failed'].includes(job.status) ?
-                                `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
-                                ''
-                            }
-                            ${job.status === 'encoding' && job.age_minutes > 10 ?
-                                `<button class="btn btn-xs btn-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
-                                ''
-                            }
-                        </td>
-                    </tr>
-                `).join('');
-                tableBody.innerHTML = rowsHtml;
-
-                renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
-
-                // Add event listener for the new "select all" checkbox
-                const selectAllCheckbox = document.getElementById('select-all-cleanup');
-                selectAllCheckbox.addEventListener('change', (e) => {
-                    document.querySelectorAll('.cleanup-checkbox').forEach(checkbox => {
-                        checkbox.checked = e.target.checked;
-                    });
-                });
-                // Uncheck "select all" if any individual box is unchecked
-                document.querySelectorAll('.cleanup-checkbox').forEach(checkbox => checkbox.addEventListener('change', () => { if (!checkbox.checked) selectAllCheckbox.checked = false; }));
-
-            } catch (error) {
-                console.error('Error fetching job queue:', error);
-                document.getElementById('job-queue-table-body').innerHTML = `<tr><td colspan="6" class="text-danger">Failed to fetch job queue.</td></tr>`;
-            }
-        }
-
-        // Function to create cleanup jobs
-        document.getElementById('create-cleanup-jobs-btn').addEventListener('click', async () => {
-            const statusDiv = document.getElementById('cleanup-status');
-            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
-            const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
-            if (!response.ok) {
-                statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
-                return;
-            }
-            const result = await response.json();
-            const alertClass = result.success ? 'alert-success' : 'alert-danger';
-            statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
-        });
-
-        // --- History & Stats Page Logic ---
-        let fullHistoryData = [];
-        let historyCurrentPage = 1;
-        const historyItemsPerPage = 15;
-
-        // Combined function to fetch and display stats and history
-        async function updateHistoryAndStats() {
-            const statsCardsContainer = document.getElementById('stats-cards-container');
-            const historyBody = document.getElementById('history-table-body');
-
-            try {
-                // Fetch both stats and history in parallel
-                const [statsResponse, historyResponse] = await Promise.all([
-                    fetch('/api/stats'),
-                    fetch('/api/history')
-                ]);
-
-                // Process Stats
-                const statsData = await statsResponse.json();
-                const reductionPercent = parseFloat(statsData.stats.total_reduction_percent);
-                let reductionColorClass = 'bg-success';
-                if (reductionPercent < 50) {
-                    reductionColorClass = 'bg-danger';
-                } else if (reductionPercent < 75) {
-                    reductionColorClass = 'bg-warning text-dark'; // Add text-dark for better contrast on yellow
-                }
-
-                statsCardsContainer.innerHTML = `
-                    <div class="col-md-3"><div class="card"><div class="card-body">
-                        <h5 class="card-title">${statsData.stats.total_files}</h5><p class="card-text text-muted">Files Encoded</p>
-                    </div></div></div>
-                    <div class="col-md-3"><div class="card"><div class="card-body">
-                        <h5 class="card-title">${statsData.stats.total_new_size_gb} GB</h5><p class="card-text text-muted">New Size</p>
-                    </div></div></div>
-                    <div class="col-md-3"><div class="card"><div class="card-body">
-                        <h5 class="card-title">${statsData.stats.total_original_size_gb} GB</h5><p class="card-text text-muted">Original Size</p>
-                    </div></div></div>
-                    <div class="col-md-3"><div class="card ${reductionColorClass}"><div class="card-body">
-                        <h5 class="card-title">${statsData.stats.total_reduction_percent}%</h5><p class="card-text">Average Reduction</p>
-                    </div></div></div>
-                `;
-
-                // Process History
-                const historyData = await historyResponse.json();
-                fullHistoryData = historyData.history || [];
-                renderHistoryTable(); // Render the table with the new data
-
-            } catch (error) {
-                console.error("Failed to fetch history/stats:", error);
-                statsCardsContainer.innerHTML = '<div class="col-12"><div class="alert alert-danger">Failed to load statistics.</div></div>';
-                historyBody.innerHTML = '<tr><td colspan="7" class="text-center text-danger">Failed to load history.</td></tr>';
-            }
-        }
-
-        // Function to render the history table with search and pagination
-        function renderHistoryTable() {
-            const historyBody = document.getElementById('history-table-body');
-            const paginationContainer = document.getElementById('history-pagination');
-            const searchTerm = document.getElementById('history-search-input').value.toLowerCase();
-
-            const filteredData = fullHistoryData.filter(item => 
-                item.filename.toLowerCase().includes(searchTerm) ||
-                item.hostname.toLowerCase().includes(searchTerm)
-            );
-
-            const totalPages = Math.ceil(filteredData.length / historyItemsPerPage);
-            if (historyCurrentPage > totalPages) {
-                historyCurrentPage = totalPages || 1;
-            }
-            const startIndex = (historyCurrentPage - 1) * historyItemsPerPage;
-            const paginatedData = filteredData.slice(startIndex, startIndex + historyItemsPerPage);
-
-            // Render table rows
-            if (paginatedData.length > 0) {
-                historyBody.innerHTML = paginatedData.map(item => `
-                    <tr>
-                        <td>${item.id}</td>
-                        <td style="word-break: break-all;">${item.filename}</td>
-                        <td>${item.hostname}</td>
-                        <td><span class="badge text-bg-secondary">${item.codec}</span></td>
-                        ${item.status === 'encoding' ? `
-                            <td colspan="2" class="text-center"><span class="badge text-bg-primary">In Progress</span></td>
-                        ` : `
-                            <td>${item.original_size_gb} → ${item.new_size_gb}</td>
-                            <td><span class="badge text-bg-success">${item.reduction_percent}%</span></td>
-                        `}
-                        <td>${item.encoded_at}</td>
-                        <td><button class="btn btn-xs btn-outline-danger" title="Delete this entry">&times;</button></td>
-                    </tr>
-                `).join('');
-            } else {
-                historyBody.innerHTML = `<tr><td colspan="7" class="text-center">${searchTerm ? 'No matching files found.' : 'No encoded files found.'}</td></tr>`;
-            }
-
-            // Render pagination
-            paginationContainer.innerHTML = '';
-            if (totalPages > 1) {
-                for (let i = 1; i <= totalPages; i++) {
-                    const li = document.createElement('li');
-                    li.className = `page-item ${i === historyCurrentPage ? 'active' : ''}`;
-                    li.innerHTML = `<a class="page-link" href="#">${i}</a>`;
-                    li.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        historyCurrentPage = i;
-                        renderHistoryTable();
-                    });
-                    paginationContainer.appendChild(li);
-                }
-            }
-        }
-
-        // Event listener for the search input
-        document.getElementById('history-search-input').addEventListener('input', () => {
-            historyCurrentPage = 1; // Reset to first page on search
-            renderHistoryTable();
-        });
-
-        // --- NEW: Smart Pagination Renderer ---
-        function renderJobQueuePagination(currentPage, totalPages) {
-            const paginationContainer = document.getElementById('job-queue-pagination');
-            paginationContainer.innerHTML = '';
-            if (totalPages <= 1) return;
-
-            const pageWindow = 5; // How many pages to show around the current page
-
-            // Helper to create a page link
-            const createPageLink = (page, text, isDisabled = false, isActive = false) => {
-                const li = document.createElement('li');
-                li.className = `page-item ${isDisabled ? 'disabled' : ''} ${isActive ? 'active' : ''}`;
-                const a = document.createElement('a');
-                a.className = 'page-link';
-                a.href = '#';
-                a.innerText = text;
-                if (!isDisabled) {
-                    a.addEventListener('click', (e) => {
-                        e.preventDefault();
-                        updateJobQueue(page);
-                    });
-                }
-                li.appendChild(a);
-                return li;
-            };
-
-            // Previous Button
-            paginationContainer.appendChild(createPageLink(currentPage - 1, 'Previous', currentPage === 1));
-
-            // Page numbers
-            let startPage = Math.max(1, currentPage - pageWindow);
-            let endPage = Math.min(totalPages, currentPage + pageWindow);
-
-            if (startPage > 1) {
-                paginationContainer.appendChild(createPageLink(1, '1'));
-                if (startPage > 2) {
-                    paginationContainer.appendChild(createPageLink(0, '...', true));
-                }
-            }
-
-            for (let i = startPage; i <= endPage; i++) {
-                paginationContainer.appendChild(createPageLink(i, i.toString(), false, i === currentPage));
-            }
-
-            if (endPage < totalPages) {
-                if (endPage < totalPages - 1) {
-                    paginationContainer.appendChild(createPageLink(0, '...', true));
-                }
-                paginationContainer.appendChild(createPageLink(totalPages, totalPages.toString()));
-            }
-
-            // Next Button
-            paginationContainer.appendChild(createPageLink(currentPage + 1, 'Next', currentPage === totalPages));
-        }
-
-        // Update history/stats when the tab is shown
-        const historyStatsTab = document.querySelector('#history-stats-tab');
-        historyStatsTab.addEventListener('shown.bs.tab', () => {
-            updateHistoryAndStats();
-        });
-
-        // Update job queue when its tab is shown
-        const jobsTab = document.querySelector('#jobs-tab');
-        jobsTab.addEventListener('shown.bs.tab', () => {
-            updateJobQueue();
-        });
-
-        // Start the main update loop
-        setInterval(mainUpdateLoop, 5000);
     </script>
-    <script>
-        // Function to send the 'start' command to a node
-        async function startNode(hostname) {
-            try {
-                const response = await fetch(`/api/nodes/${hostname}/start`, {
-                    method: 'POST',
-                });
-                const result = await response.json();
 
-                if (result.success) {
-                    // The command was successful, just refresh the UI.
-                    // Immediately refresh the status to show the node has started
-                    updateStatus();
-                } else {
-                    // If the server reported an error, show it.
-                    alert(`Failed to send start command to ${hostname}: ${result.error || 'Unknown error'}`);
-                }
-            } catch (error) {
-                console.error('Error starting node:', error);
-                alert(`An error occurred while trying to start ${hostname}.`);
-            }
-        }
-
-        // Function to send the 'stop' command to a node
-        async function stopNode(hostname) {
-            if (!confirm(`Are you sure you want to stop the worker on '${hostname}'? It will finish its current file and then go idle.`)) {
-                return;
-            }
-            try {
-                const response = await fetch(`/api/nodes/${hostname}/stop`, {
-                    method: 'POST',
-                });
-                const result = await response.json();
-                if (result.success) {
-                    updateStatus(); // Refresh UI to show the node going idle
-                } else {
-                    alert(`Failed to send stop command to ${hostname}: ${result.error || 'Unknown error'}`);
-                }
-            } catch (error) {
-                console.error('Error stopping node:', error);
-            }
-        }
-
-        // Function to send 'pause' or 'resume' command
-        async function pauseResumeNode(hostname, currentStatus) {
-            const action = currentStatus === 'paused' ? 'resume' : 'pause';
-            try {
-                const response = await fetch(`/api/nodes/${hostname}/${action}`, {
-                    method: 'POST',
-                });
-                const result = await response.json();
-                if (result.success) {
-                    updateStatus(); // Refresh UI
-                } else {
-                    alert(`Failed to ${action} node ${hostname}: ${result.error || 'Unknown error'}`);
-                }
-            } catch (error) {
-                console.error(`Error ${action}ing node:`, error);
-            }
-        }
-
-        // Placeholder for future per-node options
-        let nodeOptionsModal = null;
-        function showNodeOptions(hostname) {
-            if (!nodeOptionsModal) {
-                nodeOptionsModal = new bootstrap.Modal(document.getElementById('nodeOptionsModal'));
-            }
-            document.getElementById('nodeOptionsModalTitle').innerText = `Options for ${hostname}`;
-            const quitBtn = document.getElementById('quit-node-btn');
-            // Re-assign the onclick event to the button for the specific hostname
-            quitBtn.onclick = () => quitNode(hostname);
-            nodeOptionsModal.show();
-        }
-    </script>
-    <script>
-        document.addEventListener('DOMContentLoaded', () => {
-            const enableSonarrLink = document.getElementById('enable-sonarr-link');
-            if (enableSonarrLink) {
-                enableSonarrLink.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    // Use bootstrap's API to show the main options tab
-                    const optionsTabTrigger = document.getElementById('options-tab');
-                    const tab = new bootstrap.Tab(optionsTabTrigger);
-                    tab.show();
-
-                    // Once the main tab is shown, show the sonarr sub-tab
-                    optionsTabTrigger.addEventListener('shown.bs.tab', () => {
-                        const sonarrSubTabTrigger = document.getElementById('sonarr-integration-tab');
-                        const subTab = new bootstrap.Tab(sonarrSubTabTrigger);
-                        subTab.show();
-                    }, { once: true }); // Use 'once' so this listener only fires once
-                });
-            }
-
-            const mainTabs = document.querySelector('#mainTabs');
-            const advancedSwitchContainer = document.querySelector('#advanced-switch-container');
-
-            if (mainTabs && advancedSwitchContainer) {
-                mainTabs.addEventListener('shown.bs.tab', function (event) {
-                    if (event.target.id === 'options-tab') {
-                        advancedSwitchContainer.classList.remove('d-none');
-                    } else {
-                        advancedSwitchContainer.classList.add('d-none');
-                    }
-                });
-            }
-
-            const showAdvancedSwitch = document.getElementById('show-advanced-transcoding');
-            const advancedSection = document.getElementById('advanced-transcoding-section');
-
-            if (showAdvancedSwitch && advancedSection) {
-                showAdvancedSwitch.addEventListener('change', (event) => {
-                    if (event.target.checked) {
-                        advancedSection.classList.remove('d-none');
-                    } else {
-                        advancedSection.classList.add('d-none');
-                    }
-                });
-            }
-
-            const clockToggle = document.getElementById('clock-24hr');
-            if (clockToggle) {
-                clockToggle.addEventListener('change', (event) => {
-                    window.AppSettings.use24HourClock = event.target.checked;
-                });
-            }
-
-            // Function to send the 'quit' command to a node
-            window.quitNode = async function(hostname) {
-                if (!confirm(`Are you sure you want to QUIT the worker on '${hostname}'? This will stop the process immediately. The container will likely restart based on Docker policy.`)) {
-                    return;
-                }
-                try {
-                    const response = await fetch(`/api/nodes/${hostname}/quit`, {
-                        method: 'POST',
-                    });
-                    const result = await response.json();
-                    if (result.success) {
-                        updateStatus(); // Refresh UI to show the node disappearing
-                    } else {
-                        alert(`Failed to send quit command to ${hostname}: ${result.error || 'Unknown error'}`);
-                    }
-                } catch (error) {
-                    console.error('Error quitting node:', error);
-                }
-            }
-
-
-
-            // Slider logic
-            const delaySlider = document.getElementById('rescan_delay_minutes');
-            if (delaySlider) {
-                const delayValue = document.getElementById('delay-value');
-                delaySlider.addEventListener('input', (event) => {
-                    delayValue.textContent = `${event.target.value} min`;
-                });
-            }
-
-            // Function to activate a tab based on URL hash
-            function activateTabFromHash() {
-                const hash = window.location.hash;
-                if (hash) {
-                    const triggerEl = document.querySelector(`button[data-bs-target="${hash}"]`);
-                    if (triggerEl) {
-                        const tab = new bootstrap.Tab(triggerEl);
-                        tab.show();
-                    }
-                } else {
-                    const defaultTab = document.getElementById('nodes-tab');
-                    if (defaultTab) {
-                        const tab = new bootstrap.Tab(defaultTab);
-                        tab.show();
-                    }
-                }
-            }
-            activateTabFromHash();
-
-            // --- Plex Authentication Logic ---
-            const plexLoginBtn = document.getElementById('plex-login-btn');
-            const plexLogoutBtn = document.getElementById('plex-logout-btn');
-            const plexSignInBtn = document.getElementById('plex-signin-btn');
-
-            if (plexLoginBtn) {
-                plexLoginBtn.addEventListener('click', () => {
-                    const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
-                    loginModal.show();
-                });
-            }
-
-            if (plexSignInBtn) {
-                plexSignInBtn.addEventListener('click', async () => {
-                    const usernameInput = document.getElementById('plex-username');
-                    const passwordInput = document.getElementById('plex-password');
-                    const urlInput = document.getElementById('plex_url'); // Get the URL input
-                    const statusDiv = document.getElementById('plex-login-status');
-                    statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
-
-                    const response = await fetch('/api/plex/login', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ 
-                            username: usernameInput.value, 
-                            password: passwordInput.value,
-                            plex_url: urlInput.value // Send the URL along with credentials
-                        })
-                    });
-                    const data = await response.json();
-                    if (data.success) {
-                        statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                        setTimeout(() => window.location.href = '/#options-tab-pane', 1500);
-                    } else {
-                        statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
-                    }
-                });
-            }
-
-            if (plexLogoutBtn) {
-                plexLogoutBtn.addEventListener('click', async () => {
-                    if (confirm('Are you sure you want to unlink your Plex account?')) {
-                        await fetch('/api/plex/logout', { method: 'POST' });
-                        window.location.reload();
-                    }
-                });
-            }
-
-            // --- Show/Hide Logic ---
-            // Set up visibility toggles BEFORE loading functions are called
-            function setupShowHiddenToggle(toggleId, listContainerId) {
-                const toggle = document.getElementById(toggleId);
-                const listContainer = document.getElementById(listContainerId);
-
-                const applyVisibility = () => {
-                    if (!listContainer) return;
-                    const showHidden = toggle.checked;
-                    listContainer.querySelectorAll('.media-source-item').forEach(item => {
-                        // Check the state of the "Hide" switch inside the item
-                        const hideSwitch = item.querySelector('input[type="checkbox"][role="switch"]');
-                        const isHidden = hideSwitch ? hideSwitch.checked : (item.dataset.isHidden === 'true');
-                        
-                        if (isHidden && !showHidden) {
-                            item.style.display = 'none';
-                        } else {
-                            item.style.display = 'flex';
-                        }
-                    });
-                };
-
-                toggle.addEventListener('change', applyVisibility);
-
-                // Also listen for changes on any of the hide switches within the list
-                listContainer.addEventListener('change', (e) => {
-                    if (e.target.matches('input[type="checkbox"][role="switch"]')) {
-                        applyVisibility();
-                    }
-                });
-
-                // Return the function so it can be called after loading to set the initial state
-                return applyVisibility;
-            }
-            const applyPlexVisibility = setupShowHiddenToggle('plex-show-hidden-toggle', 'plex-libraries-list');
-            const applyInternalVisibility = setupShowHiddenToggle('internal-show-hidden-toggle', 'internal-folders-list');
-
-            // --- Dynamic Plex Library Loading ---
-            async function loadPlexLibraries() {
-                const container = document.getElementById('plex-libraries-list');
-                const mediaTypes = {
-                    'movie': 'Movie',
-                    'show': 'TV Show',
-                    'music': 'Music',
-                    'other': 'Other Videos',
-                    'none': 'None (Ignore)'
-                };
-                const createDropdown = (name, plexType, selectedType) => {
-                    // Default to music for 'artist', other for 'photo', otherwise use the saved type.
-                    const finalSelectedType = selectedType || (plexType === 'artist' ? 'music' : (plexType === 'photo' ? 'other' : plexType));
-                    const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${finalSelectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
-                };
-
-                // Use the settings rendered directly into the page by the server.
-                // This completely avoids any race conditions with the DOM.
-                const hasToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
-
-                if (!hasToken) {
-                    container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and link your account to see libraries.</p>`;
-                    return;
-                }
-
-                const response = await fetch('/api/plex/libraries');
-                const data = await response.json();
-                const currentLibs = "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',');
-
-                if (data.libraries && data.libraries.length > 0) {
-                    container.innerHTML = data.libraries.map(lib => `
-                        <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${String(lib.is_hidden).toLowerCase()}">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                                <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
-                            </div>
-                            <div class="ms-auto d-flex align-items-center me-2">
-                                ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
-                                <div class="form-check form-switch ms-3">
-                                    <input class="form-check-input" type="checkbox" role="switch" name="hide_plex_${lib.title}" ${lib.is_hidden ? 'checked' : ''}>
-                                    <label class="form-check-label">Hide</label>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
-                }
-
-                // Apply the initial visibility based on the toggle's state
-                if (typeof applyPlexVisibility === 'function') {
-                    applyPlexVisibility();
-                }
-            }
-            if (document.getElementById('plex-libraries-container').style.display !== 'none') {
-                loadPlexLibraries();
-            }
-
-            // --- Dynamic Internal Folder Loading ---
-            async function loadInternalFolders() {
-                const container = document.getElementById('internal-folders-list');
-                const mediaTypes = {
-                    'movie': 'Movie',
-                    'show': 'TV Show',
-                    'music': 'Music',
-                    'other': 'Other Videos',
-                    'none': 'None (Ignore)'
-                };
-                const createDropdown = (name, selectedType) => {
-                    const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
-                    return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
-                };
-                container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading folders...';
-
-                const response = await fetch('/api/internal/folders');
-                const data = await response.json();
-                const currentPaths = "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',');
-
-                if (data.folders && data.folders.length > 0) {
-                    container.innerHTML = data.folders.map(item => `
-                        <div class="d-flex align-items-center mb-2 media-source-item" data-is-hidden="${String(item.is_hidden).toLowerCase()}">
-                            <div class="form-check">
-                                <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
-                                <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
-                            </div>
-                            <div class="ms-auto d-flex align-items-center me-2">
-                                ${createDropdown(`type_internal_${item.name}`, item.type)}
-                                <div class="form-check form-switch ms-3">
-                                    <input class="form-check-input" type="checkbox" role="switch" name="hide_internal_${item.name}" ${item.is_hidden ? 'checked' : ''}>
-                                    <label class="form-check-label">Hide</label>
-                                </div>
-                            </div>
-                        </div>
-                    `).join('');
-                } else {
-                    container.innerHTML = `<p class="text-muted">${data.error || 'No subdirectories found in /media.'}</p>`;
-                }
-
-                // Apply the initial visibility based on the toggle's state
-                if (typeof applyInternalVisibility === 'function') {
-                    applyInternalVisibility();
-                }
-            }
-            const internalTab = document.getElementById('internal-integration-tab');
-            internalTab.addEventListener('shown.bs.tab', () => {
-                loadInternalFolders();
-            });
-
-            // --- NEW: Integrations Tab Logic ---
-            const scannerPlexRadio = document.getElementById('scanner_plex');
-            const scannerInternalRadio = document.getElementById('scanner_internal');
-            const pathFromInput = document.getElementById('plex_path_from');
-            const pathFromLabel = document.getElementById('path-from-label');
-            const pathFromTooltip = document.getElementById('path-from-tooltip');
-            const plexTabButton = document.getElementById('plex-integration-tab');
-            const pathMappingToggleContainer = document.getElementById('path-mapping-toggle-container');
-            const pathMappingToggle = document.getElementById('plex_path_mapping_enabled');
-            const internalTabButton = document.getElementById('internal-integration-tab');
-
-            function handleScannerChange() {
-                // Both inputs should always be enabled.
-                pathFromInput.disabled = false;
-
-                if (scannerPlexRadio.checked) {
-                    pathFromLabel.innerText = 'Path in Plex';
-                    pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
-                    // Enable Plex tab, disable Internal tab
-                    plexTabButton.disabled = false;
-                    internalTabButton.disabled = true;
-                    // If the internal tab was active, switch to the plex tab
-                    pathMappingToggleContainer.style.display = 'block'; // Show the toggle
-                    // Disable/enable path inputs based on the toggle's state
-                    const isMappingEnabled = pathMappingToggle.checked;
-                    document.getElementById('plex_path_from').disabled = !isMappingEnabled;
-                    document.getElementById('plex_path_to').disabled = !isMappingEnabled;
-
-                    if (internalTabButton.classList.contains('active')) {
-                        new bootstrap.Tab(plexTabButton).show();
-                    }
-                } else if (scannerInternalRadio.checked) {
-                    pathFromLabel.innerText = 'Internal Worker Path';
-                    pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the worker machine (e.g., /nfs/media)');
-                    // Disable Plex tab, enable Internal tab
-                    plexTabButton.disabled = true;
-                    internalTabButton.disabled = false;
-                    pathMappingToggleContainer.style.display = 'none'; // Hide the toggle
-                    // Always enable path inputs for internal scanner
-                    document.getElementById('plex_path_from').disabled = false;
-                    document.getElementById('plex_path_to').disabled = false;
-                    // If the plex tab was active, switch to the internal tab
-                    if (plexTabButton.classList.contains('active')) {
-                        new bootstrap.Tab(internalTabButton).show();
-                    }
-                }
-
-                // Also update the manual scan button state
-                const manualScanBtn = document.getElementById('manual-scan-btn');
-                const hasPlexToken = "{{ settings.get('plex_token', {}).get('setting_value') }}" !== "";
-                if (scannerPlexRadio.checked && !hasPlexToken) {
-                    manualScanBtn.disabled = true;
-                    manualScanBtn.title = "Plex account must be linked to run a scan.";
-                } else {
-                    manualScanBtn.disabled = false;
-                    manualScanBtn.title = "Trigger a manual scan of the active media integration";
-                }
-            }
-
-            scannerPlexRadio.addEventListener('change', handleScannerChange);
-            scannerInternalRadio.addEventListener('change', handleScannerChange);
-            // Add listener for the new toggle
-            pathMappingToggle.addEventListener('change', () => {
-                const isEnabled = pathMappingToggle.checked;
-                document.getElementById('plex_path_from').disabled = !isEnabled;
-                document.getElementById('plex_path_to').disabled = !isEnabled;
-            });
-
-            handleScannerChange(); // Run on initial script execution to set the correct state
-
-            // --- Manual Plex Scan Logic ---
-            const manualScanBtn = document.getElementById('manual-scan-btn');
-            const scanStatusDiv = document.getElementById('scan-status');
-            const forceRescanCheckbox = document.getElementById('force-rescan-checkbox');
-
-            manualScanBtn.addEventListener('click', async () => {
-                manualScanBtn.disabled = true;
-                manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
-                scanStatusDiv.innerHTML = '';
-                const isForced = forceRescanCheckbox.checked;
-
-                try {
-                    const response = await fetch('/api/scan/trigger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
-                    const data = await response.json();
-                    const alertClass = data.success ? 'alert-success' : 'alert-warning';
-                    scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-                    // Refresh the job queue to show any newly added jobs
-                    updateJobQueue();
-                } catch (error) {
-                    scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-                } finally {
-                    manualScanBtn.disabled = false;
-                    manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Manual Scan`;
-                }
-            });
-
-            // --- Sonarr Options Logic ---
-            const manualSonarrScanBtn = document.getElementById('manual-sonarr-scan-btn');
-            const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
-            const manualScanBtnText = document.getElementById('manual-sonarr-scan-btn-text');
-            const sonarrStatusDiv = document.getElementById('sonarr-test-status');
-            const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
-            const rescanValueSpan = document.getElementById('sonarr-rescan-value');
-
-            // This element might not exist if the user has old settings, so check for it.
-            const sonarrRescanSlider = document.getElementById('sonarr_rescan_hours');
-            if (sonarrRescanSlider) {
-                sonarrRescanSlider.addEventListener('input', (event) => { rescanValueSpan.textContent = event.target.value; });
-            }
-
-
-            function updateSonarrButtonText() {
-                manualScanBtnText.innerText = sendToQueueSwitch.checked ? 'Scan for Rename Jobs' : 'Trigger Sonarr Import';
-            }
-            sendToQueueSwitch.addEventListener('change', updateSonarrButtonText);
-            updateSonarrButtonText(); // Set initial text
-
-            // --- Unified Sonarr Scanner Function ---
-            let activeButton = null; // Keep track of which button is active
-            let isPollingForScan = false; // Global flag to indicate if we should poll
-            let scanStartTime = null; // To track elapsed time
-
-            async function triggerSonarrScan(button, endpoint) {
-                button.disabled = true;
-                button.querySelector('.mdi').classList.add('mdi-spin');
-                sonarrScanStatusDiv.innerHTML = '';
-
-                try {
-                    const response = await fetch(endpoint, { method: 'POST' });
-                    const data = await response.json();
-
-                    if (data.success) {
-                        // --- Change to Cancel Button ---
-                        activeButton = button;
-                        button.classList.remove('btn-secondary');
-                        button.classList.add('btn-danger');
-                        button.innerHTML = `<span class="mdi mdi-cancel"></span> Cancel Scan`;
-                        button.dataset.action = 'cancel';
-                        button.disabled = false; // Re-enable as a cancel button
-                        button.querySelector('.mdi').classList.remove('mdi-spin');
-                        scanStartTime = Date.now();
-                        isPollingForScan = true; 
-                    } else {
-                        sonarrScanStatusDiv.innerHTML = `<div class="alert alert-warning">${data.message}</div>`;
-                        button.disabled = false;
-                        button.querySelector('.mdi').classList.remove('mdi-spin');
-                    }
-                } catch (error) {
-                    sonarrScanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-                    button.disabled = false;
-                    button.querySelector('.mdi').classList.remove('mdi-spin');
-                }
-            }
-
-            function revertActiveButton() {
-                if (activeButton) {
-                    activeButton.classList.remove('btn-danger');
-                    activeButton.classList.add('btn-secondary');
-                    const originalText = activeButton.id === 'manual-sonarr-scan-btn' ? 'Scan for Renames' : 'Scan for Quality Mismatches';
-                    const originalIcon = activeButton.id === 'manual-sonarr-scan-btn' ? 'mdi-sync' : 'mdi-quality-high';
-                    activeButton.innerHTML = `<span class="mdi ${originalIcon}"></span> <span>${originalText}</span>`;
-                    activeButton.dataset.action = 'scan';
-                    activeButton.disabled = false; // Ensure it's re-enabled
-                    activeButton = null;
-                }
-            }
-
-            // A single handler for all Sonarr scan buttons
-            function handleSonarrButtonClick(event) {
-                const button = event.currentTarget;
-                const action = button.dataset.action || 'scan';
-                event.preventDefault(); // Prevent any default behavior
-
-                if (action === 'scan') {
-                    if (isPollingForScan) return; // Don't start a new scan if one is running
-                    const endpoint = button.id === 'manual-sonarr-scan-btn' ? '/api/scan/rename' : '/api/scan/quality';
-                    triggerSonarrScan(button, endpoint);
-                } else if (action === 'cancel') {
-                    fetch('/api/scan/cancel', { method: 'POST' });
-                }
-            }
-
-            manualSonarrScanBtn.addEventListener('click', handleSonarrButtonClick);
-            document.getElementById('manual-quality-scan-btn').addEventListener('click', handleSonarrButtonClick);
-
-            // --- Release Cleanup Jobs Logic ---
-            // --- *Arr Integration Enable/Disable Logic ---
-            function setupArrToggle(arrType) {
-                const enableToggle = document.getElementById(`${arrType}_enabled`);
-                const integrationPane = document.getElementById(`${arrType}-integration-pane`);
-                if (!enableToggle || !integrationPane) return;
-
-                const inputs = integrationPane.querySelectorAll('input:not([type=checkbox]), select, button, input[type=range]');
-
-                function updateInputsState() {
-                    inputs.forEach(input => {
-                        if (input.id !== `${arrType}_enabled`) input.disabled = !enableToggle.checked;
-                    });
-                    // Special handling for Sonarr tools
-                    if (arrType === 'sonarr') {
-                        const renameBtn = document.getElementById('manual-sonarr-scan-btn');
-                        const qualityBtn = document.getElementById('manual-quality-scan-btn');
-                        if (renameBtn && qualityBtn) [renameBtn, qualityBtn].forEach(btn => btn.disabled = !enableToggle.checked);
-                    }
-                }
-                enableToggle.addEventListener('change', updateInputsState);
-                updateInputsState(); // Set initial state on page load
-            }
-            ['sonarr', 'radarr', 'lidarr'].forEach(setupArrToggle);
-
-            const releaseSelectedBtn = document.getElementById('release-selected-btn');
-            const releaseAllBtn = document.getElementById('release-all-btn');
-
-            releaseSelectedBtn.addEventListener('click', async () => {
-                const selectedIds = Array.from(document.querySelectorAll('.cleanup-checkbox:checked')).map(cb => cb.dataset.jobId);
-                if (selectedIds.length === 0) {
-                    alert('No cleanup jobs selected.');
-                    return;
-                }
-                if (confirm(`Are you sure you want to release ${selectedIds.length} cleanup job(s) to the queue?`)) {
-                    await releaseJobs({ job_ids: selectedIds });
-                }
-            });
-
-            releaseAllBtn.addEventListener('click', async () => {
-                if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
-                    await releaseJobs({ release_all: true });
-                }
-            });
-
-            async function releaseJobs(payload) {
-                try {
-                    const response = await fetch('/api/jobs/release', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                    });
-                    if (response.ok) {
-                        updateJobQueue(jobQueueCurrentPage); // Refresh the queue
-                    }
-                } catch (error) {
-                    alert('An error occurred while trying to release cleanup jobs.');
-                }
-            }
-
-            // --- Clear All Jobs Logic ---
-            const clearJobsBtn = document.getElementById('clear-jobs-btn');
-            clearJobsBtn.addEventListener('click', async () => {
-                if (!confirm('Are you sure you want to permanently clear the entire job queue? This action cannot be undone.')) {
-                    return;
-                }
-                try {
-                    const response = await fetch('/api/jobs/clear', { method: 'POST' });
-                    if (response.ok) {
-                        updateJobQueue(1); // Refresh the queue to show it's empty
-                    }
-                } catch (error) {
-                    alert('An error occurred while trying to clear the job queue.');
-                }
-            });
-
-            // --- Delete Individual Job Logic ---
-            window.deleteJob = async function(jobId) {
-                if (!confirm(`Are you sure you want to permanently delete job ${jobId}?`)) {
-                    return;
-                }
-                try {
-                    const response = await fetch(`/api/jobs/delete/${jobId}`, { method: 'POST' });
-                    if (response.ok) {
-                        updateJobQueue(jobQueueCurrentPage); // Refresh the queue
-                    }
-                } catch (error) {
-                    console.error('Error deleting job:', error);
-                    alert('An error occurred while trying to delete the job.');
-                }
-            }
-
-            // --- Pause Queue Button Logic ---
-            const pauseQueueBtn = document.getElementById('pause-queue-btn');
-            pauseQueueBtn.addEventListener('click', async () => {
-                try {
-                    const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
-                    if (response.ok) {
-                        mainUpdateLoop(); // Immediately refresh the UI to show the new state
-                    }
-                } catch (error) {
-                    alert('An error occurred while trying to toggle the queue state.');
-                }
-            });
-
-            // --- *Arr Connection Test Logic ---
-            window.testArrConnection = async function(arrType) {
-                const host = document.getElementById(`${arrType}_host`).value;
-                const apiKey = document.getElementById(`${arrType}_api_key`).value;
-                const statusDiv = document.getElementById(`${arrType}-test-status`);
-
-                if (!host || !apiKey) {
-                    statusDiv.innerHTML = `<div class="alert alert-warning">Host and API Key are required.</div>`;
-                    return;
-                }
-
-                statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing...`;
-
-                try {
-                    const response = await fetch(`/api/arr/test`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ arr_type: arrType, host: host, api_key: apiKey })
-                    });
-                    const data = await response.json();
-                    const alertClass = data.success ? 'alert-success' : 'alert-danger';
-                    statusDiv.innerHTML = `<div class="alert ${alertClass}">${data.message}</div>`;
-                } catch (error) {
-                    console.error(`Error testing ${arrType} connection:`, error);
-                    statusDiv.innerHTML = `<div class="alert alert-danger">An error occurred while communicating with the server.</div>`;
-                }
-            }
-        });
-    </script>
-    <script>
-        // --- Theme Switcher Logic ---
-        (function() {
-            const themeIcon = document.getElementById('theme-icon');
-            const getStoredTheme = () => localStorage.getItem('theme');
-            const setStoredTheme = theme => localStorage.setItem('theme', theme);
-
-            const setTheme = theme => {
-                document.documentElement.setAttribute('data-bs-theme', theme);
-                // Update icon based on theme
-                if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
-                else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
-                else themeIcon.className = 'mdi mdi-desktop-classic';
-            };
-
-            setTheme(getStoredTheme() || 'dark'); // Set initial theme
-
-            document.querySelectorAll('[data-theme-value]').forEach(toggle => {
-                toggle.addEventListener('click', () => {
-                    const theme = toggle.getAttribute('data-theme-value');
-                    setStoredTheme(theme);
-                    setTheme(theme);
-                });
-            });
-        })();
-    </script>
-    <!-- Plex Login Modal -->
-    <div class="modal fade" id="plexLoginModal" tabindex="-1">
-        <div class="modal-dialog modal-dialog-centered">
-            <div class="modal-content">
-                <div class="modal-header">
-                    <h5 class="modal-title">Link Your Plex Account</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="text-muted">Enter your Plex.tv username and password to link your account. Your credentials are used once to get an authentication token and are never stored.</p>
-                    <form id="plex-login-form">
-                        <div class="mb-3">
-                            <label for="plex-username" class="form-label">Plex Username</label>
-                            <input type="text" class="form-control" id="plex-username" name="username" required>
-                        </div>
-                        <div class="mb-3">
-                            <label for="plex-password" class="form-label">Plex Password</label>
-                            <input type="password" class="form-control" id="plex-password" name="password" required>
-                        </div>
-                        <button id="plex-signin-btn" type="button" class="btn btn-primary w-100">Sign In</button>
-                    </form>
-                    <div id="plex-login-status" class="mt-3"></div>
-                </div>
-            </div>
-        </div>
-    </div>
+    <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
-    <script>
-        // --- Changelog Modal Logic ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const changelogModal = document.getElementById('changelogModal');
-            const changelogContent = document.getElementById('changelog-content');
-            const versionToggle = document.getElementById('changelog-version-toggle');
 
-            const converter = new showdown.Converter({ simplifiedAutoLink: true, openLinksInNewWindow: true });
-
-            async function determineAndLoadChangelog() {
-                const internalVersion = "{{ version }}";
-                const mainVersionUrl = "https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/main/VERSION.txt";
-
-                try {
-                    const response = await fetch(mainVersionUrl);
-                    const latestStableVersion = await response.text().trim();
-
-                    // Use localeCompare with numeric option for proper version comparison (e.g., "0.10.7b" > "0.10.7")
-                    const comparison = internalVersion.localeCompare(latestStableVersion, undefined, { numeric: true });
-
-                    if (comparison > 0) {
-                        // Current version is newer than main, default to develop
-                        versionToggle.checked = true;
-                    } else {
-                        // Current version is same or older, default to main
-                        versionToggle.checked = false;
-                    }
-                } catch (error) {
-                    console.error("Could not fetch latest stable version, defaulting to main branch.", error);
-                    versionToggle.checked = false;
-                } finally {
-                    // Load the changelog based on the determined default
-                    await loadChangelog();
-                }
-            }
-
-            async function loadChangelog() {
-                const isDevelop = versionToggle.checked;
-                const branch = isDevelop ? 'develop' : 'main';
-                const url = `https://raw.githubusercontent.com/m1ckyb/CodecShift/refs/heads/${branch}/CHANGELOG.md`;
-
-                changelogContent.innerHTML = '<div class="text-center"><div class="spinner-border" role="status"><span class="visually-hidden">Loading...</span></div></div>';
-                try {
-                    const response = await fetch(url);
-                    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-                    const markdown = await response.text();
-                    const html = converter.makeHtml(markdown);
-                    changelogContent.innerHTML = html;
-                } catch (error) {
-                    console.error('Error fetching changelog:', error);
-                    changelogContent.innerHTML = '<div class="alert alert-danger">Failed to load changelog. Please check your internet connection.</div>';
-                }
-            }
-
-            // Load content when the modal is shown
-            changelogModal.addEventListener('show.bs.modal', determineAndLoadChangelog);
-
-            // Reload content when the toggle is switched
-            versionToggle.addEventListener('change', loadChangelog);
-        });
-    </script>
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- Main Application Script -->
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 {% endblock %}

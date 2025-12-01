@@ -4,6 +4,9 @@ FROM python:3.13-slim-bullseye
 # Set the working directory inside the container
 WORKDIR /app
 
+# Install iputils-ping curl from the OS package manager
+RUN apt-get update && apt-get install -y iputils-ping curl && apt-get clean
+
 # Copy the requirements file from the dashboard directory
 COPY dashboard/requirements.txt .
 

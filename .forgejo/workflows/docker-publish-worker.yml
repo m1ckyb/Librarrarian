@@ -10,7 +10,7 @@ on:
     types: [ created ]
 
 env:
-  IMAGE_NAME: codecshift-worker
+  IMAGE_NAME: librarrarian-worker
 
 jobs:
   build-and-push-worker:

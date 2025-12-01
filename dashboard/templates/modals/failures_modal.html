@@ -1,0 +1,26 @@
+<!-- failures_modal.html -->
+<div class="modal fade" id="failuresModal" tabindex="-1" aria-labelledby="failuresModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg modal-dialog-scrollable">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="failuresModalLabel">Failed Files Log</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <table class="table table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Filename</th>
+                            <th>Reason</th>
+                            <th>Reported At</th>
+                            <th>Log</th>
+                        </tr>
+                    </thead>
+                    <tbody id="failures-table-body">
+                        <tr><td colspan="4" class="text-center text-muted">Click "View Errors" to load the failure log.</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>

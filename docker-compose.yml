@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   dashboard:
-    image: ghcr.io/m1ckyb/codecshift-dashboard:0.10.11
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.0
     restart: unless-stopped
     ports:
       - "5000:5000"
@@ -36,16 +36,37 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    healthcheck: # This check now waits for the database to be fully initialized
+      test: ["CMD", "curl", "-f", "http://localhost:5000/api/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
     volumes:
       - ./media:/media
     # The command is now defined in the dashboard/Dockerfile
 
   # The transcoding worker service
   worker:
-    image: ghcr.io/m1ckyb/codecshift-worker:0.10.11
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.0
     restart: unless-stopped # or "on-failure" if you prefer
+    devices:
+      - /dev/dri:/dev/dri # For hardware acceleration (optional)    
+    #nvenc: # Enable NVIDIA GPU support
+    #  deploy:
+    #    resources:
+    #      reservations:
+    #        devices:
+    #          - driver: nvidia
+    #            count: 1
+    #            capabilities:
+    #              - gpu
+    #              - compute
+    #              - video      
     depends_on:
-      db:
+      db: # Depends on the database being ready
+        condition: service_healthy
+      dashboard: # Also depends on the dashboard being healthy
         condition: service_healthy
     environment:
       - DB_HOST=db
@@ -73,7 +94,7 @@ services:
       - POSTGRES_USER=${DB_USER}
       - POSTGRES_PASSWORD=${DB_PASSWORD}
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-transcode}", "-d", "${POSTGRES_DB:-transcode_cluster}"]
+      test: ["CMD", "pg_isready", "-U", "${POSTGRES_USER:-transcode}", "-d", "${POSTGRES_DB:-librarrarian}"]
       interval: 5s
       timeout: 5s
       retries: 5

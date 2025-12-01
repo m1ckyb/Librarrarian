@@ -1,6 +1,6 @@
-# CodecShift
+# Librarrarian
 
-**CodecShift** is a distributed video transcoding cluster that uses a central dashboard to manage a fleet of worker nodes. It integrates with your Plex Media Server to automatically find, queue, and transcode your video library to the efficient HEVC (H.265) codec. The entire system is containerized and managed with Docker Compose for easy deployment.
+**Librarrarian** is a distributed video transcoding cluster that uses a central dashboard to manage a fleet of worker nodes. It integrates with your Plex Media Server to automatically find, queue, and transcode your video library to the efficient HEVC (H.265) codec. The entire system is containerized and managed with Docker Compose for easy deployment.
 
 ## Features
 *   **Distributed Transcoding:** Run worker nodes on multiple machines to process files in parallel.
@@ -30,7 +30,7 @@ The system consists of three core services, all managed by Docker Compose:
 
 ## Deployment with Docker Compose
 
-This is the recommended method for running CodecShift.
+This is the recommended method for running Librarrarian.
 
 ### 1. Prerequisites
 *   Docker and Docker Compose installed.
@@ -39,8 +39,8 @@ This is the recommended method for running CodecShift.
 ### 2. Configuration
 1.  **Clone the repository:**
     ```bash
-    git clone https://github.com/m1ckyb/ClusterEncode.git
-    cd ClusterEncode
+    git clone https://github.com/m1ckyb/Librarrarian.git
+    cd Librarrarian
     ```
 
 2.  **Create an environment file:**
@@ -48,7 +48,7 @@ This is the recommended method for running CodecShift.
     ```env
     # .env
     # --- Database Settings ---
-    DB_NAME=codecshift
+    DB_NAME=librarrarian
     DB_USER=transcode
     DB_PASSWORD=your_super_secret_password
 
@@ -101,7 +101,7 @@ This is the recommended method for running CodecShift.
     ```
 
 3.  **Access the Dashboard:**
-    Open a web browser and navigate to `http://localhost:5000`. You should see the CodecShift dashboard. From here, you can go to the "Options" tab to configure settings and then start your worker nodes.
+    Open a web browser and navigate to `http://localhost:5000`. You should see the Librarrarian dashboard. From here, you can go to the "Options" tab to configure settings and then start your worker nodes.
     - **Configure Integrations**: In the "Options" tab, you can enable and configure integrations for Plex, Sonarr, Radarr, and Lidarr.
     - **Run Manual Scans**: Use the "Tools" tab to manually trigger Sonarr scans or system cleanup tasks.
 
