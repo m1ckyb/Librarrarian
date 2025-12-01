@@ -1594,10 +1594,80 @@ document.addEventListener('DOMContentLoaded', () => {
 
     handleScannerChange(); // Run on initial script execution to set the correct state
 
-    // --- Manual Plex Scan Logic ---
+    // --- Manual Media Scan Logic ---
     const manualScanBtn = document.getElementById('manual-scan-btn');
     const scanStatusDiv = document.getElementById('scan-status');
     const forceRescanCheckbox = document.getElementById('force-rescan-checkbox');
+    
+    // Media scan progress elements
+    const mediaScanContainer = document.getElementById('media-scan-container');
+    const mediaScanFeedback = document.getElementById('media-scan-feedback');
+    const mediaScanProgress = document.getElementById('media-scan-progress');
+    const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
+    const mediaScanProgressText = document.getElementById('media-scan-progress-text');
+    const mediaScanTime = document.getElementById('media-scan-time');
+    
+    let mediaScanInterval = null;
+    let mediaScanStartTime = null;
+
+    function startMediaScanPolling() {
+        if (mediaScanInterval) clearInterval(mediaScanInterval);
+        
+        mediaScanStartTime = new Date();
+        if (mediaScanContainer) mediaScanContainer.style.display = 'block';
+        if (mediaScanProgress) mediaScanProgress.style.display = 'block';
+        if (mediaScanProgressBar) {
+            mediaScanProgressBar.style.width = '0%';
+            mediaScanProgressBar.textContent = '0%';
+        }
+        if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
+        
+        mediaScanInterval = setInterval(async () => {
+            try {
+                const response = await fetch('/api/scan/progress');
+                const data = await response.json();
+                
+                const now = new Date();
+                const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
+                if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
+                
+                if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+                    if (mediaScanProgressBar) {
+                        mediaScanProgressBar.style.width = `${progressPercent}%`;
+                        mediaScanProgressBar.textContent = `${progressPercent}%`;
+                    }
+                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
+                } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                    // Scan finished
+                    clearInterval(mediaScanInterval);
+                    mediaScanInterval = null;
+                    
+                    if (mediaScanProgressBar) {
+                        mediaScanProgressBar.style.width = '100%';
+                        mediaScanProgressBar.textContent = '100%';
+                    }
+                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
+                    
+                    // Re-enable the button
+                    if (manualScanBtn) {
+                        manualScanBtn.disabled = false;
+                        manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+                    }
+                    
+                    // Refresh the job queue
+                    updateJobQueue();
+                    
+                    // Hide progress after a delay
+                    setTimeout(() => {
+                        if (mediaScanContainer) mediaScanContainer.style.display = 'none';
+                    }, 3000);
+                }
+            } catch (error) {
+                console.error('Error polling for media scan progress:', error);
+            }
+        }, 2000);
+    }
 
     manualScanBtn.addEventListener('click', async () => {
         manualScanBtn.disabled = true;
@@ -1608,15 +1678,29 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const response = await fetch('/api/scan/trigger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
             const data = await response.json();
-            const alertClass = data.success ? 'alert-success' : 'alert-warning';
-            scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-            // Refresh the job queue to show any newly added jobs
-            updateJobQueue();
+            
+            if (data.success) {
+                // Start polling for progress
+                startMediaScanPolling();
+            } else {
+                const alertClass = 'alert-warning';
+                scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                manualScanBtn.disabled = false;
+                manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+            }
         } catch (error) {
             scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-        } finally {
             manualScanBtn.disabled = false;
-            manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Manual Scan`;
+            manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+        }
+    });
+    
+    // On page load, check if a media scan is already running
+    fetch('/api/scan/progress').then(r => r.json()).then(data => {
+        if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+            manualScanBtn.disabled = true;
+            manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+            startMediaScanPolling();
         }
     });
 
