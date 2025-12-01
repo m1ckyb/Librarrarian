@@ -235,13 +235,26 @@ def validate_filepath(filepath):
     Prevents security vulnerabilities from malicious paths like '../../../etc/passwd'.
     Returns True if the path is safe, False otherwise.
     """
-    # Normalize the path to resolve any '..' or '.' components
     try:
-        normalized = os.path.normpath(filepath)
-        # Check for path traversal attempts
-        if '..' in normalized or normalized.startswith('/etc') or normalized.startswith('/root'):
-            print(f"⚠️ WARNING: Potentially malicious path detected and blocked: {filepath}")
+        # Resolve the absolute path
+        resolved_path = os.path.abspath(filepath)
+        
+        # Define allowed base directories (adjust based on your deployment)
+        allowed_bases = ['/media', os.path.abspath('.')]
+        
+        # Check if the resolved path starts with any allowed base directory
+        is_allowed = any(resolved_path.startswith(os.path.abspath(base)) for base in allowed_bases)
+        
+        if not is_allowed:
+            print(f"⚠️ WARNING: Path outside allowed directories detected and blocked: {filepath}")
             return False
+            
+        # Additional check: block access to sensitive system directories
+        sensitive_dirs = ['/etc', '/root', '/sys', '/proc', '/dev']
+        if any(resolved_path.startswith(sensitive) for sensitive in sensitive_dirs):
+            print(f"⚠️ WARNING: Access to sensitive directory blocked: {filepath}")
+            return False
+            
         return True
     except Exception as e:
         print(f"⚠️ WARNING: Error validating filepath {filepath}: {e}")

@@ -93,6 +93,14 @@ If you discover a security vulnerability in Librarrarian, please report it by cr
 
 ## Known Limitations
 
+### CSRF Protection
+The application currently does not implement CSRF (Cross-Site Request Forgery) protection tokens. This is partially mitigated by:
+- Session-based authentication required for all state-changing operations
+- API key authentication for worker communications
+- The application being designed for trusted, internal use
+
+**Recommendation**: Deploy behind a reverse proxy that implements CSRF protection, or use a Same-Site cookie policy to mitigate CSRF risks.
+
 ### Self-Signed Certificates
 The application can be configured to work with self-signed certificates by setting `ARR_SSL_VERIFY=false` and `OIDC_SSL_VERIFY=false`. This should **only** be used in development or trusted internal networks, never in production.
 
@@ -101,6 +109,12 @@ The local login password is base64-encoded, which is encoding, not encryption. T
 
 ### File System Access
 The application requires read/write access to media directories for transcoding. Ensure proper file system permissions are set to prevent unauthorized access.
+
+### Rate Limiting
+The application does not implement rate limiting on authentication attempts or API endpoints. Consider deploying behind a reverse proxy (like nginx or Traefik) that implements rate limiting to prevent brute force attacks.
+
+### Debug Logging
+The Docker container runs Gunicorn with `--log-level debug` which may expose sensitive information in logs. In production environments with strict security requirements, consider modifying the Dockerfile to use `--log-level info` or `--log-level warning`.
 
 ## Security Updates
 

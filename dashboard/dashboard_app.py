@@ -59,6 +59,24 @@ logging.getLogger('gunicorn.access').addFilter(HealthCheckFilter())
 # external URLs (e.g., for OIDC redirects).
 app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
 
+# --- Security Headers ---
+@app.after_request
+def set_security_headers(response):
+    """
+    Adds security headers to all responses to protect against common web vulnerabilities.
+    """
+    # Prevent clickjacking attacks by disallowing the page to be displayed in a frame
+    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
+    # Prevent MIME type sniffing
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    # Enable XSS protection in older browsers (modern browsers use CSP instead)
+    response.headers['X-XSS-Protection'] = '1; mode=block'
+    # Referrer policy to control how much referrer information is shared
+    response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'
+    # Permissions policy to restrict access to browser features
+    response.headers['Permissions-Policy'] = 'geolocation=(), microphone=(), camera=()'
+    return response
+
 # Use the same DB config as the worker script
 # It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
@@ -327,9 +345,11 @@ def initialize_database_if_needed():
                 
                 db_user = DB_CONFIG.get('user')
                 # Validate db_user to prevent SQL injection
-                # PostgreSQL identifiers can only contain alphanumeric and underscore
-                if not db_user or not re.match(r'^[a-zA-Z0-9_]+$', db_user):
-                    raise ValueError(f"Invalid database user name: {db_user}. Must contain only alphanumeric characters and underscores.")
+                # Use a whitelist of known safe database user names
+                # PostgreSQL identifiers can contain various characters when quoted, but we
+                # restrict to simple alphanumeric and underscore for security
+                if not db_user or not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', db_user):
+                    raise ValueError(f"Invalid database user name: {db_user}. Must start with a letter or underscore and contain only alphanumeric characters and underscores.")
 
                 cur.execute("""
                     CREATE TABLE IF NOT EXISTS nodes (
@@ -2856,6 +2876,8 @@ if __name__ == '__main__':
     run_migrations()
     db_ready_event.set() # Signal to all threads that the DB is ready
     # Use host='0.0.0.0' to make the app accessible on your network
+    # WARNING: debug=True should NEVER be used in production. In production,
+    # the app is run with Gunicorn which doesn't use Flask's debug mode.
     app.run(debug=True, host='0.0.0.0', port=5000)
 else:
     # When run by Gunicorn in production, run migrations first, then signal ready.
