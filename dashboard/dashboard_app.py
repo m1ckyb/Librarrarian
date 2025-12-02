@@ -81,7 +81,7 @@ def set_security_headers(response):
 # It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
-    "port": os.environ.get("DB_PORT", "5432"),
+    "port": int(os.environ.get("DB_PORT", "5432")),
     "user": os.environ.get("DB_USER", "librarrarian"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "librarrarian")
