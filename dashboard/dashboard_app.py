@@ -702,17 +702,8 @@ def dashboard():
     nodes, fail_count, db_error = get_cluster_status()
     settings, settings_db_error = get_worker_settings()
 
-    # Add a 'color' key for easy templating
+    # Format node data for templating
     for node in nodes:
-        # This logic is now handled on the frontend, but we can keep it as a fallback
-        # A better approach would be to determine color based on status ('encoding', 'idle', etc.)
-        if node.get('status') == 'encoding':
-            node['color'] = 'success'
-        elif node.get('status') == 'idle':
-            node['color'] = 'secondary'
-        else:
-            node['color'] = 'warning'
-        
         # Add the 'percent' key that the template expects, defaulting to 0 if 'progress' is null
         if 'progress' in node:
             node['percent'] = int(node['progress'] or 0)
@@ -977,10 +968,15 @@ def api_jobs():
             # Query for the paginated list of jobs
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
             # We also calculate the age of the job in minutes to detect stuck jobs.
+            # For encoding jobs, we also check the worker's last_heartbeat to determine if the worker is stuck.
+            # NOTE: LEFT JOIN with nodes table could impact performance if there are many jobs.
+            # Consider adding indexes on jobs.assigned_to and nodes.hostname if performance becomes an issue.
             query = f"""
-                SELECT *,
-                       EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS age_minutes
+                SELECT jobs.*,
+                       EXTRACT(EPOCH FROM (NOW() - jobs.updated_at)) / 60 AS age_minutes,
+                       EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 AS minutes_since_heartbeat
                 FROM jobs
+                LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
                 {where_sql}
                 ORDER BY
                     CASE status
@@ -1043,15 +1039,7 @@ def api_status():
     
     # Add the color key for the frontend to use
     for node in nodes:
-        # Simplified color logic based on status
-        if node.get('status') == 'encoding':
-            node['color'] = 'success'
-        elif node.get('status') == 'idle':
-            node['color'] = 'secondary'
-        else:
-            node['color'] = 'warning'
-        
-        # Also add the 'percent' key for the client-side rendering
+        # Add the 'percent' key for the client-side rendering
         node['percent'] = int(node.get('progress') or 0)
 
         # Re-implement Speed and Codec for the UI

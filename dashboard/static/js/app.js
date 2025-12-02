@@ -439,9 +439,9 @@ function createNodeCard(node) {
             </span>
             <div>
                 <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'running' || node.status === 'paused' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.status === 'idle' || node.status === 'finishing' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.status}')" ${node.status === 'idle' ? 'disabled' : ''}>${node.status === 'paused' ? 'Resume' : 'Pause'}</button>
+                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}>Start</button>
+                <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>Stop</button>
+                <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
             </div>
         </div>
@@ -449,13 +449,13 @@ function createNodeCard(node) {
             ${node.percent > 0 ? `
                 <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.current_file || 'N/A'}</p>
                 <div class="progress" role="progressbar">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-${node.color}" style="width: ${node.percent}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-teal" style="width: ${node.percent}%">
                         <b>${node.percent}%</b>
                     </div>
                 </div>
             ` : `
                 <div class="text-center p-3">
-                    <h5 class="card-title text-muted">${node.status === 'paused' ? 'Paused' : (node.status === 'finishing' ? 'Finishing...' : (node.current_file || 'Idle'))}</h5>
+                    <h5 class="card-title text-muted">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : (node.current_file || 'Idle'))}</h5>
                 </div>
             `}
         </div>
@@ -465,9 +465,9 @@ function createNodeCard(node) {
             ${node.percent > 0 ? `
                 <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
                 <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
-                <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
+                <span class="badge text-bg-teal">Codec: ${node.codec}</span>
             ` : `
-                <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.current_file || 'Idle')}</span>
+                <span class="badge text-bg-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
             `}
             </div>
         </div>
@@ -623,7 +623,7 @@ async function pollScanProgress() {
             const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
             sonarrScanStatusDiv.innerHTML = `
                 <div class="progress" style="height: 20px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
                 </div>
                 <div class="mt-1">
                     <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
@@ -797,7 +797,7 @@ async function updateJobQueue(page = 1) {
                         `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
                         ''
                     }
-                    ${job.status === 'encoding' && job.age_minutes > 10 ?
+                    ${job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
                         `<button class="btn btn-xs btn-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
                         ''
                     }
@@ -1154,8 +1154,8 @@ async function stopNode(hostname) {
 }
 
 // Function to send 'pause' or 'resume' command
-async function pauseResumeNode(hostname, currentStatus) {
-    const action = currentStatus === 'paused' ? 'resume' : 'pause';
+async function pauseResumeNode(hostname, currentCommand) {
+    const action = currentCommand === 'paused' ? 'resume' : 'pause';
     try {
         const response = await fetch(`/api/nodes/${hostname}/${action}`, {
             method: 'POST',

@@ -29,6 +29,15 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
             border: 1px solid rgba(0,0,0,0.2);
         }
+        /* Custom teal progress bar color */
+        .progress-bar.bg-teal,
+        .progress-bar-teal {
+            background-color: #1EE4A9 !important;
+        }
+        .text-bg-teal {
+            background-color: #1EE4A9 !important;
+            color: #000 !important;
+        }
     </style>
 {% endblock %}
 
@@ -113,7 +122,7 @@
                                 {% if node.percent > 0 %}
                                     <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">{{ node.current_file }}</p>
                                     <div class="progress" role="progressbar">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-{{ node.color }}" style="width: {{ node.percent }}%">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-teal" style="width: {{ node.percent }}%">
                                             <b>{{ node.percent }}%</b>
                                         </div>
                                     </div>
@@ -196,7 +205,7 @@
                     <div id="media-scan-progress">
                         <p id="media-scan-progress-text" class="mb-1">Scanning media...</p>
                         <div class="progress" style="height: 20px;">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                         </div>
                         <small id="media-scan-time" class="text-muted"></small>
                     </div>
@@ -619,7 +628,7 @@
                                 <div id="sonarr-rename-scan-progress">
                                     <p id="sonarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="sonarr-rename-scan-time" class="text-muted"></small>
                                 </div>
@@ -631,7 +640,7 @@
                                 <div id="sonarr-quality-scan-progress">
                                     <p id="sonarr-quality-scan-progress-text" class="mb-1">Scanning for quality mismatches...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="sonarr-quality-scan-time" class="text-muted"></small>
                                 </div>
@@ -668,7 +677,7 @@
                                 <div id="radarr-rename-scan-progress">
                                     <p id="radarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="radarr-rename-scan-time" class="text-muted"></small>
                                 </div>
@@ -711,7 +720,7 @@
                                 <div id="lidarr-rename-scan-progress">
                                     <p id="lidarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="lidarr-rename-scan-time" class="text-muted"></small>
                                 </div>
