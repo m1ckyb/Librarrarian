@@ -19,8 +19,8 @@ FROM python:3.14-alpine3.21
 
 WORKDIR /app
 
-# Install runtime dependencies (iputils for ping, curl for healthchecks)
-RUN apk add --no-cache iputils curl libffi
+# Install runtime dependencies (iputils for ping, curl for healthchecks, tzdata for timezone support, postgresql-client for pg_dump)
+RUN apk add --no-cache iputils curl libffi tzdata postgresql-client
 
 # Copy the virtual environment from the builder stage
 COPY --from=builder /opt/venv /opt/venv
@@ -34,4 +34,4 @@ COPY VERSION.txt .
 EXPOSE 5000
 
 # The command to run the application using Gunicorn (a production-ready web server)
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--log-level", "debug", "--error-logfile", "-", "--capture-output", "dashboard_app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--log-level", "info", "--error-logfile", "-", "--capture-output", "dashboard_app:app"]

@@ -430,6 +430,15 @@ function resumeScanUI(scanType, scanSource) {
 // Function to create an HTML element for a single node
 function createNodeCard(node) {
     const isIdle = node.status === 'idle' || node.percent === 0;
+    const isPaused = node.command === 'paused';
+    const pauseButtonIcon = isPaused ? 'play' : 'pause';
+    const pauseButtonText = isPaused ? 'Resume' : 'Pause';
+    
+    // Determine button disabled states
+    const startDisabled = (node.status !== 'offline' && node.command !== 'idle') ? 'disabled' : '';
+    const stopDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
+    const pauseDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
+    
     return `
     <div class="card mb-3">
         <div id="node-${node.hostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
@@ -438,36 +447,41 @@ function createNodeCard(node) {
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
-                <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'running' || node.status === 'paused' ? 'disabled' : ''}>Start</button>
-                <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.status === 'idle' || node.status === 'finishing' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.status}')" ${node.status === 'idle' ? 'disabled' : ''}>${node.status === 'paused' ? 'Resume' : 'Pause'}</button>
-                <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
+                <div class="btn-group btn-group-sm me-2" role="group">
+                    <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
+                    <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
+                    <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
+                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
+                </div>
+                <span class="badge ${node.version_mismatch ? 'badge-outline-danger' : 'badge-outline-info'}">${node.version || 'N/A'}</span>
             </div>
         </div>
         <div class="card-body">
             ${node.percent > 0 ? `
                 <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.current_file || 'N/A'}</p>
                 <div class="progress" role="progressbar">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-${node.color}" style="width: ${node.percent}%">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-teal" style="width: ${node.percent}%">
                         <b>${node.percent}%</b>
                     </div>
                 </div>
             ` : `
                 <div class="text-center p-3">
-                    <h5 class="card-title text-muted">${node.status === 'paused' ? 'Paused' : (node.status === 'finishing' ? 'Finishing...' : (node.current_file || 'Idle'))}</h5>
+                    <h5 class="card-title text-muted">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : (node.current_file || 'Idle'))}</h5>
                 </div>
             `}
         </div>
         <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
-            <span class="text-muted small">Uptime: ${node.uptime_str || 'N/A'}</span>
+            <div>
+                <span class="badge badge-outline-secondary">Uptime: ${node.uptime_str || 'N/A'}</span>
+                ${node.eta ? `<span class="badge badge-outline-info ms-2">ETA: ${node.eta}</span>` : ''}
+            </div>
             <div>
             ${node.percent > 0 ? `
-                <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
-                <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
-                <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
+                <span class="badge badge-outline-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
+                <span class="badge badge-outline-secondary me-2">Speed: ${node.speed}x</span>
+                <span class="badge badge-outline-teal">Codec: ${node.codec}</span>
             ` : `
-                <span class="badge text-bg-secondary">${node.status === 'paused' ? 'Paused' : (node.current_file || 'Idle')}</span>
+                <span class="badge badge-outline-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
             `}
             </div>
         </div>
@@ -491,13 +505,13 @@ async function updateStatus() {
         
         // Update View Errors button color
         // Remove all potential color classes first
-        viewErrorsBtn.classList.remove('btn-danger', 'btn-success', 'btn-warning');
+        viewErrorsBtn.classList.remove('btn-outline-danger', 'btn-outline-success', 'btn-outline-warning');
         const clearErrorsBtn = document.getElementById('clear-errors-btn');
         clearErrorsBtn.style.display = (failCount > 0) ? 'inline-block' : 'none';
 
         // If there are errors, the button is always red.
         if (failCount > 0) {
-            viewErrorsBtn.classList.add('btn-danger');
+            viewErrorsBtn.classList.add('btn-outline-danger');
             failCountBadge.classList.add('text-bg-light');
         }
         
@@ -513,13 +527,13 @@ async function updateStatus() {
         // --- Update Pause Queue Button State ---
         const pauseQueueBtn = document.getElementById('pause-queue-btn');
         if (data.queue_paused) {
-            pauseQueueBtn.classList.remove('btn-warning');
-            pauseQueueBtn.classList.add('btn-success');
+            pauseQueueBtn.classList.remove('btn-outline-warning');
+            pauseQueueBtn.classList.add('btn-outline-success');
             pauseQueueBtn.innerHTML = `<span class="mdi mdi-play"></span> Resume Queue`;
             pauseQueueBtn.title = "Resume the distribution of new jobs to workers";
         } else {
-            pauseQueueBtn.classList.remove('btn-success');
-            pauseQueueBtn.classList.add('btn-warning');
+            pauseQueueBtn.classList.remove('btn-outline-success');
+            pauseQueueBtn.classList.add('btn-outline-warning');
             pauseQueueBtn.innerHTML = `<span class="mdi mdi-pause"></span> Pause Queue`;
             pauseQueueBtn.title = "Pause the distribution of new jobs to workers";
         }
@@ -623,7 +637,7 @@ async function pollScanProgress() {
             const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
             sonarrScanStatusDiv.innerHTML = `
                 <div class="progress" style="height: 20px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
                 </div>
                 <div class="mt-1">
                     <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
@@ -673,7 +687,7 @@ setInterval(() => {
         hour12: !window.Librarrarian.settings.use24HourClock
     };
     const timeString = new Date().toLocaleTimeString([], timeOptions);
-    if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
+    if (clockContainer) clockContainer.innerHTML = `<span class="badge badge-outline-secondary fs-6">Updated: ${timeString}</span>`;
 }, 1000); // Runs every second.
 
 // 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
@@ -681,6 +695,21 @@ setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls
 
 // Run initial update on page load
 updateStatus();
+
+// Set up global node control button event listeners
+const startAllNodesBtn = document.getElementById('start-all-nodes-btn');
+const stopAllNodesBtn = document.getElementById('stop-all-nodes-btn');
+const pauseAllNodesBtn = document.getElementById('pause-all-nodes-btn');
+
+if (startAllNodesBtn) {
+    startAllNodesBtn.addEventListener('click', startAllNodes);
+}
+if (stopAllNodesBtn) {
+    stopAllNodesBtn.addEventListener('click', stopAllNodes);
+}
+if (pauseAllNodesBtn) {
+    pauseAllNodesBtn.addEventListener('click', pauseAllNodes);
+}
 
 // Initialize all tooltips on the page after the DOM is ready
 var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
@@ -775,19 +804,19 @@ async function updateJobQueue(page = 1) {
                     }
                 </td>
                 <td style="word-break: break-all;">${job.filepath}</td>
-                <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
+                <td><span class="badge badge-outline-info">${job.job_type}</span></td>
                 <td>
                     ${job.status === 'encoding' ? 
-                        `<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
+                        `<span class="badge badge-outline-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
                     job.status === 'awaiting_approval' ?
-                        `<span class="badge text-bg-warning">Awaiting Approval</span>` :
+                        `<span class="badge badge-outline-warning">Awaiting Approval</span>` :
                     job.status === 'pending' ?
-                        `<span class="badge text-bg-secondary">Pending</span>` :
+                        `<span class="badge badge-outline-secondary">Pending</span>` :
                     job.status === 'failed' ?
-                        `<span class="badge text-bg-danger">Failed</span>` :
+                        `<span class="badge badge-outline-danger">Failed</span>` :
                     job.status === 'completed' ?
-                        `<span class="badge text-bg-success">Completed</span>` :
-                        `<span class="badge text-bg-warning">${job.status}</span>`
+                        `<span class="badge badge-outline-success">Completed</span>` :
+                        `<span class="badge badge-outline-warning">${job.status}</span>`
                     }
                 </td>
                 <td>${job.assigned_to || 'N/A'}</td>
@@ -797,8 +826,8 @@ async function updateJobQueue(page = 1) {
                         `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
                         ''
                     }
-                    ${job.status === 'encoding' && job.age_minutes > 10 ?
-                        `<button class="btn btn-xs btn-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
+                    ${job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
+                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
                         ''
                     }
                 </td>
@@ -858,11 +887,14 @@ async function updateHistoryAndStats() {
         // Process Stats
         const statsData = await statsResponse.json();
         const reductionPercent = parseFloat(statsData.stats.total_reduction_percent);
-        let reductionColorClass = 'bg-success';
+        let reductionBorderClass = 'border-success';
+        let reductionTextClass = 'text-success';
         if (reductionPercent < 50) {
-            reductionColorClass = 'bg-danger';
+            reductionBorderClass = 'border-danger';
+            reductionTextClass = 'text-danger';
         } else if (reductionPercent < 75) {
-            reductionColorClass = 'bg-warning text-dark'; // Add text-dark for better contrast on yellow
+            reductionBorderClass = 'border-warning';
+            reductionTextClass = 'text-warning';
         }
 
         statsCardsContainer.innerHTML = `
@@ -875,8 +907,8 @@ async function updateHistoryAndStats() {
             <div class="col-md-3"><div class="card"><div class="card-body">
                 <h5 class="card-title">${statsData.stats.total_original_size_gb} GB</h5><p class="card-text text-muted">Original Size</p>
             </div></div></div>
-            <div class="col-md-3"><div class="card ${reductionColorClass}"><div class="card-body">
-                <h5 class="card-title">${statsData.stats.total_reduction_percent}%</h5><p class="card-text">Average Reduction</p>
+            <div class="col-md-3"><div class="card ${reductionBorderClass}" style="border-width: 2px;"><div class="card-body">
+                <h5 class="card-title ${reductionTextClass}">${statsData.stats.total_reduction_percent}%</h5><p class="card-text text-muted">Average Reduction</p>
             </div></div></div>
         `;
 
@@ -917,12 +949,12 @@ function renderHistoryTable() {
                 <td>${item.id}</td>
                 <td style="word-break: break-all;">${item.filename}</td>
                 <td>${item.hostname}</td>
-                <td><span class="badge text-bg-secondary">${item.codec}</span></td>
+                <td><span class="badge badge-outline-secondary">${item.codec}</span></td>
                 ${item.status === 'encoding' ? `
-                    <td colspan="2" class="text-center"><span class="badge text-bg-primary">In Progress</span></td>
+                    <td colspan="2" class="text-center"><span class="badge badge-outline-primary">In Progress</span></td>
                 ` : `
                     <td>${item.original_size_gb} → ${item.new_size_gb}</td>
-                    <td><span class="badge text-bg-success">${item.reduction_percent}%</span></td>
+                    <td><span class="badge badge-outline-success">${item.reduction_percent}%</span></td>
                 `}
                 <td>${item.encoded_at}</td>
                 <td><button class="btn btn-xs btn-outline-danger" title="Delete this entry">&times;</button></td>
@@ -1154,8 +1186,8 @@ async function stopNode(hostname) {
 }
 
 // Function to send 'pause' or 'resume' command
-async function pauseResumeNode(hostname, currentStatus) {
-    const action = currentStatus === 'paused' ? 'resume' : 'pause';
+async function pauseResumeNode(hostname, currentCommand) {
+    const action = currentCommand === 'paused' ? 'resume' : 'pause';
     try {
         const response = await fetch(`/api/nodes/${hostname}/${action}`, {
             method: 'POST',
@@ -1168,6 +1200,70 @@ async function pauseResumeNode(hostname, currentStatus) {
         }
     } catch (error) {
         console.error(`Error ${action}ing node:`, error);
+    }
+}
+
+// Global control functions for all nodes
+async function startAllNodes() {
+    try {
+        const response = await fetch('/api/nodes/start-all', {
+            method: 'POST',
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateStatus(); // Refresh UI to show nodes starting
+            if (result.count === 0) {
+                alert('No idle nodes to start.');
+            }
+        } else {
+            alert(`Failed to start all nodes: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error starting all nodes:', error);
+        alert('An error occurred while trying to start all nodes.');
+    }
+}
+
+async function stopAllNodes() {
+    if (!confirm('Are you sure you want to stop all running workers? They will finish their current files and then go idle.')) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/nodes/stop-all', {
+            method: 'POST',
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateStatus(); // Refresh UI to show nodes stopping
+            if (result.count === 0) {
+                alert('No running nodes to stop.');
+            }
+        } else {
+            alert(`Failed to stop all nodes: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error stopping all nodes:', error);
+        alert('An error occurred while trying to stop all nodes.');
+    }
+}
+
+async function pauseAllNodes() {
+    try {
+        const response = await fetch('/api/nodes/pause-all', {
+            method: 'POST',
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateStatus(); // Refresh UI to show nodes pausing
+            if (result.count === 0) {
+                alert('No running nodes to pause.');
+            }
+        } else {
+            alert(`Failed to pause all nodes: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error pausing all nodes:', error);
+        alert('An error occurred while trying to pause all nodes.');
     }
 }
 
@@ -1241,13 +1337,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const mainTabs = document.querySelector('#mainTabs');
     const advancedSwitchContainer = document.querySelector('#advanced-switch-container');
+    const globalNodeControls = document.querySelector('#global-node-controls');
 
-    if (mainTabs && advancedSwitchContainer) {
+    if (mainTabs) {
         mainTabs.addEventListener('shown.bs.tab', function (event) {
-            if (event.target.id === 'options-tab') {
-                advancedSwitchContainer.classList.remove('d-none');
-            } else {
-                advancedSwitchContainer.classList.add('d-none');
+            // Show/hide advanced switch container based on tab
+            if (advancedSwitchContainer) {
+                if (event.target.id === 'options-tab') {
+                    advancedSwitchContainer.classList.remove('d-none');
+                } else {
+                    advancedSwitchContainer.classList.add('d-none');
+                }
+            }
+            
+            // Show/hide global node controls based on tab
+            if (globalNodeControls) {
+                if (event.target.id === 'nodes-tab') {
+                    globalNodeControls.classList.remove('d-none');
+                } else {
+                    globalNodeControls.classList.add('d-none');
+                }
             }
         });
     }
@@ -1356,7 +1465,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (data.success) {
                 statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                setTimeout(() => window.location.href = '/#options-tab-pane', 1500);
+                // Auto-dismiss modal after 5 seconds and redirect
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.href = '/#options-tab-pane';
+                }, 5000);
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
@@ -1866,6 +1980,148 @@ document.addEventListener('DOMContentLoaded', () => {
             statusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
         }
     }
+
+    // --- Backup Now Button Handler ---
+    const backupNowBtn = document.getElementById('backup-now-btn');
+    const backupStatus = document.getElementById('backup-status');
+    
+    if (backupNowBtn && backupStatus) {
+        backupNowBtn.addEventListener('click', async () => {
+            // Disable button and show loading state
+            backupNowBtn.disabled = true;
+            backupNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running backup...';
+            backupStatus.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/backup/now', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    backupStatus.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                } else {
+                    backupStatus.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Backup failed: ${data.error}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                }
+            } catch (error) {
+                console.error('Error running backup:', error);
+                backupStatus.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while running the backup.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            } finally {
+                // Re-enable button
+                backupNowBtn.disabled = false;
+                backupNowBtn.innerHTML = '<span class="mdi mdi-database-export"></span> Run Backup Now';
+            }
+        });
+    }
+    
+    // --- Manage Backups Button Handler ---
+    const manageBackupsBtn = document.getElementById('manage-backups-btn');
+    
+    if (manageBackupsBtn) {
+        manageBackupsBtn.addEventListener('click', () => {
+            const backupModal = new bootstrap.Modal(document.getElementById('backupModal'));
+            loadBackupFiles();
+            backupModal.show();
+        });
+    }
+    
+    // Helper function to escape HTML to prevent XSS
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Function to load backup files into the modal
+    async function loadBackupFiles() {
+        const tableBody = document.getElementById('backup-files-table-body');
+        const alertDiv = document.getElementById('backup-modal-alert');
+        
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading backup files...</td></tr>';
+        alertDiv.style.display = 'none';
+        
+        try {
+            const response = await fetch('/api/backup/files');
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.files.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No backup files found.</td></tr>';
+                } else {
+                    tableBody.innerHTML = data.files.map(file => {
+                        const safeFilename = escapeHtml(file.filename);
+                        const safeSizeMb = escapeHtml(String(file.size_mb));
+                        const safeCreated = escapeHtml(file.created);
+                        return `
+                        <tr>
+                            <td style="word-break: break-all;">${safeFilename}</td>
+                            <td>${safeSizeMb} MB</td>
+                            <td>${safeCreated}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button class="btn btn-outline-primary" onclick="downloadBackup('${safeFilename}')" title="Download backup">
+                                        <span class="mdi mdi-download"></span> Download
+                                    </button>
+                                    <button class="btn btn-outline-danger" onclick="deleteBackup('${safeFilename}')" title="Delete backup">
+                                        <span class="mdi mdi-delete"></span> Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `}).join('');
+                }
+            } else {
+                const safeError = escapeHtml(data.error || 'Unknown error');
+                alertDiv.innerHTML = `<div class="alert alert-danger" role="alert">Failed to load backup files: ${safeError}</div>`;
+                alertDiv.style.display = 'block';
+                tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load backup files.</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading backup files:', error);
+            alertDiv.innerHTML = `<div class="alert alert-danger" role="alert">An error occurred while loading backup files.</div>`;
+            alertDiv.style.display = 'block';
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load backup files.</td></tr>';
+        }
+    }
+    
+    // Function to download a backup file
+    window.downloadBackup = function(filename) {
+        window.location.href = `/api/backup/download/${encodeURIComponent(filename)}`;
+    };
+    
+    // Function to delete a backup file
+    window.deleteBackup = async function(filename) {
+        if (!confirm(`Are you sure you want to delete the backup file "${filename}"? This action cannot be undone.`)) {
+            return;
+        }
+        
+        const alertDiv = document.getElementById('backup-modal-alert');
+        
+        try {
+            const response = await fetch(`/api/backup/delete/${encodeURIComponent(filename)}`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                const safeMessage = escapeHtml(data.message);
+                alertDiv.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">${safeMessage}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                alertDiv.style.display = 'block';
+                // Reload the backup files list
+                loadBackupFiles();
+            } else {
+                const safeError = escapeHtml(data.error || 'Unknown error');
+                alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Failed to delete backup: ${safeError}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                alertDiv.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error deleting backup:', error);
+            alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while deleting the backup.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            alertDiv.style.display = 'block';
+        }
+    };
 });
 
 // --- Theme Switcher Logic ---
@@ -1949,6 +2205,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let changelogReleases = [];
+    let currentPage = 1;
+    const releasesPerPage = 5;
+
     async function loadChangelog() {
         const isDevelop = versionToggle.checked;
         const branch = isDevelop ? 'develop' : 'main';
@@ -1959,12 +2219,69 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const markdown = await response.text();
-            const html = converter.makeHtml(markdown);
-            changelogContent.innerHTML = html;
+            
+            // Split changelog into releases (sections starting with ##)
+            const sections = markdown.split(/(?=^## \[)/gm);
+            changelogReleases = sections.filter(s => s.trim().startsWith('## ['));
+            
+            currentPage = 1;
+            renderChangelogPage();
         } catch (error) {
             console.error('Error fetching changelog:', error);
             changelogContent.innerHTML = '<div class="alert alert-danger">Failed to load changelog. Please check your internet connection.</div>';
         }
+    }
+
+    function renderChangelogPage() {
+        const startIdx = (currentPage - 1) * releasesPerPage;
+        const endIdx = startIdx + releasesPerPage;
+        const pageReleases = changelogReleases.slice(startIdx, endIdx);
+        const totalPages = Math.ceil(changelogReleases.length / releasesPerPage);
+
+        // Convert markdown to HTML for current page
+        const pageMarkdown = pageReleases.join('\n\n');
+        const html = converter.makeHtml(pageMarkdown);
+
+        // Add pagination controls
+        let paginationHtml = '';
+        if (totalPages > 1) {
+            paginationHtml = '<nav class="mt-3"><ul class="pagination justify-content-center">';
+            
+            // Previous button
+            paginationHtml += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="${currentPage - 1}">&laquo; Previous</a>
+            </li>`;
+            
+            // Page numbers
+            for (let i = 1; i <= totalPages; i++) {
+                paginationHtml += `<li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" data-page="${i}">${i}</a>
+                </li>`;
+            }
+            
+            // Next button
+            paginationHtml += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="${currentPage + 1}">Next &raquo;</a>
+            </li>`;
+            
+            paginationHtml += '</ul></nav>';
+        }
+
+        changelogContent.innerHTML = html + paginationHtml;
+
+        // Add click handlers to pagination links
+        changelogContent.querySelectorAll('.page-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const newPage = parseInt(e.target.getAttribute('data-page'));
+                if (newPage >= 1 && newPage <= totalPages) {
+                    currentPage = newPage;
+                    renderChangelogPage();
+                    // Scroll to top of modal content
+                    changelogContent.scrollTop = 0;
+                }
+            });
+        });
     }
 
     // Load content when the modal is shown
@@ -1972,4 +2289,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Reload content when the toggle is switched
     versionToggle.addEventListener('change', loadChangelog);
+
+    // ===== Backup Settings Toggle =====
+    const backupEnabledCheckbox = document.getElementById('backup_enabled');
+    const backupScheduleFields = document.getElementById('backup-schedule-fields');
+    
+    if (backupEnabledCheckbox && backupScheduleFields) {
+        // Function to toggle visibility
+        function toggleBackupFields() {
+            if (backupEnabledCheckbox.checked) {
+                backupScheduleFields.style.display = 'block';
+            } else {
+                backupScheduleFields.style.display = 'none';
+            }
+        }
+        
+        // Set initial state
+        toggleBackupFields();
+        
+        // Listen for changes
+        backupEnabledCheckbox.addEventListener('change', toggleBackupFields);
+    }
+    
+    // ===== Slider Value Display =====
+    const rescanDelaySlider = document.getElementById('rescan_delay_hours');
+    const rescanDelayValue = document.getElementById('rescan_delay_hours_value');
+    
+    if (rescanDelaySlider && rescanDelayValue) {
+        // Function to update display value
+        function updateRescanDelayDisplay() {
+            const hours = parseFloat(rescanDelaySlider.value);
+            if (hours === 0) {
+                rescanDelayValue.textContent = 'Disabled';
+            } else if (hours < 1) {
+                const minutes = Math.round(hours * 60);
+                rescanDelayValue.textContent = `${minutes} min`;
+            } else {
+                rescanDelayValue.textContent = `${hours} hrs`;
+            }
+        }
+        
+        // Set initial value
+        updateRescanDelayDisplay();
+        
+        // Update on change
+        rescanDelaySlider.addEventListener('input', updateRescanDelayDisplay);
+    }
+    
+    const pollIntervalSlider = document.getElementById('worker_poll_interval');
+    const pollIntervalValue = document.getElementById('worker_poll_interval_value');
+    
+    if (pollIntervalSlider && pollIntervalValue) {
+        // Function to update display value
+        function updatePollIntervalDisplay() {
+            const seconds = parseInt(pollIntervalSlider.value);
+            if (seconds === 0) {
+                pollIntervalValue.textContent = 'Disabled';
+            } else {
+                pollIntervalValue.textContent = `${seconds}s`;
+            }
+        }
+        
+        // Set initial value
+        updatePollIntervalDisplay();
+        
+        // Update on change
+        pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
+    }
 });

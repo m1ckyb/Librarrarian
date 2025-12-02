@@ -1,1 +1,25 @@
 <!-- node_options_modal.html -->
+<div class="modal fade" id="nodeOptionsModal" tabindex="-1" aria-labelledby="nodeOptionsModalTitle" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="nodeOptionsModalTitle">Node Options</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted">Advanced options for this worker node.</p>
+        <div class="d-grid gap-2">
+          <button type="button" class="btn btn-outline-danger" id="quit-node-btn">
+            <span class="mdi mdi-power"></span> Quit Worker Process
+          </button>
+        </div>
+        <div class="alert alert-warning mt-3" role="alert">
+          <strong>Warning:</strong> Quitting the worker will stop the process immediately. If running in Docker with restart policies, the container will automatically restart.
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><span class="mdi mdi-close"></span> Close</button>
+      </div>
+    </div>
+  </div>
+</div>

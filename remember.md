@@ -60,6 +60,18 @@ This ensures all subsequent responses are informed by the full project context.
     *   **Secrets & Deployment Config** (e.g., database passwords, API keys, OIDC details) belong in environment variables (`.env` file).
     *   **Documentation**: Whenever an environment variable is added or changed, `.env.example` **must** be updated to reflect the change with placeholder data and a descriptive comment.
     *   **User-Tunable Settings** (e.g., quality values, scan delays, feature flags) belong in the `worker_settings` database table and should be managed via the UI.
+4.  **Consistent Button Styling**: All buttons across the UI must follow the standardized outline button style for visual consistency:
+    *   Always use `btn-outline-*` classes instead of solid `btn-*` classes.
+    *   **Color Guidelines**:
+        *   `btn-outline-success` - Start/Enable/Activate actions (green)
+        *   `btn-outline-danger` - Stop/Delete/Remove/Destructive actions (red)
+        *   `btn-outline-warning` - Pause/Caution actions (yellow/orange)
+        *   `btn-outline-primary` - Primary actions like Save/Submit/Scan (blue)
+        *   `btn-outline-info` - Release/Info actions (cyan)
+        *   `btn-outline-secondary` - Neutral/Secondary actions (gray)
+    *   Always include Material Design Icons (MDI) with `<span class="mdi mdi-*"></span>` before button text.
+    *   Group related buttons with `btn-group` and use `btn-group-sm` for smaller grouped buttons.
+    *   **Example**: `<button class="btn btn-outline-success"><span class="mdi mdi-play"></span> Start</button>`
 
 ---
 ## Development Workflow

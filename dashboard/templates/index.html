@@ -29,6 +29,15 @@
             box-shadow: 0 4px 8px rgba(0,0,0,0.2);
             border: 1px solid rgba(0,0,0,0.2);
         }
+        /* Custom teal progress bar color */
+        .progress-bar.bg-teal,
+        .progress-bar-teal {
+            background-color: #1EE4A9 !important;
+        }
+        .text-bg-teal {
+            background-color: #1EE4A9 !important;
+            color: #000 !important;
+        }
     </style>
 {% endblock %}
 
@@ -87,6 +96,19 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="options-tab" data-bs-toggle="tab" data-bs-target="#options-tab-pane" type="button" role="tab">Options</button>
             </li>
+            <li class="nav-item ms-auto d-flex align-items-center d-none" id="global-node-controls">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Global node controls">
+                    <button type="button" class="btn btn-outline-success" id="start-all-nodes-btn" title="Start all idle nodes">
+                        <span class="mdi mdi-play"></span> Start All
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="stop-all-nodes-btn" title="Stop all running nodes">
+                        <span class="mdi mdi-stop"></span> Stop All
+                    </button>
+                    <button type="button" class="btn btn-outline-warning" id="pause-all-nodes-btn" title="Pause all running nodes">
+                        <span class="mdi mdi-pause"></span> Pause All
+                    </button>
+                </div>
+            </li>
             <li class="nav-item ms-auto d-flex align-items-center d-none" id="advanced-switch-container">
                  <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" role="switch" id="show-advanced-transcoding">
@@ -107,13 +129,13 @@
                         <div class="card mb-3">
                             <div class="card-header fs-5 d-flex justify-content-between align-items-center">
                                 <span>{{ node.hostname }}</span>
-                                <span class="badge bg-info">{{ node.version }}</span>
+                                <span class="badge badge-outline-info">{{ node.version }}</span>
                             </div>
                             <div class="card-body">
                                 {% if node.percent > 0 %}
                                     <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">{{ node.current_file }}</p>
                                     <div class="progress" role="progressbar">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-{{ node.color }}" style="width: {{ node.percent }}%">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-teal" style="width: {{ node.percent }}%">
                                             <b>{{ node.percent }}%</b>
                                         </div>
                                     </div>
@@ -123,15 +145,20 @@
                                     </div>
                                 {% endif %}
                             </div>
-                            <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
-                                <span class="text-muted small">Uptime: {{ node.uptime_str or 'N/A' }}</span>
+                            <div class="card-footer d-flex justify-content-between align-items-center bg-transparent" style="font-size: 1.1rem;">
+                                <div>
+                                    <span class="badge badge-outline-secondary">Uptime: {{ node.uptime_str or 'N/A' }}</span>
+                                    {% if node.eta %}
+                                    <span class="badge badge-outline-info ms-2">ETA: {{ node.eta }}</span>
+                                    {% endif %}
+                                </div>
                                 <div>
                                 {% if node.percent > 0 %}
-                                    <span class="badge text-bg-secondary me-2">FPS: {{ node.fps }}</span>
-                                    <span class="badge text-bg-secondary me-2">Speed: {{ node.speed }}x</span>
-                                    <span class="badge text-bg-{{ node.color }}">Codec: {{ node.codec }}</span>
+                                    <span class="badge badge-outline-secondary me-2">FPS: {{ node.fps }}</span>
+                                    <span class="badge badge-outline-secondary me-2">Speed: {{ node.speed }}x</span>
+                                    <span class="badge badge-outline-teal">Codec: {{ node.codec }}</span>
                                 {% else %}
-                                    <span class="badge text-bg-secondary">Idle</span>
+                                    <span class="badge badge-outline-secondary">Idle</span>
                                 {% endif %}
                                 </div>
                             </div>
@@ -151,22 +178,22 @@
                     <div>
                         <div class="btn-toolbar" role="toolbar" aria-label="Job queue actions">
                             <div class="btn-group me-2" role="group" aria-label="Scan controls">
-                                <button class="btn btn-primary" id="manual-scan-btn" title="Trigger a manual scan of the active media integration"><span class="mdi mdi-sync"></span> Scan Media</button>
+                                <button class="btn btn-outline-primary" id="manual-scan-btn" title="Trigger a manual scan of the active media integration"><span class="mdi mdi-sync"></span> Scan Media</button>
                                 <div class="input-group-text" title="Force the scanner to re-add files that are already in the queue or history">
                                     <input class="form-check-input mt-0" type="checkbox" id="force-rescan-checkbox">
                                     <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
                                 </div>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Main queue controls">
-                                <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
+                                <button class="btn btn-outline-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Cleanup and clear controls">
-                                <button class="btn btn-info" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
-                                <button class="btn btn-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
-                                <button class="btn btn-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
+                                <button class="btn btn-outline-info" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
+                                <button class="btn btn-outline-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
+                                <button class="btn btn-outline-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
                             </div>
                             <div class="btn-group" role="group" aria-label="Clear controls">
-                                <button class="btn btn-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
+                                <button class="btn btn-outline-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
                             </div>
                         </div>
                     </div>
@@ -196,7 +223,7 @@
                     <div id="media-scan-progress">
                         <p id="media-scan-progress-text" class="mb-1">Scanning media...</p>
                         <div class="progress" style="height: 20px;">
-                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                            <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                         </div>
                         <small id="media-scan-time" class="text-muted"></small>
                     </div>
@@ -232,7 +259,7 @@
                         <div class="w-50">
                             <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node...">
                         </div>
-                        <button class="btn btn-danger" id="clear-history-btn">Clear All History</button>
+                        <button class="btn btn-outline-danger" id="clear-history-btn"><span class="mdi mdi-delete-sweep"></span> Clear All History</button>
                     </div>
                     <!-- Full History Table -->
                     <table class="table table-hover table-sm">
@@ -311,10 +338,10 @@
                                                 <label class="form-label"><strong>Authentication</strong></label>
                                                 <div>
                                                     {% if plex_token %}
-                                                        <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
+                                                        <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Plex Account</button>
                                                         <div class="mt-2 text-success">✓ Account Linked</div>
                                                     {% else %}
-                                                        <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
+                                                        <button type="button" class="btn btn-outline-primary" id="plex-login-btn"><span class="mdi mdi-link"></span> Link Plex Account</button>
                                                     {% endif %}
                                                 </div>
                                             </div>
@@ -369,7 +396,7 @@
                                         <p class="form-text text-body-secondary">When a transcode completes, automatically trigger Sonarr to rescan the file and rename it if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.</p>
                                     </div>
 
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <button type="button" class="btn btn-outline-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="sonarr-test-status" class="mt-2"></div>
                                 </div>
                                 <!-- Radarr Tab -->
@@ -401,7 +428,7 @@
                                         <label class="form-check-label" for="radarr_auto_rename_after_transcode"><strong>Auto-Rename After Transcode</strong></label>
                                         <p class="form-text text-body-secondary">When a transcode completes, automatically trigger Radarr to rescan the file and rename it if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.</p>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('radarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <button type="button" class="btn btn-outline-secondary mt-3" onclick="testArrConnection('radarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="radarr-test-status" class="mt-2"></div>
                                 </div>
                                 <!-- Lidarr Tab -->
@@ -427,7 +454,7 @@
                                         <label class="form-check-label" for="lidarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
                                         <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Lidarr API.</p>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <button type="button" class="btn btn-outline-secondary mt-3" onclick="testArrConnection('lidarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="lidarr-test-status" class="mt-2"></div>
                                 </div>
                             </div>
@@ -477,18 +504,26 @@
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <h5>Maintenance</h5>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="auto_update" name="auto_update" value="true" {{ 'checked' if settings.get('auto_update', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="auto_update">Enable Worker Auto-Update</label>
+                                    <h6><strong>Database Backup</strong></h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="backup_enabled" name="backup_enabled" value="true" {{ 'checked' if settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true' }}>
+                                        <label class="form-check-label" for="backup_enabled"><strong>Automatic Backups</strong></label>
                                     </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="clean_failures" name="clean_failures" value="true" {{ 'checked' if settings.get('clean_failures', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="clean_failures">Clean Failed Jobs on Start</label>
+                                    <div id="backup-schedule-fields">
+                                        <label for="backup_time" class="form-label mt-2"><strong>Backup Time</strong></label>
+                                        <p class="form-text text-body-secondary">Time of day (HH:MM in 24-hour format) to perform automatic daily database backups.</p>
+                                        <input type="time" class="form-control" id="backup_time" name="backup_time" value="{{ settings.get('backup_time', {}).get('setting_value', '02:00') }}">
+                                        
+                                        <label for="backup_retention_days" class="form-label mt-3"><strong>Backup Retention (Days)</strong></label>
+                                        <p class="form-text text-body-secondary">Number of backup files to keep. Older backups will be automatically deleted.</p>
+                                        <input type="number" class="form-control" id="backup_retention_days" name="backup_retention_days" value="{{ settings.get('backup_retention_days', {}).get('setting_value', '7') }}" min="1" max="365">
                                     </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="debug">Enable Debug Logging</label>
+                                    
+                                    <div class="btn-group mt-3" role="group">
+                                        <button type="button" class="btn btn-outline-primary" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Manual Backup</button>
+                                        <button type="button" class="btn btn-outline-info" id="manage-backups-btn"><span class="mdi mdi-folder-open"></span> Manage Backups</button>
                                     </div>
+                                    <div id="backup-status" class="mt-2"></div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <h5>File Handling</h5>
@@ -505,19 +540,22 @@
                             <div class="col-md-6">
                                 <div class="mb-3 p-3 border rounded">
                                     <h5>Transcoding &amp; System</h5>
-                                    <label for="rescan_delay_minutes" class="form-label"><strong>Automatic Rescan Delay</strong></label>
-                                    <p class="form-text text-body-secondary">Time in minutes between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
-                                    <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
-                                    <hr>
-                                    <label for="worker_poll_interval" class="form-label"><strong>Worker Poll Interval</strong></label>
+                                    <label for="rescan_delay_hours" class="form-label"><strong>Automatic Rescan Delay</strong></label>
+                                    <p class="form-text text-body-secondary">Time in hours between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
+                                    <div class="d-flex align-items-center mb-2">
+                                        <input type="range" class="form-range flex-grow-1 me-3" id="rescan_delay_hours" name="rescan_delay_hours" value="{{ (settings.get('rescan_delay_minutes', {}).get('setting_value', '0') | int / 60) | round(2) }}" min="0" max="24" step="0.25">
+                                        <span class="badge badge-outline-primary" id="rescan_delay_hours_value" style="min-width: 4rem; text-align: center;">0 hrs</span>
+                                    </div>
+                                    <label for="worker_poll_interval" class="form-label mt-3"><strong>Worker Poll Interval</strong></label>
                                     <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
-                                    <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">
-                                    <hr>
-                                    <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
+                                    <div class="d-flex align-items-center mb-2">
+                                        <input type="range" class="form-range flex-grow-1 me-3" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="0" max="600" step="5">
+                                        <span class="badge badge-outline-primary" id="worker_poll_interval_value" style="min-width: 4rem; text-align: center;">30s</span>
+                                    </div>
+                                    <label for="min_length" class="form-label mt-3"><strong>Minimum Video Length</strong></label>
                                     <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
                                     <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">
-                                    <hr>
-                                    <label class="form-label"><strong>Hardware Acceleration</strong></label>
+                                    <label class="form-label mt-3"><strong>Hardware Acceleration</strong></label>
                                     <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
                                     {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_auto" value="auto" {{ 'checked' if accel == 'auto' }}><label class="form-check-label" for="accel_auto">Auto</label></div>
@@ -525,8 +563,7 @@
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_qsv" value="qsv" {{ 'checked' if accel == 'qsv' }}><label class="form-check-label" for="accel_qsv">Intel QSV</label></div>
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_vaapi" value="vaapi" {{ 'checked' if accel == 'vaapi' }}><label class="form-check-label" for="accel_vaapi">VA-API</label></div>
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_cpu" value="cpu" {{ 'checked' if accel == 'cpu' }}><label class="form-check-label" for="accel_cpu">CPU Only</label></div>
-                                    <hr>
-                                    <label class="form-label"><strong>Codecs Eligible for Re-Encoding</strong></label>
+                                    <label class="form-label mt-3"><strong>Codecs Eligible for Re-Encoding</strong></label>
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="allow_hevc">HEVC (H.265)</label>
@@ -579,7 +616,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary">Save Settings</button>
+                        <button type="submit" class="btn btn-outline-primary"><span class="mdi mdi-content-save"></span> Save Settings</button>
                     </form>
                 </div>
             </div>
@@ -607,10 +644,10 @@
                                 </div></div></div>
                             </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
-                            <div class="d-flex justify-content-start align-items-center mb-3">
-                                <button id="sonarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
-                                <button id="sonarr-quality-scan-button" class="btn btn-info me-2"><i class="mdi mdi-television-classic me-1"></i>Scan for Quality</button>
-                                <button id="sonarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            <div class="btn-group mb-3" role="group">
+                                <button id="sonarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
+                                <button id="sonarr-quality-scan-button" class="btn btn-outline-info"><span class="mdi mdi-television-classic"></span> Scan for Quality</button>
+                                <button id="sonarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
                             <!-- Feedback & Progress for Rename Scan -->
@@ -619,7 +656,7 @@
                                 <div id="sonarr-rename-scan-progress">
                                     <p id="sonarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="sonarr-rename-scan-time" class="text-muted"></small>
                                 </div>
@@ -631,14 +668,14 @@
                                 <div id="sonarr-quality-scan-progress">
                                     <p id="sonarr-quality-scan-progress-text" class="mb-1">Scanning for quality mismatches...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-info" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="sonarr-quality-scan-time" class="text-muted"></small>
                                 </div>
                             </div>
 
                         {% else %}
-                            <h5>Sonarr <span class="badge bg-secondary">Disabled</span></h5>
+                            <h5>Sonarr <span class="badge badge-outline-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-sonarr-link">enable the Sonarr integration in the Options tab</a>.
@@ -657,9 +694,9 @@
                                 </div></div></div>
                             </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Radarr instance.</p>
-                            <div class="d-flex justify-content-start align-items-center mb-3">
-                                <button id="radarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
-                                <button id="radarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            <div class="btn-group mb-3" role="group">
+                                <button id="radarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
+                                <button id="radarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
                             <!-- Feedback & Progress for Radarr Rename Scan -->
@@ -668,14 +705,14 @@
                                 <div id="radarr-rename-scan-progress">
                                     <p id="radarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="radarr-rename-scan-time" class="text-muted"></small>
                                 </div>
                             </div>
 
                         {% else %}
-                            <h5>Radarr <span class="badge bg-secondary">Disabled</span></h5>
+                            <h5>Radarr <span class="badge badge-outline-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-radarr-link">enable the Radarr integration in the Options tab</a>.
@@ -700,9 +737,9 @@
                                 </div></div></div>
                             </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Lidarr instance.</p>
-                            <div class="d-flex justify-content-start align-items-center mb-3">
-                                <button id="lidarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
-                                <button id="lidarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            <div class="btn-group mb-3" role="group">
+                                <button id="lidarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
+                                <button id="lidarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
                             <!-- Feedback & Progress for Lidarr Rename Scan -->
@@ -711,14 +748,14 @@
                                 <div id="lidarr-rename-scan-progress">
                                     <p id="lidarr-rename-scan-progress-text" class="mb-1">Scanning for renames...</p>
                                     <div class="progress" style="height: 20px;">
-                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-primary" role="progressbar" style="width: 0%;">0%</div>
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
                                     </div>
                                     <small id="lidarr-rename-scan-time" class="text-muted"></small>
                                 </div>
                             </div>
 
                         {% else %}
-                            <h5>Lidarr <span class="badge bg-secondary">Disabled</span></h5>
+                            <h5>Lidarr <span class="badge badge-outline-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-lidarr-link">enable the Lidarr integration in the Options tab</a>.
@@ -730,7 +767,7 @@
                     <div class="p-3 border rounded mb-4">
                         <h5>System Cleanup</h5>
                         <p class="form-text text-body-secondary">This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers. This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
-                        <button class="btn btn-warning" id="create-cleanup-jobs-btn">Queue Stale File Cleanup</button>
+                        <button class="btn btn-outline-warning" id="create-cleanup-jobs-btn"><span class="mdi mdi-broom"></span> Queue Stale File Cleanup</button>
                         <div id="cleanup-status" class="mt-3"></div>
                     </div>
 
@@ -738,7 +775,7 @@
                     <div class="p-3 border rounded mb-4">
                         <h5>Data Export</h5>
                         <p class="form-text text-body-secondary">Export all your settings, pending jobs, encoding history, and media source configurations to a JSON file for backup purposes. This can be used to restore your configuration on a new installation in the future.</p>
-                        <a href="/api/export" class="btn btn-secondary" id="export-data-btn"><span class="mdi mdi-download"></span> Export Data</a>
+                        <a href="/api/export" class="btn btn-outline-secondary" id="export-data-btn"><span class="mdi mdi-download"></span> Export Data</a>
                     </div>
                 </div>
             </div>
@@ -751,6 +788,7 @@
     {% include 'modals/node_options_modal.html' %}
     {% include 'modals/plex_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
+    {% include 'modals/backup_modal.html' %}
 
     <!-- Pass server-side data to JavaScript -->
     <script>

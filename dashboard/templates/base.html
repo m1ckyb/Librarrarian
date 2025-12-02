@@ -62,6 +62,7 @@
             -webkit-backdrop-filter: blur(10px);
             border-top: 1px solid var(--footer-border);
             color: var(--footer-text);
+            z-index: 1050; /* Ensure footer is above pagination */
         }
 
         .footer a {
@@ -81,6 +82,43 @@
             padding: 1rem;
             max-height: 300px;
             overflow-y: auto;
+        }
+
+        /* Outline-style badges to match button styling */
+        .badge-outline-primary {
+            background-color: transparent;
+            border: 1px solid var(--bs-primary);
+            color: var(--bs-primary);
+        }
+        .badge-outline-secondary {
+            background-color: transparent;
+            border: 1px solid var(--bs-secondary);
+            color: var(--bs-secondary);
+        }
+        .badge-outline-success {
+            background-color: transparent;
+            border: 1px solid var(--bs-success);
+            color: var(--bs-success);
+        }
+        .badge-outline-danger {
+            background-color: transparent;
+            border: 1px solid var(--bs-danger);
+            color: var(--bs-danger);
+        }
+        .badge-outline-warning {
+            background-color: transparent;
+            border: 1px solid var(--bs-warning);
+            color: var(--bs-warning);
+        }
+        .badge-outline-info {
+            background-color: transparent;
+            border: 1px solid var(--bs-info);
+            color: var(--bs-info);
+        }
+        .badge-outline-teal {
+            background-color: transparent;
+            border: 1px solid #1EE4A9;
+            color: #1EE4A9;
         }
     </style>
     {% block head %}{% endblock %}

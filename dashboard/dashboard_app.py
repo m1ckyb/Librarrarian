@@ -6,7 +6,7 @@ import uuid
 import base64
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -41,7 +41,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev"
 # This filter will suppress noisy polling endpoints from appearing in the logs.
 class HealthCheckFilter(logging.Filter):
     # Endpoints to suppress from logs (these are polled frequently by the UI)
-    SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status']
+    SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status', '/api/health']
 
     def filter(self, record):
         # The log message for an access log is in record.args
@@ -81,10 +81,15 @@ def set_security_headers(response):
 # It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "port": int(os.environ.get("DB_PORT", "5432")),
     "user": os.environ.get("DB_USER", "librarrarian"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "librarrarian")
 }
+
+# Worker session configuration
+WORKER_SESSION_TIMEOUT_SECONDS = 300  # 5 minutes - time before a worker is considered stale
+WORKER_PROTECTED_ENDPOINTS = ['request_job', 'update_job']  # Endpoints that require session validation
 
 def setup_auth(app):
     """Initializes and configures the authentication system."""
@@ -149,6 +154,29 @@ def setup_auth(app):
         if request.path.startswith('/api/'):
             api_key = request.headers.get('X-API-Key')
             if api_key and api_key == os.environ.get('API_KEY'):
+                # API key is valid, now validate worker session for worker-specific endpoints
+                # These are endpoints that ONLY workers should call
+                if request.endpoint in WORKER_PROTECTED_ENDPOINTS:
+                    # These endpoints require session validation
+                    hostname = None
+                    session_token = None
+                    
+                    # Extract hostname and session_token from request
+                    if request.method == 'POST' and request.is_json:
+                        hostname = request.json.get('hostname')
+                        session_token = request.json.get('session_token')
+                    elif request.method == 'GET':
+                        hostname = request.args.get('hostname')
+                        session_token = request.args.get('session_token')
+                    
+                    # Validate session token
+                    if not hostname or not session_token:
+                        return jsonify(error="Worker endpoints require hostname and session_token"), 400
+                    
+                    is_valid, error_msg = validate_worker_session(hostname, session_token)
+                    if not is_valid:
+                        return jsonify(error=error_msg), 403
+                
                 return # API key is valid, allow access
             return jsonify(error="Authentication required. Invalid or missing API Key."), 401
 
@@ -211,7 +239,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 8
+TARGET_SCHEMA_VERSION = 12
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -255,6 +283,24 @@ MIGRATIONS = {
     # Version 8: Add VP9 codec setting
     8: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('allow_vp9', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 9: Add session token for worker uniqueness enforcement
+    9: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS session_token VARCHAR(64);"
+    ],
+    # Version 10: Add estimated finish time support for transcodes
+    10: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS total_duration REAL;",
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS job_start_time TIMESTAMP WITH TIME ZONE;"
+    ],
+    # Version 11: Add configurable backup time setting
+    11: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_time', '02:00') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 12: Add backup enable/disable and retention policy settings
+    12: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_retention_days', '7') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -363,7 +409,8 @@ def initialize_database_if_needed():
                         command VARCHAR(50) DEFAULT 'idle',
                         progress REAL,
                         fps REAL,
-                        current_file TEXT
+                        current_file TEXT,
+                        session_token VARCHAR(64)
                     );
                 """)
                 cur.execute(f"GRANT ALL PRIVILEGES ON TABLE nodes TO {db_user};")
@@ -446,14 +493,14 @@ def initialize_database_if_needed():
                         ('worker_poll_interval', '30'),
                         ('min_length', '0.5'),
                         ('backup_directory', ''),
+                        ('backup_time', '02:00'),
+                        ('backup_enabled', 'true'),
+                        ('backup_retention_days', '7'),
                         ('hardware_acceleration', 'auto'),
                         ('keep_original', 'false'),
                         ('allow_hevc', 'false'),
                         ('allow_av1', 'false'),
                         ('allow_vp9', 'false'),
-                        ('auto_update', 'false'),
-                        ('clean_failures', 'false'),
-                        ('debug', 'false'),
                         ('plex_url', ''),
                         ('plex_token', ''),
                         ('plex_libraries', ''),
@@ -692,6 +739,50 @@ def get_history():
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return history, db_error
+
+def validate_worker_session(hostname, session_token):
+    """
+    Validates that a worker's session token matches the one stored in the database.
+    Returns (is_valid, error_message).
+    - is_valid: True if the session is valid, False otherwise
+    - error_message: None if valid, otherwise a string describing the issue
+    """
+    if not hostname or not session_token:
+        return False, "Missing hostname or session token"
+    
+    conn = get_db()
+    if not conn:
+        return False, "Database connection failed"
+    
+    cur = None
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT session_token, status FROM nodes WHERE hostname = %s", (hostname,))
+        node = cur.fetchone()
+        
+        if not node:
+            # Node doesn't exist yet - worker must register first
+            return False, f"Worker '{hostname}' is not registered. Please register via /api/register_worker first."
+        
+        stored_token = node.get('session_token')
+        if not stored_token:
+            # No session token stored yet - this shouldn't happen in normal flow
+            # but we'll allow it for backward compatibility
+            return True, None
+        
+        if stored_token != session_token:
+            # Session token mismatch - reject this worker
+            return False, f"Worker '{hostname}' is already registered with a different session. Another worker with the same hostname is active."
+        
+        # Token matches - this is the legitimate worker
+        return True, None
+    except Exception as e:
+        print(f"Error validating worker session: {e}")
+        return False, f"Session validation error: {e}"
+    finally:
+        if cur:
+            cur.close()
+
 # ===========================
 # Flask Routes
 # ===========================
@@ -702,17 +793,8 @@ def dashboard():
     nodes, fail_count, db_error = get_cluster_status()
     settings, settings_db_error = get_worker_settings()
 
-    # Add a 'color' key for easy templating
+    # Format node data for templating
     for node in nodes:
-        # This logic is now handled on the frontend, but we can keep it as a fallback
-        # A better approach would be to determine color based on status ('encoding', 'idle', etc.)
-        if node.get('status') == 'encoding':
-            node['color'] = 'success'
-        elif node.get('status') == 'idle':
-            node['color'] = 'secondary'
-        else:
-            node['color'] = 'warning'
-        
         # Add the 'percent' key that the template expects, defaulting to 0 if 'progress' is null
         if 'progress' in node:
             node['percent'] = int(node['progress'] or 0)
@@ -736,6 +818,78 @@ def api_health():
         return "OK", 200
     else:
         return "Database not ready", 503
+
+@app.route('/api/register_worker', methods=['POST'])
+def register_worker():
+    """
+    Endpoint for workers to register themselves with a unique session token.
+    This prevents multiple workers with the same hostname from operating simultaneously.
+    """
+    data = request.json
+    hostname = data.get('hostname')
+    session_token = data.get('session_token')
+    version = data.get('version', 'unknown')
+    
+    if not hostname or not session_token:
+        return jsonify({"error": "hostname and session_token are required"}), 400
+    
+    print(f"[{datetime.now()}] Worker registration request from '{hostname}' with session token")
+    
+    conn = get_db()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if a node with this hostname already exists
+        cur.execute("SELECT session_token, status, last_heartbeat FROM nodes WHERE hostname = %s", (hostname,))
+        existing_node = cur.fetchone()
+        
+        if existing_node:
+            stored_token = existing_node.get('session_token')
+            last_heartbeat = existing_node.get('last_heartbeat')
+            
+            # If there's already a session token and it's different, reject the registration
+            if stored_token and stored_token != session_token:
+                # Check if the existing worker is still active (heartbeat within last 5 minutes)
+                if last_heartbeat:
+                    time_since_heartbeat = (datetime.now(timezone.utc) - last_heartbeat.replace(tzinfo=timezone.utc)).total_seconds()
+                    
+                    if time_since_heartbeat < WORKER_SESSION_TIMEOUT_SECONDS:
+                        print(f"[{datetime.now()}] Registration rejected: Worker '{hostname}' is already active")
+                        return jsonify({
+                            "error": f"A worker with hostname '{hostname}' is already active in the cluster.",
+                            "message": "Please stop the existing worker or choose a different hostname.",
+                            "rejected": True
+                        }), 409  # 409 Conflict
+                    else:
+                        # Old worker is stale, allow the new one to take over
+                        print(f"[{datetime.now()}] Existing worker '{hostname}' is stale (last heartbeat {int(time_since_heartbeat)}s ago). Allowing new worker to register.")
+                
+            # If the session token matches or there's no token, update it
+            cur.execute("""
+                UPDATE nodes 
+                SET session_token = %s, version = %s, last_heartbeat = NOW(), connected_at = NOW(), status = 'booting'
+                WHERE hostname = %s
+            """, (session_token, version, hostname))
+        else:
+            # New worker - insert a new record
+            cur.execute("""
+                INSERT INTO nodes (hostname, session_token, version, status, last_heartbeat, connected_at)
+                VALUES (%s, %s, %s, 'booting', NOW(), NOW())
+            """, (hostname, session_token, version))
+        
+        conn.commit()
+        print(f"[{datetime.now()}] Worker '{hostname}' registered successfully")
+        return jsonify({"success": True, "message": f"Worker '{hostname}' registered successfully"}), 200
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"[{datetime.now()}] Worker registration error: {e}")
+        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+    finally:
+        cur.close()
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -806,20 +960,39 @@ def options():
     This route now follows the Post-Redirect-Get pattern and uses a single
     atomic transaction to save all settings.
     """
+    # Validate backup_retention_days on server-side
+    retention_days_raw = request.form.get('backup_retention_days', '7')
+    try:
+        retention_days = int(retention_days_raw)
+        if retention_days < 1:
+            retention_days = 1
+        elif retention_days > 365:
+            retention_days = 365
+        retention_days_str = str(retention_days)
+    except (ValueError, TypeError):
+        retention_days_str = '7'  # Default to 7 if invalid
+    
+    # Convert hours to minutes for backward compatibility with existing code
+    rescan_hours = request.form.get('rescan_delay_hours', '0')
+    try:
+        rescan_minutes = str(round(float(rescan_hours) * 60))
+    except (ValueError, TypeError):
+        rescan_minutes = '0'
+    
     settings_to_update = {
         'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
-        'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
+        'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
+        'backup_time': request.form.get('backup_time', '02:00'),
+        'backup_enabled': 'true' if 'backup_enabled' in request.form else 'false',
+        'backup_retention_days': retention_days_str,
         'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
         'keep_original': 'true' if 'keep_original' in request.form else 'false',
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
         'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
-        'auto_update': 'true' if 'auto_update' in request.form else 'false',
-        'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
-        'debug': 'true' if 'debug' in request.form else 'false',
         'plex_url': request.form.get('plex_url', ''),
         'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
         'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
@@ -906,6 +1079,107 @@ def api_settings():
         return jsonify(settings={}, error=db_error), 500
     return jsonify(settings=settings, dashboard_version=get_project_version())
 
+@app.route('/api/backup/now', methods=['POST'])
+def api_backup_now():
+    """Triggers an immediate database backup."""
+    try:
+        success, message, backup_file = perform_database_backup()
+        if success:
+            return jsonify(success=True, message=message, backup_file=backup_file)
+        else:
+            return jsonify(success=False, error=message), 500
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/backup/files', methods=['GET'])
+def api_backup_files():
+    """
+    Lists all backup files with metadata.
+    Note: Authentication is enforced by the @app.before_request hook.
+    """
+    try:
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
+        
+        if not os.path.exists(backup_dir):
+            return jsonify(success=True, files=[])
+        
+        backup_files = []
+        for filename in os.listdir(backup_dir):
+            if filename.endswith('.tar.gz') or (filename.startswith('librarrarian_backup_') and filename.endswith('.sql.gz')):
+                filepath = os.path.join(backup_dir, filename)
+                stat = os.stat(filepath)
+                
+                backup_files.append({
+                    'filename': filename,
+                    'size': stat.st_size,
+                    'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                    'created': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'mtime': stat.st_mtime  # Store the timestamp for proper sorting
+                })
+        
+        # Sort by creation time (using timestamp), newest first
+        backup_files.sort(key=lambda x: x['mtime'], reverse=True)
+        
+        # Remove the mtime field before returning to client
+        for f in backup_files:
+            del f['mtime']
+        
+        return jsonify(success=True, files=backup_files)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/backup/download/<filename>', methods=['GET'])
+def api_backup_download(filename):
+    """
+    Download a specific backup file.
+    Note: Authentication is enforced by the @app.before_request hook.
+    """
+    try:
+        # Sanitize filename to prevent directory traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify(success=False, error="Invalid filename"), 400
+        
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
+        
+        filepath = os.path.join(backup_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify(success=False, error="File not found"), 404
+        
+        # Send file for download
+        from flask import send_file
+        return send_file(filepath, as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/backup/delete/<filename>', methods=['POST'])
+def api_backup_delete(filename):
+    """
+    Delete a specific backup file.
+    Note: Authentication is enforced by the @app.before_request hook.
+    """
+    try:
+        # Sanitize filename to prevent directory traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify(success=False, error="Invalid filename"), 400
+        
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
+        
+        filepath = os.path.join(backup_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify(success=False, error="File not found"), 404
+        
+        os.remove(filepath)
+        print(f"[{datetime.now()}] Backup file deleted by user: {filename}")
+        
+        return jsonify(success=True, message=f"Backup file {filename} deleted successfully")
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
     """
@@ -963,11 +1237,11 @@ def api_jobs():
             params = []
             
             if filter_type:
-                where_clauses.append("job_type = %s")
+                where_clauses.append("jobs.job_type = %s")
                 params.append(filter_type)
             
             if filter_status:
-                where_clauses.append("status = %s")
+                where_clauses.append("jobs.status = %s")
                 params.append(filter_status)
             
             where_sql = ""
@@ -977,19 +1251,24 @@ def api_jobs():
             # Query for the paginated list of jobs
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
             # We also calculate the age of the job in minutes to detect stuck jobs.
+            # For encoding jobs, we also check the worker's last_heartbeat to determine if the worker is stuck.
+            # NOTE: LEFT JOIN with nodes table could impact performance if there are many jobs.
+            # Consider adding indexes on jobs.assigned_to and nodes.hostname if performance becomes an issue.
             query = f"""
-                SELECT *,
-                       EXTRACT(EPOCH FROM (NOW() - updated_at)) / 60 AS age_minutes
+                SELECT jobs.*,
+                       EXTRACT(EPOCH FROM (NOW() - jobs.updated_at)) / 60 AS age_minutes,
+                       EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 AS minutes_since_heartbeat
                 FROM jobs
+                LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
                 {where_sql}
                 ORDER BY
-                    CASE status
+                    CASE jobs.status
                         WHEN 'encoding' THEN 1
                         WHEN 'pending' THEN 2
                         WHEN 'failed' THEN 3
                         ELSE 4
                     END,
-                    created_at DESC
+                    jobs.created_at DESC
                 LIMIT %s OFFSET %s
             """
             params.extend([per_page, offset])
@@ -1043,20 +1322,45 @@ def api_status():
     
     # Add the color key for the frontend to use
     for node in nodes:
-        # Simplified color logic based on status
-        if node.get('status') == 'encoding':
-            node['color'] = 'success'
-        elif node.get('status') == 'idle':
-            node['color'] = 'secondary'
-        else:
-            node['color'] = 'warning'
-        
-        # Also add the 'percent' key for the client-side rendering
+        # Add the 'percent' key for the client-side rendering
         node['percent'] = int(node.get('progress') or 0)
 
         # Re-implement Speed and Codec for the UI
         node['speed'] = round(node.get('fps', 0) / 24, 1) if node.get('fps') else 0.0
         node['codec'] = 'hevc'
+        
+        # Calculate estimated finish time
+        if node.get('total_duration') and node.get('job_start_time') and node.get('progress', 0) > 0:
+            try:
+                total_duration = float(node['total_duration'])
+                progress = float(node.get('progress', 0))
+                job_start = node['job_start_time']
+                
+                # Calculate elapsed time
+                elapsed = (datetime.now() - job_start).total_seconds()
+                
+                # Calculate estimated total time based on current progress
+                if progress > 0:
+                    estimated_total_time = (elapsed / progress) * 100
+                    remaining_seconds = estimated_total_time - elapsed
+                    
+                    if remaining_seconds > 0:
+                        eta = datetime.now() + timedelta(seconds=remaining_seconds)
+                        node['eta'] = eta.strftime('%H:%M:%S')
+                        node['eta_seconds'] = int(remaining_seconds)
+                    else:
+                        node['eta'] = 'N/A'
+                        node['eta_seconds'] = 0
+                else:
+                    node['eta'] = 'Calculating...'
+                    node['eta_seconds'] = 0
+            except Exception as e:
+                print(f"Error calculating ETA: {e}")
+                node['eta'] = 'N/A'
+                node['eta_seconds'] = 0
+        else:
+            node['eta'] = None
+            node['eta_seconds'] = 0
 
     return jsonify(
         nodes=nodes,
@@ -1113,6 +1417,75 @@ def api_resume_node(hostname):
     if not success:
         return jsonify(success=False, error=error), 500
     return jsonify(success=True, message=f"Resume command sent to node '{hostname}'.")
+
+@app.route('/api/nodes/start-all', methods=['POST'])
+def api_start_all_nodes():
+    """API endpoint to start all active nodes."""
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Cannot connect to the PostgreSQL database."), 500
+    
+    try:
+        with db.cursor() as cur:
+            # Start all nodes that are either idle or offline (not already running or paused)
+            # Only update command, not last_heartbeat (heartbeat should only be updated by workers)
+            cur.execute("""
+                UPDATE nodes 
+                SET command = 'running' 
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
+                AND command IN ('idle', 'offline')
+            """)
+            affected_count = cur.rowcount
+        db.commit()
+        return jsonify(success=True, message=f"Start command sent to {affected_count} node(s).", count=affected_count)
+    except Exception as e:
+        return jsonify(success=False, error=f"Database query failed: {e}"), 500
+
+@app.route('/api/nodes/stop-all', methods=['POST'])
+def api_stop_all_nodes():
+    """API endpoint to stop all active nodes."""
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Cannot connect to the PostgreSQL database."), 500
+    
+    try:
+        with db.cursor() as cur:
+            # Stop all nodes that are running or paused (not already idle)
+            # Only update command, not last_heartbeat (heartbeat should only be updated by workers)
+            cur.execute("""
+                UPDATE nodes 
+                SET command = 'idle' 
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
+                AND command IN ('running', 'paused')
+            """)
+            affected_count = cur.rowcount
+        db.commit()
+        return jsonify(success=True, message=f"Stop command sent to {affected_count} node(s).", count=affected_count)
+    except Exception as e:
+        return jsonify(success=False, error=f"Database query failed: {e}"), 500
+
+@app.route('/api/nodes/pause-all', methods=['POST'])
+def api_pause_all_nodes():
+    """API endpoint to pause all running nodes."""
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Cannot connect to the PostgreSQL database."), 500
+    
+    try:
+        with db.cursor() as cur:
+            # Pause all nodes that are running (not already paused or idle)
+            # Only update command, not last_heartbeat (heartbeat should only be updated by workers)
+            cur.execute("""
+                UPDATE nodes 
+                SET command = 'paused' 
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
+                AND command = 'running'
+            """)
+            affected_count = cur.rowcount
+        db.commit()
+        return jsonify(success=True, message=f"Pause command sent to {affected_count} node(s).", count=affected_count)
+    except Exception as e:
+        return jsonify(success=False, error=f"Database query failed: {e}"), 500
 
 @app.route('/api/history', methods=['GET'])
 def api_history():
@@ -2860,6 +3233,186 @@ def arr_job_processor_thread():
         # Wait 60 seconds before checking for new internal jobs
         time.sleep(60)
 
+def perform_database_backup():
+    """
+    Performs a database backup. Can be called manually or from scheduled thread.
+    Returns a tuple: (success: bool, message: str, backup_file: str or None)
+    """
+    try:
+        # Get retention settings
+        settings, _ = get_worker_settings()
+        
+        # Safely parse retention days with validation
+        try:
+            retention_days = int(settings.get('backup_retention_days', {}).get('setting_value', '7'))
+            # Ensure retention is within reasonable bounds
+            if retention_days < 1:
+                retention_days = 1
+            elif retention_days > 365:
+                retention_days = 365
+        except (ValueError, TypeError):
+            print(f"[{datetime.now()}] Warning: Invalid backup_retention_days value, using default of 7")
+            retention_days = 7
+        
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
+        
+        # Create backup directory if it doesn't exist
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # Generate backup filename with new format: YYYYMMDD.HHMMSS.tar.gz
+        timestamp = datetime.now().strftime('%Y%m%d.%H%M%S')
+        backup_file = os.path.join(backup_dir, f'{timestamp}.tar.gz')
+        
+        print(f"[{datetime.now()}] Starting database backup to: {backup_file}")
+        
+        # Use pg_dump to create backup
+        # Get database credentials from environment
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_port = os.environ.get('DB_PORT', '5432')
+        db_name = os.environ.get('DB_NAME', 'librarrarian')
+        db_user = os.environ.get('DB_USER', 'transcode')
+        db_password = os.environ.get('DB_PASSWORD', '')
+        
+        # Set PGPASSWORD environment variable for pg_dump
+        env = os.environ.copy()
+        env['PGPASSWORD'] = db_password
+        
+        # Run pg_dump and pipe through gzip (note: .tar.gz extension for consistency, but this is a gzipped SQL dump)
+        pg_dump_cmd = [
+            'pg_dump',
+            '-h', db_host,
+            '-p', db_port,
+            '-U', db_user,
+            '-d', db_name,
+            '--no-password'
+        ]
+        
+        # Execute pg_dump and gzip
+        with open(backup_file, 'wb') as f:
+            pg_dump_process = subprocess.Popen(
+                pg_dump_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env
+            )
+            gzip_process = subprocess.Popen(
+                ['gzip'],
+                stdin=pg_dump_process.stdout,
+                stdout=f,
+                stderr=subprocess.PIPE
+            )
+            
+            pg_dump_process.stdout.close()
+            gzip_stderr = gzip_process.communicate()[1]
+            pg_dump_process.wait()  # Wait for pg_dump to finish
+            pg_dump_stderr = pg_dump_process.stderr.read()
+            
+            # Check both processes for errors
+            if pg_dump_process.returncode != 0:
+                error_msg = f"Database backup failed: pg_dump returned {pg_dump_process.returncode}"
+                if pg_dump_stderr:
+                    error_msg += f" - {pg_dump_stderr.decode()}"
+                print(f"[{datetime.now()}] {error_msg}")
+                # Remove incomplete backup file
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
+                return (False, error_msg, None)
+            
+            if gzip_process.returncode == 0:
+                # Get file size for log
+                file_size = os.path.getsize(backup_file)
+                file_size_mb = file_size / (1024 * 1024)
+                message = f"Database backup completed successfully. Size: {file_size_mb:.2f} MB"
+                print(f"[{datetime.now()}] {message}")
+                
+                # Clean up old backups based on retention policy
+                # Include both new (.tar.gz) and old (.sql.gz) formats during transition
+                if os.path.exists(backup_dir):
+                    backup_files = [f for f in os.listdir(backup_dir) 
+                                    if f.endswith('.tar.gz') or (f.startswith('librarrarian_backup_') and f.endswith('.sql.gz'))]
+                    backup_files.sort(reverse=True)
+                    
+                    # Keep only the most recent backups based on retention setting
+                    for old_backup in backup_files[retention_days:]:
+                        old_backup_path = os.path.join(backup_dir, old_backup)
+                        try:
+                            os.remove(old_backup_path)
+                            print(f"[{datetime.now()}] Removed old backup: {old_backup}")
+                        except Exception as e:
+                            print(f"[{datetime.now()}] Failed to remove old backup {old_backup}: {e}")
+                
+                return (True, message, backup_file)
+            else:
+                error_msg = f"Database backup failed: gzip returned {gzip_process.returncode}"
+                if gzip_stderr:
+                    error_msg += f" - {gzip_stderr.decode()}"
+                print(f"[{datetime.now()}] {error_msg}")
+                # Remove incomplete backup file
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
+                return (False, error_msg, None)
+        
+    except Exception as e:
+        error_msg = f"Error performing database backup: {e}"
+        print(f"[{datetime.now()}] {error_msg}")
+        return (False, error_msg, None)
+
+def database_backup_thread():
+    """
+    This background thread performs daily database backups at the configured time.
+    Backups are created as PostgreSQL dumps with timestamps.
+    """
+    db_ready_event.wait()
+    print("Database backup thread is now active.")
+    
+    while True:
+        try:
+            with app.app_context():
+                # Get backup settings
+                settings, _ = get_worker_settings()
+                backup_enabled = settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true'
+                backup_time_str = settings.get('backup_time', {}).get('setting_value', '02:00')
+                
+                # Parse the backup time (HH:MM format)
+                try:
+                    backup_hour, backup_minute = map(int, backup_time_str.split(':'))
+                except:
+                    backup_hour, backup_minute = 2, 0  # Default to 2:00 AM
+                
+                # Calculate time until next backup
+                now = datetime.now()
+                next_backup = now.replace(hour=backup_hour, minute=backup_minute, second=0, microsecond=0)
+                
+                # If the backup time has already passed today, schedule for tomorrow
+                if next_backup <= now:
+                    next_backup += timedelta(days=1)
+                
+                # Calculate seconds to wait
+                seconds_to_wait = (next_backup - now).total_seconds()
+                
+                if backup_enabled:
+                    print(f"[{datetime.now()}] Next database backup scheduled for: {next_backup}")
+                else:
+                    print(f"[{datetime.now()}] Database backups are disabled. Next check at: {next_backup}")
+            
+            # Wait until backup time (outside app context to avoid holding resources)
+            time.sleep(seconds_to_wait)
+            
+            # Perform the backup within app context only if enabled
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                backup_enabled = settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true'
+                if backup_enabled:
+                    perform_database_backup()
+                else:
+                    print(f"[{datetime.now()}] Skipping backup - backups are disabled")
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Error in database_backup_thread: {e}")
+            # Continue running even if backup fails
+            time.sleep(3600)  # Wait 1 hour before retrying on error
+
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
@@ -2869,6 +3422,8 @@ cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
 arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
 arr_job_processor.start()
+backup_thread = threading.Thread(target=database_backup_thread, daemon=True)
+backup_thread.start()
 
 if __name__ == '__main__':
     # For local development, run migrations then start the app

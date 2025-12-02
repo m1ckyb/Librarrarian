@@ -121,6 +121,7 @@ A PostgreSQL database that stores:
 *   **Searchable History**: Full log of all transcodes with pagination
 *   **Failed Job Management**: View error logs and retry or delete failed jobs
 *   **Live Updates**: Dashboard auto-refreshes without page reloads
+*   **Estimated Finish Time (ETA)**: See the estimated completion time for in-progress transcodes.
 
 ### Configuration & Control
 *   **Web-Based Configuration**: All settings managed through the UI
@@ -135,6 +136,7 @@ A PostgreSQL database that stores:
 *   **Cancellable Operations**: Stop long-running scans from the UI
 *   **Stale File Cleanup**: Find and remove leftover temporary files
 *   **Data Export**: Backup all settings and configurations to JSON
+*   **Database Backups**: Automated daily backups with configurable retention, plus manual backup and restore options.
 *   **Version Mismatch Detection**: Alerts when workers and dashboard are out of sync
 
 ### Security & Authentication

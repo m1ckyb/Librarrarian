@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   librarrarian:
-    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.3 #latest production version
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.11.6 #latest production version
     #image: ghcr.io/m1ckyb/librarrarian-dashboard:develop #latest develop version
     container_name: librarrarian
     restart: unless-stopped
@@ -11,6 +11,7 @@ services:
       - "5000:5000"
     environment:
       - DB_HOST=db
+      - DB_PORT=${DB_PORT:-5432}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
@@ -47,11 +48,12 @@ services:
       start_period: 20s
     volumes:
       - ./media:/media
+      - ./librarrarian:/data
     # The command is now defined in the dashboard/Dockerfile
 
   # The transcoding worker service
   librarrarian-worker-1:
-    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.3 #latest production version
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.11.6 #latest production version
     #image: ghcr.io/m1ckyb/librarrarian-worker:develop #latest develop version
     container_name: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker
     hostname: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker   
@@ -76,6 +78,7 @@ services:
         condition: service_healthy
     environment:
       - DB_HOST=db
+      - DB_PORT=${DB_PORT:-5432}
       - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
@@ -95,6 +98,8 @@ services:
   db:
     image: postgres:16-alpine
     restart: unless-stopped
+    #ports:   #enable if running external workers
+    #  - "5432:5432"        
     volumes:
       - postgres_data:/var/lib/postgresql/data
     environment:
