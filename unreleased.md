@@ -9,8 +9,12 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Manual Backup**: Added "Run Backup Now" button in the Maintenance section to trigger immediate database backups on demand
 
 ### Changed
-- **Backup Filename Format**: Changed database backup filename format from `librarrarian_backup_YYYYMMDD_HHMMSS.sql.gz` to `YYYYMMDD.HHMMSS.tar.gz` for better readability and consistency
+- **Backup Filename Format**: Changed database backup filename format from `librarrarian_backup_YYYYMMDD_HHMMSS.sql.gz` to `YYYYMMDD.HHMMSS.tar.gz` for better readability and consistency (note: content is still a gzipped SQL dump, but filename uses .tar.gz extension for standardization)
 - **Options Page Layout**: Removed horizontal lines between settings in the "Transcoding & System" section for a cleaner, more modern appearance
+
+### Fixed
+- **Backup Error Handling**: Improved backup process to properly check both pg_dump and gzip for errors, preventing silent backup corruption. Failed backups now clean up incomplete files automatically.
+- **Backup Cleanup Compatibility**: Backup cleanup now handles both old format (`librarrarian_backup_*.sql.gz`) and new format (`*.tar.gz`) files during the transition period
 - Standardized all button styles across the application to use outline buttons (`btn-outline-*`) with consistent color coding and Material Design Icons, matching the style introduced in PR #52 for global node controls
 - Updated button styling guidelines in project documentation (remember.md, GEMINI.md, and copilot-instructions.md)
 - Standardized all badge styles to use outline/border style matching button aesthetic for visual consistency:

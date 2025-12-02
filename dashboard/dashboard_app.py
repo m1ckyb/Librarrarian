@@ -3157,7 +3157,7 @@ def perform_database_backup():
         env = os.environ.copy()
         env['PGPASSWORD'] = db_password
         
-        # Run pg_dump and pipe through tar and gzip
+        # Run pg_dump and pipe through gzip (note: .tar.gz extension for consistency, but this is a gzipped SQL dump)
         pg_dump_cmd = [
             'pg_dump',
             '-h', db_host,
@@ -3184,6 +3184,18 @@ def perform_database_backup():
             
             pg_dump_process.stdout.close()
             gzip_stderr = gzip_process.communicate()[1]
+            pg_dump_stderr = pg_dump_process.stderr.read()
+            
+            # Check both processes for errors
+            if pg_dump_process.returncode != 0:
+                error_msg = f"Database backup failed: pg_dump returned {pg_dump_process.returncode}"
+                if pg_dump_stderr:
+                    error_msg += f" - {pg_dump_stderr.decode()}"
+                print(f"[{datetime.now()}] {error_msg}")
+                # Remove incomplete backup file
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
+                return (False, error_msg, None)
             
             if gzip_process.returncode == 0:
                 # Get file size for log
@@ -3193,8 +3205,10 @@ def perform_database_backup():
                 print(f"[{datetime.now()}] {message}")
                 
                 # Clean up old backups (keep last 7 days)
+                # Include both new (.tar.gz) and old (.sql.gz) formats during transition
                 if os.path.exists(backup_dir):
-                    backup_files = [f for f in os.listdir(backup_dir) if f.endswith('.tar.gz')]
+                    backup_files = [f for f in os.listdir(backup_dir) 
+                                    if f.endswith('.tar.gz') or (f.startswith('librarrarian_backup_') and f.endswith('.sql.gz'))]
                     backup_files.sort(reverse=True)
                     
                     # Keep only the 7 most recent backups
@@ -3212,6 +3226,9 @@ def perform_database_backup():
                 if gzip_stderr:
                     error_msg += f" - {gzip_stderr.decode()}"
                 print(f"[{datetime.now()}] {error_msg}")
+                # Remove incomplete backup file
+                if os.path.exists(backup_file):
+                    os.remove(backup_file)
                 return (False, error_msg, None)
         
     except Exception as e:
