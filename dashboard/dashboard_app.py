@@ -150,10 +150,12 @@ def setup_auth(app):
         if request.path.startswith('/api/'):
             api_key = request.headers.get('X-API-Key')
             if api_key and api_key == os.environ.get('API_KEY'):
-                # API key is valid, now validate worker session for worker endpoints
-                # Allow registration endpoint without session validation
-                if request.endpoint not in ['api_health', 'register_worker']:
-                    # For worker API endpoints, validate the session token
+                # API key is valid, now validate worker session for worker-specific endpoints
+                # These are endpoints that ONLY workers should call
+                worker_endpoints = ['request_job', 'update_job']
+                
+                if request.endpoint in worker_endpoints:
+                    # These endpoints require session validation
                     hostname = None
                     session_token = None
                     
@@ -165,11 +167,13 @@ def setup_auth(app):
                         hostname = request.args.get('hostname')
                         session_token = request.args.get('session_token')
                     
-                    # If this is a worker endpoint and we have credentials, validate
-                    if hostname and session_token:
-                        is_valid, error_msg = validate_worker_session(hostname, session_token)
-                        if not is_valid:
-                            return jsonify(error=error_msg), 403
+                    # Validate session token
+                    if not hostname or not session_token:
+                        return jsonify(error="Worker endpoints require hostname and session_token"), 400
+                    
+                    is_valid, error_msg = validate_worker_session(hostname, session_token)
+                    if not is_valid:
+                        return jsonify(error=error_msg), 403
                 
                 return # API key is valid, allow access
             return jsonify(error="Authentication required. Invalid or missing API Key."), 401
@@ -740,12 +744,13 @@ def validate_worker_session(hostname, session_token):
         node = cur.fetchone()
         
         if not node:
-            # Node doesn't exist yet - this is the first connection
-            return True, None
+            # Node doesn't exist yet - worker must register first
+            return False, f"Worker '{hostname}' is not registered. Please register via /api/register_worker first."
         
         stored_token = node.get('session_token')
         if not stored_token:
-            # No session token stored yet - allow registration
+            # No session token stored yet - this shouldn't happen in normal flow
+            # but we'll allow it for backward compatibility
             return True, None
         
         if stored_token != session_token:

@@ -99,7 +99,12 @@ class DatabaseHandler:
         return psycopg2.connect(**self.conn_params)
 
     def update_heartbeat(self, status, current_file=None, progress=None, fps=None, version_mismatch=False):
-        """Updates the worker's status in the central database."""
+        """
+        Updates the worker's status in the central database.
+        Note: session_token is NOT included in this UPDATE because it's set during registration
+        and should persist unchanged across heartbeat updates. The ON CONFLICT DO UPDATE clause
+        only modifies the explicitly listed columns, leaving session_token untouched.
+        """
         sql = """
         INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps, version_mismatch)
         VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s)
@@ -294,10 +299,14 @@ def get_dashboard_settings():
 
 def request_job_from_dashboard():
     """Requests a new job from the dashboard's API."""
+    if not SESSION_TOKEN:
+        print(f"[{datetime.now()}] ERROR: Cannot request job - worker is not registered")
+        return None
+    
     try:
         print(f"[{datetime.now()}] Requesting a new job...")
         headers = {'X-API-Key': API_KEY} if API_KEY else {}
-        payload = {"hostname": HOSTNAME, "session_token": SESSION_TOKEN} if SESSION_TOKEN else {"hostname": HOSTNAME}
+        payload = {"hostname": HOSTNAME, "session_token": SESSION_TOKEN}
         response = requests.post(f"{DASHBOARD_URL}/api/request_job", json=payload, headers=headers, timeout=10)
         response.raise_for_status()
         job_data = response.json()
@@ -313,6 +322,10 @@ def request_job_from_dashboard():
 
 def update_job_status(job_id, status, details=None):
     """Updates the job's status via the dashboard's API."""
+    if not SESSION_TOKEN:
+        print(f"[{datetime.now()}] ERROR: Cannot update job status - worker is not registered")
+        return
+    
     payload = {"status": status, "hostname": HOSTNAME, "session_token": SESSION_TOKEN}
     if details:
         payload.update(details)
