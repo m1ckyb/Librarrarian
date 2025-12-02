@@ -87,6 +87,10 @@ DB_CONFIG = {
     "dbname": os.environ.get("DB_NAME", "librarrarian")
 }
 
+# Worker session configuration
+WORKER_SESSION_TIMEOUT_SECONDS = 300  # 5 minutes - time before a worker is considered stale
+WORKER_PROTECTED_ENDPOINTS = ['request_job', 'update_job']  # Endpoints that require session validation
+
 def setup_auth(app):
     """Initializes and configures the authentication system."""
     app.config['AUTH_ENABLED'] = os.environ.get('AUTH_ENABLED', 'false').lower() == 'true'
@@ -152,9 +156,7 @@ def setup_auth(app):
             if api_key and api_key == os.environ.get('API_KEY'):
                 # API key is valid, now validate worker session for worker-specific endpoints
                 # These are endpoints that ONLY workers should call
-                worker_endpoints = ['request_job', 'update_job']
-                
-                if request.endpoint in worker_endpoints:
+                if request.endpoint in WORKER_PROTECTED_ENDPOINTS:
                     # These endpoints require session validation
                     hostname = None
                     session_token = None
@@ -840,7 +842,7 @@ def register_worker():
                 if last_heartbeat:
                     time_since_heartbeat = (datetime.now(timezone.utc) - last_heartbeat.replace(tzinfo=timezone.utc)).total_seconds()
                     
-                    if time_since_heartbeat < 300:  # 5 minutes
+                    if time_since_heartbeat < WORKER_SESSION_TIMEOUT_SECONDS:
                         print(f"[{datetime.now()}] Registration rejected: Worker '{hostname}' is already active")
                         return jsonify({
                             "error": f"A worker with hostname '{hostname}' is already active in the cluster.",
