@@ -150,6 +150,27 @@ def setup_auth(app):
         if request.path.startswith('/api/'):
             api_key = request.headers.get('X-API-Key')
             if api_key and api_key == os.environ.get('API_KEY'):
+                # API key is valid, now validate worker session for worker endpoints
+                # Allow registration endpoint without session validation
+                if request.endpoint not in ['api_health', 'register_worker']:
+                    # For worker API endpoints, validate the session token
+                    hostname = None
+                    session_token = None
+                    
+                    # Extract hostname and session_token from request
+                    if request.method == 'POST' and request.is_json:
+                        hostname = request.json.get('hostname')
+                        session_token = request.json.get('session_token')
+                    elif request.method == 'GET':
+                        hostname = request.args.get('hostname')
+                        session_token = request.args.get('session_token')
+                    
+                    # If this is a worker endpoint and we have credentials, validate
+                    if hostname and session_token:
+                        is_valid, error_msg = validate_worker_session(hostname, session_token)
+                        if not is_valid:
+                            return jsonify(error=error_msg), 403
+                
                 return # API key is valid, allow access
             return jsonify(error="Authentication required. Invalid or missing API Key."), 401
 
@@ -212,7 +233,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 8
+TARGET_SCHEMA_VERSION = 9
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -256,6 +277,10 @@ MIGRATIONS = {
     # Version 8: Add VP9 codec setting
     8: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('allow_vp9', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 9: Add session token for worker uniqueness enforcement
+    9: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS session_token VARCHAR(64);"
     ],
 }
 
@@ -364,7 +389,8 @@ def initialize_database_if_needed():
                         command VARCHAR(50) DEFAULT 'idle',
                         progress REAL,
                         fps REAL,
-                        current_file TEXT
+                        current_file TEXT,
+                        session_token VARCHAR(64)
                     );
                 """)
                 cur.execute(f"GRANT ALL PRIVILEGES ON TABLE nodes TO {db_user};")
@@ -693,6 +719,47 @@ def get_history():
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return history, db_error
+
+def validate_worker_session(hostname, session_token):
+    """
+    Validates that a worker's session token matches the one stored in the database.
+    Returns (is_valid, error_message).
+    - is_valid: True if the session is valid, False otherwise
+    - error_message: None if valid, otherwise a string describing the issue
+    """
+    if not hostname or not session_token:
+        return False, "Missing hostname or session token"
+    
+    conn = get_db()
+    if not conn:
+        return False, "Database connection failed"
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        cur.execute("SELECT session_token, status FROM nodes WHERE hostname = %s", (hostname,))
+        node = cur.fetchone()
+        
+        if not node:
+            # Node doesn't exist yet - this is the first connection
+            return True, None
+        
+        stored_token = node.get('session_token')
+        if not stored_token:
+            # No session token stored yet - allow registration
+            return True, None
+        
+        if stored_token != session_token:
+            # Session token mismatch - reject this worker
+            return False, f"Worker '{hostname}' is already registered with a different session. Another worker with the same hostname is active."
+        
+        # Token matches - this is the legitimate worker
+        return True, None
+    except Exception as e:
+        print(f"Error validating worker session: {e}")
+        return False, f"Session validation error: {e}"
+    finally:
+        cur.close()
+
 # ===========================
 # Flask Routes
 # ===========================
@@ -728,6 +795,79 @@ def api_health():
         return "OK", 200
     else:
         return "Database not ready", 503
+
+@app.route('/api/register_worker', methods=['POST'])
+def register_worker():
+    """
+    Endpoint for workers to register themselves with a unique session token.
+    This prevents multiple workers with the same hostname from operating simultaneously.
+    """
+    data = request.json
+    hostname = data.get('hostname')
+    session_token = data.get('session_token')
+    version = data.get('version', 'unknown')
+    
+    if not hostname or not session_token:
+        return jsonify({"error": "hostname and session_token are required"}), 400
+    
+    print(f"[{datetime.now()}] Worker registration request from '{hostname}' with session token")
+    
+    conn = get_db()
+    if not conn:
+        return jsonify({"error": "Database connection failed"}), 500
+    
+    try:
+        cur = conn.cursor(cursor_factory=RealDictCursor)
+        
+        # Check if a node with this hostname already exists
+        cur.execute("SELECT session_token, status, last_heartbeat FROM nodes WHERE hostname = %s", (hostname,))
+        existing_node = cur.fetchone()
+        
+        if existing_node:
+            stored_token = existing_node.get('session_token')
+            last_heartbeat = existing_node.get('last_heartbeat')
+            
+            # If there's already a session token and it's different, reject the registration
+            if stored_token and stored_token != session_token:
+                # Check if the existing worker is still active (heartbeat within last 5 minutes)
+                if last_heartbeat:
+                    from datetime import timezone
+                    time_since_heartbeat = (datetime.now(timezone.utc) - last_heartbeat.replace(tzinfo=timezone.utc)).total_seconds()
+                    
+                    if time_since_heartbeat < 300:  # 5 minutes
+                        print(f"[{datetime.now()}] Registration rejected: Worker '{hostname}' is already active")
+                        return jsonify({
+                            "error": f"A worker with hostname '{hostname}' is already active in the cluster.",
+                            "message": "Please stop the existing worker or choose a different hostname.",
+                            "rejected": True
+                        }), 409  # 409 Conflict
+                    else:
+                        # Old worker is stale, allow the new one to take over
+                        print(f"[{datetime.now()}] Existing worker '{hostname}' is stale (last heartbeat {int(time_since_heartbeat)}s ago). Allowing new worker to register.")
+                
+            # If the session token matches or there's no token, update it
+            cur.execute("""
+                UPDATE nodes 
+                SET session_token = %s, version = %s, last_heartbeat = NOW(), connected_at = NOW(), status = 'booting'
+                WHERE hostname = %s
+            """, (session_token, version, hostname))
+        else:
+            # New worker - insert a new record
+            cur.execute("""
+                INSERT INTO nodes (hostname, session_token, version, status, last_heartbeat, connected_at)
+                VALUES (%s, %s, %s, 'booting', NOW(), NOW())
+            """, (hostname, session_token, version))
+        
+        conn.commit()
+        print(f"[{datetime.now()}] Worker '{hostname}' registered successfully")
+        return jsonify({"success": True, "message": f"Worker '{hostname}' registered successfully"}), 200
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"[{datetime.now()}] Worker registration error: {e}")
+        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+    finally:
+        cur.close()
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():

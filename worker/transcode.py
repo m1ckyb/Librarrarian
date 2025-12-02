@@ -73,6 +73,10 @@ HOSTNAME = socket.gethostname()
 STOP_EVENT = threading.Event()
 API_KEY = os.environ.get('API_KEY')
 
+# Generate a unique session token for this worker instance
+# This ensures that only one worker with this hostname can be active at a time
+SESSION_TOKEN = None
+
 # --- USER CONFIGURATION SECTION ---
 # Read DB config from environment variables, with fallbacks for local testing
 DB_CONFIG = {
@@ -210,11 +214,71 @@ def detect_hardware_settings(accel_mode):
 # Worker Logic
 # ===========================
 
+def generate_session_token():
+    """Generates a unique session token for this worker instance."""
+    import secrets
+    return secrets.token_hex(32)  # 64 character hex string
+
+def register_with_dashboard():
+    """
+    Registers this worker with the dashboard using a unique session token.
+    Returns True if registration succeeds, False otherwise.
+    """
+    global SESSION_TOKEN
+    
+    if not SESSION_TOKEN:
+        SESSION_TOKEN = generate_session_token()
+    
+    try:
+        headers = {'X-API-Key': API_KEY} if API_KEY else {}
+        payload = {
+            "hostname": HOSTNAME,
+            "session_token": SESSION_TOKEN,
+            "version": VERSION
+        }
+        
+        print(f"[{datetime.now()}] Registering with dashboard as '{HOSTNAME}'...")
+        response = requests.post(
+            f"{DASHBOARD_URL}/api/register_worker",
+            json=payload,
+            headers=headers,
+            timeout=10
+        )
+        
+        if response.status_code == 409:
+            # Registration rejected - another worker with this hostname is active
+            error_data = response.json()
+            print("="*70)
+            print("❌ REGISTRATION REJECTED")
+            print(f"   {error_data.get('error', 'Unknown error')}")
+            print(f"   {error_data.get('message', '')}")
+            print("="*70)
+            return False
+        
+        response.raise_for_status()
+        result = response.json()
+        
+        if result.get('success'):
+            print(f"[{datetime.now()}] ✅ Successfully registered with dashboard")
+            return True
+        else:
+            print(f"[{datetime.now()}] ❌ Registration failed: {result}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"[{datetime.now()}] ❌ Registration Error: Could not connect to dashboard. {e}")
+        print("    Ensure the dashboard is running and accessible from this machine.")
+        if 'localhost' in DASHBOARD_URL:
+            print("    If running the worker on a different machine, set the DASHBOARD_URL environment variable.")
+            print("    Example: DASHBOARD_URL=http://<dashboard_ip>:5000")
+        return False
+
 def get_dashboard_settings():
     """Fetches all worker settings from the dashboard's API."""
     try:
         headers = {'X-API-Key': API_KEY} if API_KEY else {}
-        response = requests.get(f"{DASHBOARD_URL}/api/settings", headers=headers, timeout=10)
+        params = {"hostname": HOSTNAME, "session_token": SESSION_TOKEN} if SESSION_TOKEN else {}
+        response = requests.get(f"{DASHBOARD_URL}/api/settings", headers=headers, params=params, timeout=10)
         response.raise_for_status()
         data = response.json()
         settings_data = data.get('settings', {})
@@ -233,7 +297,8 @@ def request_job_from_dashboard():
     try:
         print(f"[{datetime.now()}] Requesting a new job...")
         headers = {'X-API-Key': API_KEY} if API_KEY else {}
-        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json={"hostname": HOSTNAME}, headers=headers, timeout=10)
+        payload = {"hostname": HOSTNAME, "session_token": SESSION_TOKEN} if SESSION_TOKEN else {"hostname": HOSTNAME}
+        response = requests.post(f"{DASHBOARD_URL}/api/request_job", json=payload, headers=headers, timeout=10)
         response.raise_for_status()
         job_data = response.json()
         if job_data and job_data.get('job_id'):
@@ -248,7 +313,7 @@ def request_job_from_dashboard():
 
 def update_job_status(job_id, status, details=None):
     """Updates the job's status via the dashboard's API."""
-    payload = {"status": status}
+    payload = {"status": status, "hostname": HOSTNAME, "session_token": SESSION_TOKEN}
     if details:
         payload.update(details)
     
@@ -537,6 +602,12 @@ def rename_file(filepath, db, settings, metadata):
 def main_loop(db):
     """The main worker loop."""
     print(f"[{datetime.now()}] Worker '{HOSTNAME}' starting up. Version: {VERSION}")
+    
+    # Register with the dashboard to get a session token and ensure uniqueness
+    if not register_with_dashboard():
+        print(f"[{datetime.now()}] ❌ Failed to register with dashboard. Exiting.")
+        sys.exit(1)
+    
     db.update_heartbeat('booting', version_mismatch=False)
     time.sleep(2) # Stagger startup
 
