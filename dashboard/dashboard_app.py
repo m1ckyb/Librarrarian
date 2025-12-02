@@ -1058,7 +1058,6 @@ def api_settings():
     return jsonify(settings=settings, dashboard_version=get_project_version())
 
 @app.route('/api/backup/now', methods=['POST'])
-@require_login
 def api_backup_now():
     """Triggers an immediate database backup."""
     try:

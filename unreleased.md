@@ -33,3 +33,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Fixed
 - Fixed timezone support in Alpine Docker images by installing `tzdata` package - times will now correctly display in the configured timezone instead of UTC
 - **Pagination Z-Index**: Fixed Job Queue and History pagination page numbers showing through the footer by adding `z-index: 1050` to the footer CSS
+- **Dashboard Startup Error**: Fixed `NameError: name 'require_login' is not defined` that prevented the dashboard from starting. Removed incorrect `@require_login` decorator from `/api/backup/now` endpoint as all routes are already protected by the `@app.before_request` hook
