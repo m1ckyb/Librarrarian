@@ -430,6 +430,15 @@ function resumeScanUI(scanType, scanSource) {
 // Function to create an HTML element for a single node
 function createNodeCard(node) {
     const isIdle = node.status === 'idle' || node.percent === 0;
+    const isPaused = node.command === 'paused';
+    const pauseButtonIcon = isPaused ? 'play' : 'pause';
+    const pauseButtonText = isPaused ? 'Resume' : 'Pause';
+    
+    // Determine button disabled states
+    const startDisabled = (node.status !== 'offline' && node.command !== 'idle') ? 'disabled' : '';
+    const stopDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
+    const pauseDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
+    
     return `
     <div class="card mb-3">
         <div id="node-${node.hostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
@@ -438,10 +447,12 @@ function createNodeCard(node) {
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
-                <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}>Start</button>
-                <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
+                <div class="btn-group btn-group-sm me-2" role="group">
+                    <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
+                    <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
+                    <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
+                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
+                </div>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
             </div>
         </div>
@@ -491,13 +502,13 @@ async function updateStatus() {
         
         // Update View Errors button color
         // Remove all potential color classes first
-        viewErrorsBtn.classList.remove('btn-danger', 'btn-success', 'btn-warning');
+        viewErrorsBtn.classList.remove('btn-outline-danger', 'btn-outline-success', 'btn-outline-warning');
         const clearErrorsBtn = document.getElementById('clear-errors-btn');
         clearErrorsBtn.style.display = (failCount > 0) ? 'inline-block' : 'none';
 
         // If there are errors, the button is always red.
         if (failCount > 0) {
-            viewErrorsBtn.classList.add('btn-danger');
+            viewErrorsBtn.classList.add('btn-outline-danger');
             failCountBadge.classList.add('text-bg-light');
         }
         
@@ -513,13 +524,13 @@ async function updateStatus() {
         // --- Update Pause Queue Button State ---
         const pauseQueueBtn = document.getElementById('pause-queue-btn');
         if (data.queue_paused) {
-            pauseQueueBtn.classList.remove('btn-warning');
-            pauseQueueBtn.classList.add('btn-success');
+            pauseQueueBtn.classList.remove('btn-outline-warning');
+            pauseQueueBtn.classList.add('btn-outline-success');
             pauseQueueBtn.innerHTML = `<span class="mdi mdi-play"></span> Resume Queue`;
             pauseQueueBtn.title = "Resume the distribution of new jobs to workers";
         } else {
-            pauseQueueBtn.classList.remove('btn-success');
-            pauseQueueBtn.classList.add('btn-warning');
+            pauseQueueBtn.classList.remove('btn-outline-success');
+            pauseQueueBtn.classList.add('btn-outline-warning');
             pauseQueueBtn.innerHTML = `<span class="mdi mdi-pause"></span> Pause Queue`;
             pauseQueueBtn.title = "Pause the distribution of new jobs to workers";
         }
@@ -813,7 +824,7 @@ async function updateJobQueue(page = 1) {
                         ''
                     }
                     ${job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
-                        `<button class="btn btn-xs btn-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
+                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
                         ''
                     }
                 </td>

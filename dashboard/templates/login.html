@@ -27,15 +27,15 @@
                             <label for="password" class="form-label">Password</label>
                             <input type="password" class="form-control" id="password" name="password" required>
                         </div>
-                        <button type="submit" class="btn btn-secondary w-100">Login with Local Credentials</button>
+                        <button type="submit" class="btn btn-outline-secondary w-100"><span class="mdi mdi-login"></span> Login with Local Credentials</button>
                     </form>
                 {% endif %}
 
                 {% if oidc_enabled and local_login_enabled %}<hr>{% endif %}
 
                 {% if oidc_enabled %}
-                    <a href="{{ url_for('login_oidc') }}" class="btn btn-primary w-100">
-                        Login with 
+                    <a href="{{ url_for('login_oidc') }}" class="btn btn-outline-primary w-100">
+                        <span class="mdi mdi-login"></span> Login with 
                         {% if oidc_provider_name %}
                             {{ oidc_provider_name }}
                         {% else %}
