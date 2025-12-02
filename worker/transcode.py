@@ -99,7 +99,7 @@ class DatabaseHandler:
     def _get_conn(self):
         return psycopg2.connect(**self.conn_params)
 
-    def update_heartbeat(self, status, current_file=None, progress=None, fps=None, version_mismatch=False):
+    def update_heartbeat(self, status, current_file=None, progress=None, fps=None, version_mismatch=False, total_duration=None, job_start_time=None):
         """
         Updates the worker's status in the central database.
         Note: session_token is NOT included in this UPDATE because it's set during registration
@@ -107,8 +107,8 @@ class DatabaseHandler:
         only modifies the explicitly listed columns, leaving session_token untouched.
         """
         sql = """
-        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps, version_mismatch)
-        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s)
+        INSERT INTO nodes (hostname, last_heartbeat, status, version, current_file, progress, fps, version_mismatch, total_duration, job_start_time)
+        VALUES (%s, NOW(), %s, %s, %s, %s, %s, %s, %s, %s)
         ON CONFLICT (hostname) DO UPDATE SET
             last_heartbeat = EXCLUDED.last_heartbeat,
             status = EXCLUDED.status,
@@ -116,13 +116,15 @@ class DatabaseHandler:
             current_file = EXCLUDED.current_file,
             progress = EXCLUDED.progress,
             fps = EXCLUDED.fps,
-            version_mismatch = EXCLUDED.version_mismatch;
+            version_mismatch = EXCLUDED.version_mismatch,
+            total_duration = EXCLUDED.total_duration,
+            job_start_time = EXCLUDED.job_start_time;
         """
         conn = self._get_conn()
         if conn:
             try:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps, version_mismatch))
+                    cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps, version_mismatch, total_duration, job_start_time))
                 conn.commit()
             except Exception as e:
                 print(f"[{datetime.now()}] Heartbeat Error: Could not update status. {e}")
@@ -456,7 +458,8 @@ def process_file(filepath, db, settings):
         return False, {"reason": "Invalid or malicious filepath detected", "log": f"Filepath validation failed for: {filepath}"}
     
     print(f"[{datetime.now()}] Starting transcode for: {local_filepath}")
-    db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0)
+    job_start_time = datetime.now()
+    db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0, job_start_time=job_start_time)
 
     # --- Get settings from the dashboard ---
     hw_mode = settings.get('hardware_acceleration', 'auto')
@@ -510,6 +513,8 @@ def process_file(filepath, db, settings):
             if match:
                 h, m, s, ms = map(int, match.groups())
                 total_duration_seconds = h * 3600 + m * 60 + s + ms / 100.0
+                # Send total duration to dashboard once we know it
+                db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0, total_duration=total_duration_seconds, job_start_time=job_start_time)
 
         if "frame=" in line and total_duration_seconds > 0:
             time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
@@ -519,7 +524,7 @@ def process_file(filepath, db, settings):
                 current_seconds = h * 3600 + m * 60 + s + ms / 100.0
                 progress = round((current_seconds / total_duration_seconds) * 100)
                 fps = float(fps_match.group(1)) if fps_match else 0
-                db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=progress, fps=fps)
+                db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=progress, fps=fps, total_duration=total_duration_seconds, job_start_time=job_start_time)
 
     process.wait()
 
