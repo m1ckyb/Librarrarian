@@ -34,4 +34,4 @@ COPY VERSION.txt .
 EXPOSE 5000
 
 # The command to run the application using Gunicorn (a production-ready web server)
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--log-level", "debug", "--error-logfile", "-", "--capture-output", "dashboard_app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--log-level", "info", "--error-logfile", "-", "--capture-output", "dashboard_app:app"]

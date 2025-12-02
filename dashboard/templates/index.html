@@ -145,7 +145,7 @@
                                     </div>
                                 {% endif %}
                             </div>
-                            <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
+                            <div class="card-footer d-flex justify-content-between align-items-center bg-transparent" style="font-size: 1.1rem;">
                                 <div>
                                     <span class="badge badge-outline-secondary">Uptime: {{ node.uptime_str or 'N/A' }}</span>
                                     {% if node.eta %}
@@ -507,18 +507,20 @@
                                     <h6><strong>Database Backup</strong></h6>
                                     <div class="form-check form-switch mb-2">
                                         <input class="form-check-input" type="checkbox" role="switch" id="backup_enabled" name="backup_enabled" value="true" {{ 'checked' if settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true' }}>
-                                        <label class="form-check-label" for="backup_enabled"><strong>Enable Automatic Backups</strong></label>
+                                        <label class="form-check-label" for="backup_enabled"><strong>Automatic Backups</strong></label>
                                     </div>
-                                    <label for="backup_time" class="form-label mt-2"><strong>Backup Time</strong></label>
-                                    <p class="form-text text-body-secondary">Time of day (HH:MM in 24-hour format) to perform automatic daily database backups.</p>
-                                    <input type="time" class="form-control" id="backup_time" name="backup_time" value="{{ settings.get('backup_time', {}).get('setting_value', '02:00') }}">
-                                    
-                                    <label for="backup_retention_days" class="form-label mt-3"><strong>Backup Retention (Days)</strong></label>
-                                    <p class="form-text text-body-secondary">Number of backup files to keep. Older backups will be automatically deleted.</p>
-                                    <input type="number" class="form-control" id="backup_retention_days" name="backup_retention_days" value="{{ settings.get('backup_retention_days', {}).get('setting_value', '7') }}" min="1" max="365">
+                                    <div id="backup-schedule-fields">
+                                        <label for="backup_time" class="form-label mt-2"><strong>Backup Time</strong></label>
+                                        <p class="form-text text-body-secondary">Time of day (HH:MM in 24-hour format) to perform automatic daily database backups.</p>
+                                        <input type="time" class="form-control" id="backup_time" name="backup_time" value="{{ settings.get('backup_time', {}).get('setting_value', '02:00') }}">
+                                        
+                                        <label for="backup_retention_days" class="form-label mt-3"><strong>Backup Retention (Days)</strong></label>
+                                        <p class="form-text text-body-secondary">Number of backup files to keep. Older backups will be automatically deleted.</p>
+                                        <input type="number" class="form-control" id="backup_retention_days" name="backup_retention_days" value="{{ settings.get('backup_retention_days', {}).get('setting_value', '7') }}" min="1" max="365">
+                                    </div>
                                     
                                     <div class="btn-group mt-3" role="group">
-                                        <button type="button" class="btn btn-outline-primary" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Run Backup Now</button>
+                                        <button type="button" class="btn btn-outline-primary" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Manual Backup</button>
                                         <button type="button" class="btn btn-outline-info" id="manage-backups-btn"><span class="mdi mdi-folder-open"></span> Manage Backups</button>
                                     </div>
                                     <div id="backup-status" class="mt-2"></div>
@@ -540,10 +542,16 @@
                                     <h5>Transcoding &amp; System</h5>
                                     <label for="rescan_delay_hours" class="form-label"><strong>Automatic Rescan Delay</strong></label>
                                     <p class="form-text text-body-secondary">Time in hours between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
-                                    <input type="number" class="form-control" id="rescan_delay_hours" name="rescan_delay_hours" value="{{ (settings.get('rescan_delay_minutes', {}).get('setting_value', '0') | int / 60) | round(2) }}" min="0" step="0.25">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <input type="range" class="form-range flex-grow-1 me-3" id="rescan_delay_hours" name="rescan_delay_hours" value="{{ (settings.get('rescan_delay_minutes', {}).get('setting_value', '0') | int / 60) | round(2) }}" min="0" max="24" step="0.25">
+                                        <span class="badge badge-outline-primary" id="rescan_delay_hours_value" style="min-width: 4rem; text-align: center;">0 hrs</span>
+                                    </div>
                                     <label for="worker_poll_interval" class="form-label mt-3"><strong>Worker Poll Interval</strong></label>
                                     <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
-                                    <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">
+                                    <div class="d-flex align-items-center mb-2">
+                                        <input type="range" class="form-range flex-grow-1 me-3" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="0" max="600" step="5">
+                                        <span class="badge badge-outline-primary" id="worker_poll_interval_value" style="min-width: 4rem; text-align: center;">30s</span>
+                                    </div>
                                     <label for="min_length" class="form-label mt-3"><strong>Minimum Video Length</strong></label>
                                     <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
                                     <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">

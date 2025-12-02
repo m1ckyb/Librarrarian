@@ -17,6 +17,12 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Backup Section Title**: Changed "Database Backup Time" to "Database Backup" in the Maintenance section for better clarity and to accommodate the new enable/disable toggle and retention settings
 - **Backup Cleanup Logic**: Updated backup cleanup to respect the configurable retention policy instead of always keeping exactly 7 backups
 - **Automatic Rescan Delay**: Changed from minutes to hours for better usability. Setting to 0 still disables automatic scanning. The UI now displays and accepts hours with 0.25-hour increments (15-minute precision)
+- **Active Node Footer**: Increased font size from default to 1.1rem for better readability
+- **Backup Settings Label**: Changed "Enable Automatic Backups" to "Automatic Backups" for consistency
+- **Manual Backup Button**: Changed "Run Backup Now" button text to "Manual Backup" for clarity
+- **Automatic Rescan Delay Input**: Changed from number input to range slider (0-24 hours) with real-time value display showing hours or minutes
+- **Worker Poll Interval Input**: Changed from number input to range slider (0-600 seconds) with real-time value display
+- **Gunicorn Logging**: Reduced log level from "debug" to "info" to minimize Docker container log noise from frequent API polling
 
 ### Fixed
 - **Backup Error Handling**: Improved backup process to properly check both pg_dump and gzip for errors, preventing silent backup corruption. Failed backups now clean up incomplete files automatically.
@@ -47,3 +53,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Dashboard Startup Error**: Fixed `NameError: name 'require_login' is not defined` that prevented the dashboard from starting. Removed incorrect `@require_login` decorator from `/api/backup/now` endpoint as all routes are already protected by the `@app.before_request` hook
 - **Database Backup Failure**: Fixed database backup failing with "No such file or directory: 'pg_dump'" by adding `postgresql-client` package to dashboard Dockerfile. Also fixed backup process incorrectly reporting "pg_dump returned None" by properly waiting for the pg_dump process to complete before checking its return code
 - **Database Backup Thread Error**: Fixed "Working outside of application context" error in `database_backup_thread` by wrapping database operations with Flask's `app.app_context()`, following the same pattern used by other background threads
+- **Backup Schedule Fields**: Added automatic hiding of "Backup Time" and "Backup Retention (Days)" fields when "Automatic Backups" toggle is disabled, reducing UI clutter

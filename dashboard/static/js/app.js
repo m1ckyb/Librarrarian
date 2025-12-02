@@ -2289,4 +2289,71 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Reload content when the toggle is switched
     versionToggle.addEventListener('change', loadChangelog);
+
+    // ===== Backup Settings Toggle =====
+    const backupEnabledCheckbox = document.getElementById('backup_enabled');
+    const backupScheduleFields = document.getElementById('backup-schedule-fields');
+    
+    if (backupEnabledCheckbox && backupScheduleFields) {
+        // Function to toggle visibility
+        function toggleBackupFields() {
+            if (backupEnabledCheckbox.checked) {
+                backupScheduleFields.style.display = 'block';
+            } else {
+                backupScheduleFields.style.display = 'none';
+            }
+        }
+        
+        // Set initial state
+        toggleBackupFields();
+        
+        // Listen for changes
+        backupEnabledCheckbox.addEventListener('change', toggleBackupFields);
+    }
+    
+    // ===== Slider Value Display =====
+    const rescanDelaySlider = document.getElementById('rescan_delay_hours');
+    const rescanDelayValue = document.getElementById('rescan_delay_hours_value');
+    
+    if (rescanDelaySlider && rescanDelayValue) {
+        // Function to update display value
+        function updateRescanDelayDisplay() {
+            const hours = parseFloat(rescanDelaySlider.value);
+            if (hours === 0) {
+                rescanDelayValue.textContent = '0 hrs (disabled)';
+            } else if (hours < 1) {
+                const minutes = Math.round(hours * 60);
+                rescanDelayValue.textContent = `${minutes} min`;
+            } else {
+                rescanDelayValue.textContent = `${hours} hrs`;
+            }
+        }
+        
+        // Set initial value
+        updateRescanDelayDisplay();
+        
+        // Update on change
+        rescanDelaySlider.addEventListener('input', updateRescanDelayDisplay);
+    }
+    
+    const pollIntervalSlider = document.getElementById('worker_poll_interval');
+    const pollIntervalValue = document.getElementById('worker_poll_interval_value');
+    
+    if (pollIntervalSlider && pollIntervalValue) {
+        // Function to update display value
+        function updatePollIntervalDisplay() {
+            const seconds = parseInt(pollIntervalSlider.value);
+            if (seconds === 0) {
+                pollIntervalValue.textContent = '0s (disabled)';
+            } else {
+                pollIntervalValue.textContent = `${seconds}s`;
+            }
+        }
+        
+        // Set initial value
+        updatePollIntervalDisplay();
+        
+        // Update on change
+        pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
+    }
 });
