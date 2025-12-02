@@ -129,7 +129,7 @@
                         <div class="card mb-3">
                             <div class="card-header fs-5 d-flex justify-content-between align-items-center">
                                 <span>{{ node.hostname }}</span>
-                                <span class="badge bg-info">{{ node.version }}</span>
+                                <span class="badge badge-outline-info">{{ node.version }}</span>
                             </div>
                             <div class="card-body">
                                 {% if node.percent > 0 %}
@@ -149,11 +149,11 @@
                                 <span class="text-muted small">Uptime: {{ node.uptime_str or 'N/A' }}</span>
                                 <div>
                                 {% if node.percent > 0 %}
-                                    <span class="badge text-bg-secondary me-2">FPS: {{ node.fps }}</span>
-                                    <span class="badge text-bg-secondary me-2">Speed: {{ node.speed }}x</span>
-                                    <span class="badge text-bg-{{ node.color }}">Codec: {{ node.codec }}</span>
+                                    <span class="badge badge-outline-secondary me-2">FPS: {{ node.fps }}</span>
+                                    <span class="badge badge-outline-secondary me-2">Speed: {{ node.speed }}x</span>
+                                    <span class="badge badge-outline-teal">Codec: {{ node.codec }}</span>
                                 {% else %}
-                                    <span class="badge text-bg-secondary">Idle</span>
+                                    <span class="badge badge-outline-secondary">Idle</span>
                                 {% endif %}
                                 </div>
                             </div>
