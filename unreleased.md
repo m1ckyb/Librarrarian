@@ -40,6 +40,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Obsolete Settings**: Removed "Enable Worker Auto-Update", "Clean Failed Jobs on Start", and "Enable Debug Logging" settings from the Maintenance section as they were non-functional and no longer relevant with the Docker-based architecture
 
 ### Fixed
+- **Manage Backups Modal**: Fixed "Manage Backups" button not working - the backup API endpoints were incorrectly using the user-configurable "Backup Directory" setting (meant for media file handling) instead of the fixed database backup location at `/data/backup`. This caused the modal to show no backups even when they existed
 - **Logging Suppression**: Added `/api/health` to the list of suppressed endpoints to reduce noisy debug log entries. Both `/api/status` and `/api/health` are now filtered from access logs as they are polled frequently by the UI
 - Fixed timezone support in Alpine Docker images by installing `tzdata` package - times will now correctly display in the configured timezone instead of UTC
 - **Pagination Z-Index**: Fixed Job Queue and History pagination page numbers showing through the footer by adding `z-index: 1050` to the footer CSS

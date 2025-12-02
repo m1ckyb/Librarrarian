@@ -1098,11 +1098,8 @@ def api_backup_files():
     Note: Authentication is enforced by the @app.before_request hook.
     """
     try:
-        settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         if not os.path.exists(backup_dir):
             return jsonify(success=True, files=[])
@@ -1143,11 +1140,8 @@ def api_backup_download(filename):
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify(success=False, error="Invalid filename"), 400
         
-        settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         filepath = os.path.join(backup_dir, filename)
         
@@ -1171,11 +1165,8 @@ def api_backup_delete(filename):
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify(success=False, error="Invalid filename"), 400
         
-        settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         filepath = os.path.join(backup_dir, filename)
         
@@ -3248,9 +3239,8 @@ def perform_database_backup():
     Returns a tuple: (success: bool, message: str, backup_file: str or None)
     """
     try:
-        # Get backup directory and retention settings
+        # Get retention settings
         settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
         
         # Safely parse retention days with validation
         try:
@@ -3264,8 +3254,8 @@ def perform_database_backup():
             print(f"[{datetime.now()}] Warning: Invalid backup_retention_days value, using default of 7")
             retention_days = 7
         
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         # Create backup directory if it doesn't exist
         os.makedirs(backup_dir, exist_ok=True)
