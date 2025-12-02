@@ -148,15 +148,13 @@
                             <div class="card-footer d-flex justify-content-between align-items-center bg-transparent" style="font-size: 1.1rem;">
                                 <div>
                                     <span class="badge badge-outline-secondary">Uptime: {{ node.uptime_str or 'N/A' }}</span>
-                                    {% if node.eta %}
-                                    <span class="badge badge-outline-info ms-2">ETA: {{ node.eta }}</span>
-                                    {% endif %}
                                 </div>
                                 <div>
                                 {% if node.percent > 0 %}
                                     <span class="badge badge-outline-secondary me-2">FPS: {{ node.fps }}</span>
                                     <span class="badge badge-outline-secondary me-2">Speed: {{ node.speed }}x</span>
-                                    <span class="badge badge-outline-teal">Codec: {{ node.codec }}</span>
+                                    <span class="badge badge-outline-teal me-2">Codec: {{ node.codec }}</span>
+                                    <span class="badge badge-outline-info">ETA: {{ node.eta or 'N/A' }}</span>
                                 {% else %}
                                     <span class="badge badge-outline-secondary">Idle</span>
                                 {% endif %}

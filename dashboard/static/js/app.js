@@ -473,13 +473,13 @@ function createNodeCard(node) {
         <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
             <div>
                 <span class="badge badge-outline-secondary">Uptime: ${node.uptime_str || 'N/A'}</span>
-                ${node.eta ? `<span class="badge badge-outline-info ms-2">ETA: ${node.eta}</span>` : ''}
             </div>
             <div>
             ${node.percent > 0 ? `
                 <span class="badge badge-outline-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
                 <span class="badge badge-outline-secondary me-2">Speed: ${node.speed}x</span>
-                <span class="badge badge-outline-teal">Codec: ${node.codec}</span>
+                <span class="badge badge-outline-teal me-2">Codec: ${node.codec}</span>
+                <span class="badge badge-outline-info">ETA: ${node.eta || 'N/A'}</span>
             ` : `
                 <span class="badge badge-outline-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
             `}
