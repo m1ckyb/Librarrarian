@@ -433,7 +433,11 @@ function createNodeCard(node) {
     const isPaused = node.command === 'paused';
     const pauseButtonIcon = isPaused ? 'play' : 'pause';
     const pauseButtonText = isPaused ? 'Resume' : 'Pause';
-    const pauseButtonDisabled = node.command === 'idle' || node.status === 'offline' ? 'disabled' : '';
+    
+    // Determine button disabled states
+    const startDisabled = (node.status !== 'offline' && node.command !== 'idle') ? 'disabled' : '';
+    const stopDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
+    const pauseDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
     
     return `
     <div class="card mb-3">
@@ -445,9 +449,9 @@ function createNodeCard(node) {
             <div>
                 <div class="btn-group btn-group-sm me-2" role="group">
                     <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
-                    <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}><span class="mdi mdi-play"></span> Start</button>
-                    <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}><span class="mdi mdi-stop"></span> Stop</button>
-                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseButtonDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
+                    <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
+                    <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
+                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
                 </div>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
             </div>
