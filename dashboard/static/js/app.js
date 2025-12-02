@@ -453,7 +453,7 @@ function createNodeCard(node) {
                     <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
                     <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
                 </div>
-                <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
+                <span class="badge ${node.version_mismatch ? 'badge-outline-danger' : 'badge-outline-info'}">${node.version || 'N/A'}</span>
             </div>
         </div>
         <div class="card-body">
@@ -474,11 +474,11 @@ function createNodeCard(node) {
             <span class="text-muted small">Uptime: ${node.uptime_str || 'N/A'}</span>
             <div>
             ${node.percent > 0 ? `
-                <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
-                <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
-                <span class="badge text-bg-teal">Codec: ${node.codec}</span>
+                <span class="badge badge-outline-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
+                <span class="badge badge-outline-secondary me-2">Speed: ${node.speed}x</span>
+                <span class="badge badge-outline-teal">Codec: ${node.codec}</span>
             ` : `
-                <span class="badge text-bg-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
+                <span class="badge badge-outline-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
             `}
             </div>
         </div>
@@ -684,7 +684,7 @@ setInterval(() => {
         hour12: !window.Librarrarian.settings.use24HourClock
     };
     const timeString = new Date().toLocaleTimeString([], timeOptions);
-    if (clockContainer) clockContainer.innerHTML = `<span class="badge text-bg-secondary fs-6">Updated: ${timeString}</span>`;
+    if (clockContainer) clockContainer.innerHTML = `<span class="badge badge-outline-secondary fs-6">Updated: ${timeString}</span>`;
 }, 1000); // Runs every second.
 
 // 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
@@ -801,19 +801,19 @@ async function updateJobQueue(page = 1) {
                     }
                 </td>
                 <td style="word-break: break-all;">${job.filepath}</td>
-                <td><span class="badge bg-info text-dark">${job.job_type}</span></td>
+                <td><span class="badge badge-outline-info">${job.job_type}</span></td>
                 <td>
                     ${job.status === 'encoding' ? 
-                        `<span class="badge text-bg-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
+                        `<span class="badge badge-outline-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
                     job.status === 'awaiting_approval' ?
-                        `<span class="badge text-bg-warning">Awaiting Approval</span>` :
+                        `<span class="badge badge-outline-warning">Awaiting Approval</span>` :
                     job.status === 'pending' ?
-                        `<span class="badge text-bg-secondary">Pending</span>` :
+                        `<span class="badge badge-outline-secondary">Pending</span>` :
                     job.status === 'failed' ?
-                        `<span class="badge text-bg-danger">Failed</span>` :
+                        `<span class="badge badge-outline-danger">Failed</span>` :
                     job.status === 'completed' ?
-                        `<span class="badge text-bg-success">Completed</span>` :
-                        `<span class="badge text-bg-warning">${job.status}</span>`
+                        `<span class="badge badge-outline-success">Completed</span>` :
+                        `<span class="badge badge-outline-warning">${job.status}</span>`
                     }
                 </td>
                 <td>${job.assigned_to || 'N/A'}</td>
@@ -943,12 +943,12 @@ function renderHistoryTable() {
                 <td>${item.id}</td>
                 <td style="word-break: break-all;">${item.filename}</td>
                 <td>${item.hostname}</td>
-                <td><span class="badge text-bg-secondary">${item.codec}</span></td>
+                <td><span class="badge badge-outline-secondary">${item.codec}</span></td>
                 ${item.status === 'encoding' ? `
-                    <td colspan="2" class="text-center"><span class="badge text-bg-primary">In Progress</span></td>
+                    <td colspan="2" class="text-center"><span class="badge badge-outline-primary">In Progress</span></td>
                 ` : `
                     <td>${item.original_size_gb} → ${item.new_size_gb}</td>
-                    <td><span class="badge text-bg-success">${item.reduction_percent}%</span></td>
+                    <td><span class="badge badge-outline-success">${item.reduction_percent}%</span></td>
                 `}
                 <td>${item.encoded_at}</td>
                 <td><button class="btn btn-xs btn-outline-danger" title="Delete this entry">&times;</button></td>
@@ -1459,7 +1459,12 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (data.success) {
                 statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                setTimeout(() => window.location.href = '/#options-tab-pane', 1500);
+                // Auto-dismiss modal after 5 seconds and redirect
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.href = '/#options-tab-pane';
+                }, 5000);
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
@@ -2052,6 +2057,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    let changelogReleases = [];
+    let currentPage = 1;
+    const releasesPerPage = 5;
+
     async function loadChangelog() {
         const isDevelop = versionToggle.checked;
         const branch = isDevelop ? 'develop' : 'main';
@@ -2062,12 +2071,69 @@ document.addEventListener('DOMContentLoaded', () => {
             const response = await fetch(url);
             if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
             const markdown = await response.text();
-            const html = converter.makeHtml(markdown);
-            changelogContent.innerHTML = html;
+            
+            // Split changelog into releases (sections starting with ##)
+            const sections = markdown.split(/(?=^## \[)/gm);
+            changelogReleases = sections.filter(s => s.trim().startsWith('## ['));
+            
+            currentPage = 1;
+            renderChangelogPage();
         } catch (error) {
             console.error('Error fetching changelog:', error);
             changelogContent.innerHTML = '<div class="alert alert-danger">Failed to load changelog. Please check your internet connection.</div>';
         }
+    }
+
+    function renderChangelogPage() {
+        const startIdx = (currentPage - 1) * releasesPerPage;
+        const endIdx = startIdx + releasesPerPage;
+        const pageReleases = changelogReleases.slice(startIdx, endIdx);
+        const totalPages = Math.ceil(changelogReleases.length / releasesPerPage);
+
+        // Convert markdown to HTML for current page
+        const pageMarkdown = pageReleases.join('\n\n');
+        const html = converter.makeHtml(pageMarkdown);
+
+        // Add pagination controls
+        let paginationHtml = '';
+        if (totalPages > 1) {
+            paginationHtml = '<nav class="mt-3"><ul class="pagination justify-content-center">';
+            
+            // Previous button
+            paginationHtml += `<li class="page-item ${currentPage === 1 ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="${currentPage - 1}">&laquo; Previous</a>
+            </li>`;
+            
+            // Page numbers
+            for (let i = 1; i <= totalPages; i++) {
+                paginationHtml += `<li class="page-item ${i === currentPage ? 'active' : ''}">
+                    <a class="page-link" href="#" data-page="${i}">${i}</a>
+                </li>`;
+            }
+            
+            // Next button
+            paginationHtml += `<li class="page-item ${currentPage === totalPages ? 'disabled' : ''}">
+                <a class="page-link" href="#" data-page="${currentPage + 1}">Next &raquo;</a>
+            </li>`;
+            
+            paginationHtml += '</ul></nav>';
+        }
+
+        changelogContent.innerHTML = html + paginationHtml;
+
+        // Add click handlers to pagination links
+        changelogContent.querySelectorAll('.page-link').forEach(link => {
+            link.addEventListener('click', (e) => {
+                e.preventDefault();
+                const newPage = parseInt(e.target.getAttribute('data-page'));
+                if (newPage >= 1 && newPage <= totalPages) {
+                    currentPage = newPage;
+                    renderChangelogPage();
+                    // Scroll to top of modal content
+                    changelogContent.scrollTop = 0;
+                }
+            });
+        });
     }
 
     // Load content when the modal is shown
