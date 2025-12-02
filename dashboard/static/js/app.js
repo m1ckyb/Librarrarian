@@ -502,13 +502,13 @@ async function updateStatus() {
         
         // Update View Errors button color
         // Remove all potential color classes first
-        viewErrorsBtn.classList.remove('btn-danger', 'btn-success', 'btn-warning');
+        viewErrorsBtn.classList.remove('btn-outline-danger', 'btn-outline-success', 'btn-outline-warning');
         const clearErrorsBtn = document.getElementById('clear-errors-btn');
         clearErrorsBtn.style.display = (failCount > 0) ? 'inline-block' : 'none';
 
         // If there are errors, the button is always red.
         if (failCount > 0) {
-            viewErrorsBtn.classList.add('btn-danger');
+            viewErrorsBtn.classList.add('btn-outline-danger');
             failCountBadge.classList.add('text-bg-light');
         }
         
@@ -524,13 +524,13 @@ async function updateStatus() {
         // --- Update Pause Queue Button State ---
         const pauseQueueBtn = document.getElementById('pause-queue-btn');
         if (data.queue_paused) {
-            pauseQueueBtn.classList.remove('btn-warning');
-            pauseQueueBtn.classList.add('btn-success');
+            pauseQueueBtn.classList.remove('btn-outline-warning');
+            pauseQueueBtn.classList.add('btn-outline-success');
             pauseQueueBtn.innerHTML = `<span class="mdi mdi-play"></span> Resume Queue`;
             pauseQueueBtn.title = "Resume the distribution of new jobs to workers";
         } else {
-            pauseQueueBtn.classList.remove('btn-success');
-            pauseQueueBtn.classList.add('btn-warning');
+            pauseQueueBtn.classList.remove('btn-outline-success');
+            pauseQueueBtn.classList.add('btn-outline-warning');
             pauseQueueBtn.innerHTML = `<span class="mdi mdi-pause"></span> Pause Queue`;
             pauseQueueBtn.title = "Pause the distribution of new jobs to workers";
         }
