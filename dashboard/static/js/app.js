@@ -439,7 +439,7 @@ function createNodeCard(node) {
             </span>
             <div>
                 <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status !== 'offline' && node.command !== 'idle' ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${(node.status !== 'offline' && node.command !== 'idle') ? 'disabled' : ''}>Start</button>
                 <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>Stop</button>
                 <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
@@ -465,7 +465,7 @@ function createNodeCard(node) {
             ${node.percent > 0 ? `
                 <span class="badge text-bg-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
                 <span class="badge text-bg-secondary me-2">Speed: ${node.speed}x</span>
-                <span class="badge text-bg-${node.color}">Codec: ${node.codec}</span>
+                <span class="badge text-bg-teal">Codec: ${node.codec}</span>
             ` : `
                 <span class="badge text-bg-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
             `}
@@ -623,7 +623,7 @@ async function pollScanProgress() {
             const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
             sonarrScanStatusDiv.innerHTML = `
                 <div class="progress" style="height: 20px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
                 </div>
                 <div class="mt-1">
                     <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
