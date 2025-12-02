@@ -963,6 +963,18 @@ def options():
     This route now follows the Post-Redirect-Get pattern and uses a single
     atomic transaction to save all settings.
     """
+    # Validate backup_retention_days on server-side
+    retention_days_raw = request.form.get('backup_retention_days', '7')
+    try:
+        retention_days = int(retention_days_raw)
+        if retention_days < 1:
+            retention_days = 1
+        elif retention_days > 365:
+            retention_days = 365
+        retention_days_str = str(retention_days)
+    except (ValueError, TypeError):
+        retention_days_str = '7'  # Default to 7 if invalid
+    
     settings_to_update = {
         'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
         'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
@@ -971,7 +983,7 @@ def options():
         'backup_directory': request.form.get('backup_directory', ''),
         'backup_time': request.form.get('backup_time', '02:00'),
         'backup_enabled': 'true' if 'backup_enabled' in request.form else 'false',
-        'backup_retention_days': request.form.get('backup_retention_days', '7'),
+        'backup_retention_days': retention_days_str,
         'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
         'keep_original': 'true' if 'keep_original' in request.form else 'false',
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
@@ -1080,7 +1092,10 @@ def api_backup_now():
 
 @app.route('/api/backup/files', methods=['GET'])
 def api_backup_files():
-    """Lists all backup files with metadata."""
+    """
+    Lists all backup files with metadata.
+    Note: Authentication is enforced by the @app.before_request hook.
+    """
     try:
         settings, _ = get_worker_settings()
         backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
@@ -1118,7 +1133,10 @@ def api_backup_files():
 
 @app.route('/api/backup/download/<filename>', methods=['GET'])
 def api_backup_download(filename):
-    """Download a specific backup file."""
+    """
+    Download a specific backup file.
+    Note: Authentication is enforced by the @app.before_request hook.
+    """
     try:
         # Sanitize filename to prevent directory traversal
         if '..' in filename or '/' in filename or '\\' in filename:
@@ -1143,7 +1161,10 @@ def api_backup_download(filename):
 
 @app.route('/api/backup/delete/<filename>', methods=['POST'])
 def api_backup_delete(filename):
-    """Delete a specific backup file."""
+    """
+    Delete a specific backup file.
+    Note: Authentication is enforced by the @app.before_request hook.
+    """
     try:
         # Sanitize filename to prevent directory traversal
         if '..' in filename or '/' in filename or '\\' in filename:
