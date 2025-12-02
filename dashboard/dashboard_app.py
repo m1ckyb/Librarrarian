@@ -239,7 +239,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 11
+TARGET_SCHEMA_VERSION = 12
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -296,6 +296,11 @@ MIGRATIONS = {
     # Version 11: Add configurable backup time setting
     11: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_time', '02:00') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 12: Add backup enable/disable and retention policy settings
+    12: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_retention_days', '7') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -489,6 +494,8 @@ def initialize_database_if_needed():
                         ('min_length', '0.5'),
                         ('backup_directory', ''),
                         ('backup_time', '02:00'),
+                        ('backup_enabled', 'true'),
+                        ('backup_retention_days', '7'),
                         ('hardware_acceleration', 'auto'),
                         ('keep_original', 'false'),
                         ('allow_hevc', 'false'),
@@ -963,6 +970,8 @@ def options():
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
         'backup_time': request.form.get('backup_time', '02:00'),
+        'backup_enabled': 'true' if 'backup_enabled' in request.form else 'false',
+        'backup_retention_days': request.form.get('backup_retention_days', '7'),
         'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
         'keep_original': 'true' if 'keep_original' in request.form else 'false',
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
@@ -1066,6 +1075,90 @@ def api_backup_now():
             return jsonify(success=True, message=message, backup_file=backup_file)
         else:
             return jsonify(success=False, error=message), 500
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/backup/files', methods=['GET'])
+def api_backup_files():
+    """Lists all backup files with metadata."""
+    try:
+        settings, _ = get_worker_settings()
+        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+        
+        if not backup_dir or backup_dir == '':
+            backup_dir = '/data/backup'
+        
+        if not os.path.exists(backup_dir):
+            return jsonify(success=True, files=[])
+        
+        backup_files = []
+        for filename in os.listdir(backup_dir):
+            if filename.endswith('.tar.gz') or (filename.startswith('librarrarian_backup_') and filename.endswith('.sql.gz')):
+                filepath = os.path.join(backup_dir, filename)
+                stat = os.stat(filepath)
+                
+                backup_files.append({
+                    'filename': filename,
+                    'size': stat.st_size,
+                    'size_mb': round(stat.st_size / (1024 * 1024), 2),
+                    'created': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                })
+        
+        # Sort by creation time, newest first
+        backup_files.sort(key=lambda x: x['created'], reverse=True)
+        
+        return jsonify(success=True, files=backup_files)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/backup/download/<filename>', methods=['GET'])
+def api_backup_download(filename):
+    """Download a specific backup file."""
+    try:
+        # Sanitize filename to prevent directory traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify(success=False, error="Invalid filename"), 400
+        
+        settings, _ = get_worker_settings()
+        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+        
+        if not backup_dir or backup_dir == '':
+            backup_dir = '/data/backup'
+        
+        filepath = os.path.join(backup_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify(success=False, error="File not found"), 404
+        
+        # Send file for download
+        from flask import send_file
+        return send_file(filepath, as_attachment=True, download_name=filename)
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/backup/delete/<filename>', methods=['POST'])
+def api_backup_delete(filename):
+    """Delete a specific backup file."""
+    try:
+        # Sanitize filename to prevent directory traversal
+        if '..' in filename or '/' in filename or '\\' in filename:
+            return jsonify(success=False, error="Invalid filename"), 400
+        
+        settings, _ = get_worker_settings()
+        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+        
+        if not backup_dir or backup_dir == '':
+            backup_dir = '/data/backup'
+        
+        filepath = os.path.join(backup_dir, filename)
+        
+        if not os.path.exists(filepath):
+            return jsonify(success=False, error="File not found"), 404
+        
+        os.remove(filepath)
+        print(f"[{datetime.now()}] Backup file deleted by user: {filename}")
+        
+        return jsonify(success=True, message=f"Backup file {filename} deleted successfully")
     except Exception as e:
         return jsonify(success=False, error=str(e)), 500
 
@@ -3128,9 +3221,10 @@ def perform_database_backup():
     Returns a tuple: (success: bool, message: str, backup_file: str or None)
     """
     try:
-        # Get backup directory from settings
+        # Get backup directory and retention settings
         settings, _ = get_worker_settings()
         backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+        retention_days = int(settings.get('backup_retention_days', {}).get('setting_value', '7'))
         
         if not backup_dir or backup_dir == '':
             backup_dir = '/data/backup'
@@ -3204,15 +3298,15 @@ def perform_database_backup():
                 message = f"Database backup completed successfully. Size: {file_size_mb:.2f} MB"
                 print(f"[{datetime.now()}] {message}")
                 
-                # Clean up old backups (keep last 7 days)
+                # Clean up old backups based on retention policy
                 # Include both new (.tar.gz) and old (.sql.gz) formats during transition
                 if os.path.exists(backup_dir):
                     backup_files = [f for f in os.listdir(backup_dir) 
                                     if f.endswith('.tar.gz') or (f.startswith('librarrarian_backup_') and f.endswith('.sql.gz'))]
                     backup_files.sort(reverse=True)
                     
-                    # Keep only the 7 most recent backups
-                    for old_backup in backup_files[7:]:
+                    # Keep only the most recent backups based on retention setting
+                    for old_backup in backup_files[retention_days:]:
                         old_backup_path = os.path.join(backup_dir, old_backup)
                         try:
                             os.remove(old_backup_path)
@@ -3247,8 +3341,9 @@ def database_backup_thread():
     while True:
         try:
             with app.app_context():
-                # Get backup time from settings
+                # Get backup settings
                 settings, _ = get_worker_settings()
+                backup_enabled = settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true'
                 backup_time_str = settings.get('backup_time', {}).get('setting_value', '02:00')
                 
                 # Parse the backup time (HH:MM format)
@@ -3267,14 +3362,23 @@ def database_backup_thread():
                 
                 # Calculate seconds to wait
                 seconds_to_wait = (next_backup - now).total_seconds()
-                print(f"[{datetime.now()}] Next database backup scheduled for: {next_backup}")
+                
+                if backup_enabled:
+                    print(f"[{datetime.now()}] Next database backup scheduled for: {next_backup}")
+                else:
+                    print(f"[{datetime.now()}] Database backups are disabled. Next check at: {next_backup}")
             
             # Wait until backup time (outside app context to avoid holding resources)
             time.sleep(seconds_to_wait)
             
-            # Perform the backup within app context
+            # Perform the backup within app context only if enabled
             with app.app_context():
-                perform_database_backup()
+                settings, _ = get_worker_settings()
+                backup_enabled = settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true'
+                if backup_enabled:
+                    perform_database_backup()
+                else:
+                    print(f"[{datetime.now()}] Skipping backup - backups are disabled")
             
         except Exception as e:
             print(f"[{datetime.now()}] Error in database_backup_thread: {e}")

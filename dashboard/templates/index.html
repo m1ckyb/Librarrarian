@@ -516,10 +516,26 @@
                                         <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="debug">Enable Debug Logging</label>
                                     </div>
-                                    <label for="backup_time" class="form-label mt-3"><strong>Database Backup Time</strong></label>
+                                    
+                                    <hr class="my-3">
+                                    
+                                    <h6 class="mt-3"><strong>Database Backup</strong></h6>
+                                    <div class="form-check form-switch mb-2">
+                                        <input class="form-check-input" type="checkbox" role="switch" id="backup_enabled" name="backup_enabled" value="true" {{ 'checked' if settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true' }}>
+                                        <label class="form-check-label" for="backup_enabled"><strong>Enable Automatic Backups</strong></label>
+                                    </div>
+                                    <label for="backup_time" class="form-label mt-2"><strong>Backup Time</strong></label>
                                     <p class="form-text text-body-secondary">Time of day (HH:MM in 24-hour format) to perform automatic daily database backups.</p>
                                     <input type="time" class="form-control" id="backup_time" name="backup_time" value="{{ settings.get('backup_time', {}).get('setting_value', '02:00') }}">
-                                    <button type="button" class="btn btn-outline-primary mt-2" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Run Backup Now</button>
+                                    
+                                    <label for="backup_retention_days" class="form-label mt-3"><strong>Backup Retention (Days)</strong></label>
+                                    <p class="form-text text-body-secondary">Number of backup files to keep. Older backups will be automatically deleted.</p>
+                                    <input type="number" class="form-control" id="backup_retention_days" name="backup_retention_days" value="{{ settings.get('backup_retention_days', {}).get('setting_value', '7') }}" min="1" max="365">
+                                    
+                                    <div class="btn-group mt-3" role="group">
+                                        <button type="button" class="btn btn-outline-primary" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Run Backup Now</button>
+                                        <button type="button" class="btn btn-outline-info" id="manage-backups-btn"><span class="mdi mdi-folder-open"></span> Manage Backups</button>
+                                    </div>
                                     <div id="backup-status" class="mt-2"></div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
@@ -779,6 +795,7 @@
     {% include 'modals/node_options_modal.html' %}
     {% include 'modals/plex_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
+    {% include 'modals/backup_modal.html' %}
 
     <!-- Pass server-side data to JavaScript -->
     <script>

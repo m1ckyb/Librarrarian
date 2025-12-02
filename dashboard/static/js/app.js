@@ -2015,6 +2015,99 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+    
+    // --- Manage Backups Button Handler ---
+    const manageBackupsBtn = document.getElementById('manage-backups-btn');
+    
+    if (manageBackupsBtn) {
+        manageBackupsBtn.addEventListener('click', () => {
+            const backupModal = new bootstrap.Modal(document.getElementById('backupModal'));
+            loadBackupFiles();
+            backupModal.show();
+        });
+    }
+    
+    // Function to load backup files into the modal
+    async function loadBackupFiles() {
+        const tableBody = document.getElementById('backup-files-table-body');
+        const alertDiv = document.getElementById('backup-modal-alert');
+        
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading backup files...</td></tr>';
+        alertDiv.style.display = 'none';
+        
+        try {
+            const response = await fetch('/api/backup/files');
+            const data = await response.json();
+            
+            if (data.success) {
+                if (data.files.length === 0) {
+                    tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No backup files found.</td></tr>';
+                } else {
+                    tableBody.innerHTML = data.files.map(file => `
+                        <tr>
+                            <td style="word-break: break-all;">${file.filename}</td>
+                            <td>${file.size_mb} MB</td>
+                            <td>${file.created}</td>
+                            <td>
+                                <div class="btn-group btn-group-sm" role="group">
+                                    <button class="btn btn-outline-primary" onclick="downloadBackup('${file.filename}')" title="Download backup">
+                                        <span class="mdi mdi-download"></span> Download
+                                    </button>
+                                    <button class="btn btn-outline-danger" onclick="deleteBackup('${file.filename}')" title="Delete backup">
+                                        <span class="mdi mdi-delete"></span> Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    `).join('');
+                }
+            } else {
+                alertDiv.innerHTML = `<div class="alert alert-danger" role="alert">Failed to load backup files: ${data.error}</div>`;
+                alertDiv.style.display = 'block';
+                tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load backup files.</td></tr>';
+            }
+        } catch (error) {
+            console.error('Error loading backup files:', error);
+            alertDiv.innerHTML = `<div class="alert alert-danger" role="alert">An error occurred while loading backup files.</div>`;
+            alertDiv.style.display = 'block';
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load backup files.</td></tr>';
+        }
+    }
+    
+    // Function to download a backup file
+    window.downloadBackup = function(filename) {
+        window.location.href = `/api/backup/download/${encodeURIComponent(filename)}`;
+    };
+    
+    // Function to delete a backup file
+    window.deleteBackup = async function(filename) {
+        if (!confirm(`Are you sure you want to delete the backup file "${filename}"? This action cannot be undone.`)) {
+            return;
+        }
+        
+        const alertDiv = document.getElementById('backup-modal-alert');
+        
+        try {
+            const response = await fetch(`/api/backup/delete/${encodeURIComponent(filename)}`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            
+            if (data.success) {
+                alertDiv.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                alertDiv.style.display = 'block';
+                // Reload the backup files list
+                loadBackupFiles();
+            } else {
+                alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Failed to delete backup: ${data.error}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                alertDiv.style.display = 'block';
+            }
+        } catch (error) {
+            console.error('Error deleting backup:', error);
+            alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while deleting the backup.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            alertDiv.style.display = 'block';
+        }
+    };
 });
 
 // --- Theme Switcher Logic ---

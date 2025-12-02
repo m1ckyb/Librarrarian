@@ -7,10 +7,15 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Database Backup System**: Implemented automated daily database backups to `/data/backup/` directory. Backups are compressed PostgreSQL dumps with timestamps, and the system automatically retains the last 7 backups while removing older ones.
 - **Configurable Backup Time**: Added ability to configure the time of day for automatic database backups in the Maintenance section of Options (default: 02:00)
 - **Manual Backup**: Added "Run Backup Now" button in the Maintenance section to trigger immediate database backups on demand
+- **Backup Management Modal**: Added new "Manage Backups" button in the Maintenance section that opens a modal displaying all backup files with their size and creation date, with options to download or delete individual backups
+- **Backup Enable/Disable Toggle**: Added ability to enable or disable automatic database backups in the Maintenance section (enabled by default)
+- **Configurable Backup Retention**: Added setting to configure how many backup files to keep (default: 7 days). Older backups are automatically deleted when retention limit is exceeded
 
 ### Changed
 - **Backup Filename Format**: Changed database backup filename format from `librarrarian_backup_YYYYMMDD_HHMMSS.sql.gz` to `YYYYMMDD.HHMMSS.tar.gz` for better readability and consistency (note: content is still a gzipped SQL dump, but filename uses .tar.gz extension for standardization)
 - **Options Page Layout**: Removed horizontal lines between settings in the "Transcoding & System" section for a cleaner, more modern appearance
+- **Backup Section Title**: Changed "Database Backup Time" to "Database Backup" in the Maintenance section for better clarity and to accommodate the new enable/disable toggle and retention settings
+- **Backup Cleanup Logic**: Updated backup cleanup to respect the configurable retention policy instead of always keeping exactly 7 backups
 
 ### Fixed
 - **Backup Error Handling**: Improved backup process to properly check both pg_dump and gzip for errors, preventing silent backup corruption. Failed backups now clean up incomplete files automatically.
