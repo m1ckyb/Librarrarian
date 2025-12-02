@@ -975,7 +975,7 @@ def options():
     # Convert hours to minutes for backward compatibility with existing code
     rescan_hours = request.form.get('rescan_delay_hours', '0')
     try:
-        rescan_minutes = str(int(float(rescan_hours) * 60))
+        rescan_minutes = str(round(float(rescan_hours) * 60))
     except (ValueError, TypeError):
         rescan_minutes = '0'
     
