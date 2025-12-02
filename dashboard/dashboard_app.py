@@ -239,7 +239,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 10
+TARGET_SCHEMA_VERSION = 11
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -292,6 +292,10 @@ MIGRATIONS = {
     10: [
         "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS total_duration REAL;",
         "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS job_start_time TIMESTAMP WITH TIME ZONE;"
+    ],
+    # Version 11: Add configurable backup time setting
+    11: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_time', '02:00') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -484,6 +488,7 @@ def initialize_database_if_needed():
                         ('worker_poll_interval', '30'),
                         ('min_length', '0.5'),
                         ('backup_directory', ''),
+                        ('backup_time', '02:00'),
                         ('hardware_acceleration', 'auto'),
                         ('keep_original', 'false'),
                         ('allow_hevc', 'false'),
@@ -957,6 +962,7 @@ def options():
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
+        'backup_time': request.form.get('backup_time', '02:00'),
         'hardware_acceleration': request.form.get('hardware_acceleration', 'auto'),
         'keep_original': 'true' if 'keep_original' in request.form else 'false',
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
@@ -1050,6 +1056,19 @@ def api_settings():
     if db_error:
         return jsonify(settings={}, error=db_error), 500
     return jsonify(settings=settings, dashboard_version=get_project_version())
+
+@app.route('/api/backup/now', methods=['POST'])
+@require_login
+def api_backup_now():
+    """Triggers an immediate database backup."""
+    try:
+        success, message, backup_file = perform_database_backup()
+        if success:
+            return jsonify(success=True, message=message, backup_file=backup_file)
+        else:
+            return jsonify(success=False, error=message), 500
+    except Exception as e:
+        return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
@@ -3104,9 +3123,105 @@ def arr_job_processor_thread():
         # Wait 60 seconds before checking for new internal jobs
         time.sleep(60)
 
+def perform_database_backup():
+    """
+    Performs a database backup. Can be called manually or from scheduled thread.
+    Returns a tuple: (success: bool, message: str, backup_file: str or None)
+    """
+    try:
+        # Get backup directory from settings
+        settings, _ = get_worker_settings()
+        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+        
+        if not backup_dir or backup_dir == '':
+            backup_dir = '/data/backup'
+        
+        # Create backup directory if it doesn't exist
+        os.makedirs(backup_dir, exist_ok=True)
+        
+        # Generate backup filename with new format: YYYYMMDD.HHMMSS.tar.gz
+        timestamp = datetime.now().strftime('%Y%m%d.%H%M%S')
+        backup_file = os.path.join(backup_dir, f'{timestamp}.tar.gz')
+        
+        print(f"[{datetime.now()}] Starting database backup to: {backup_file}")
+        
+        # Use pg_dump to create backup
+        # Get database credentials from environment
+        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_port = os.environ.get('DB_PORT', '5432')
+        db_name = os.environ.get('DB_NAME', 'librarrarian')
+        db_user = os.environ.get('DB_USER', 'transcode')
+        db_password = os.environ.get('DB_PASSWORD', '')
+        
+        # Set PGPASSWORD environment variable for pg_dump
+        env = os.environ.copy()
+        env['PGPASSWORD'] = db_password
+        
+        # Run pg_dump and pipe through tar and gzip
+        pg_dump_cmd = [
+            'pg_dump',
+            '-h', db_host,
+            '-p', db_port,
+            '-U', db_user,
+            '-d', db_name,
+            '--no-password'
+        ]
+        
+        # Execute pg_dump and gzip
+        with open(backup_file, 'wb') as f:
+            pg_dump_process = subprocess.Popen(
+                pg_dump_cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env=env
+            )
+            gzip_process = subprocess.Popen(
+                ['gzip'],
+                stdin=pg_dump_process.stdout,
+                stdout=f,
+                stderr=subprocess.PIPE
+            )
+            
+            pg_dump_process.stdout.close()
+            gzip_stderr = gzip_process.communicate()[1]
+            
+            if gzip_process.returncode == 0:
+                # Get file size for log
+                file_size = os.path.getsize(backup_file)
+                file_size_mb = file_size / (1024 * 1024)
+                message = f"Database backup completed successfully. Size: {file_size_mb:.2f} MB"
+                print(f"[{datetime.now()}] {message}")
+                
+                # Clean up old backups (keep last 7 days)
+                if os.path.exists(backup_dir):
+                    backup_files = [f for f in os.listdir(backup_dir) if f.endswith('.tar.gz')]
+                    backup_files.sort(reverse=True)
+                    
+                    # Keep only the 7 most recent backups
+                    for old_backup in backup_files[7:]:
+                        old_backup_path = os.path.join(backup_dir, old_backup)
+                        try:
+                            os.remove(old_backup_path)
+                            print(f"[{datetime.now()}] Removed old backup: {old_backup}")
+                        except Exception as e:
+                            print(f"[{datetime.now()}] Failed to remove old backup {old_backup}: {e}")
+                
+                return (True, message, backup_file)
+            else:
+                error_msg = f"Database backup failed: gzip returned {gzip_process.returncode}"
+                if gzip_stderr:
+                    error_msg += f" - {gzip_stderr.decode()}"
+                print(f"[{datetime.now()}] {error_msg}")
+                return (False, error_msg, None)
+        
+    except Exception as e:
+        error_msg = f"Error performing database backup: {e}"
+        print(f"[{datetime.now()}] {error_msg}")
+        return (False, error_msg, None)
+
 def database_backup_thread():
     """
-    This background thread performs daily database backups to /data/backup directory.
+    This background thread performs daily database backups at the configured time.
     Backups are created as PostgreSQL dumps with timestamps.
     """
     db_ready_event.wait()
@@ -3114,87 +3229,33 @@ def database_backup_thread():
     
     while True:
         try:
-            # Wait 24 hours between backups
-            time.sleep(86400)  # 24 hours in seconds
-            
-            # Get backup directory from settings
+            # Get backup time from settings
             settings, _ = get_worker_settings()
-            backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+            backup_time_str = settings.get('backup_time', {}).get('setting_value', '02:00')
             
-            if not backup_dir or backup_dir == '':
-                print("[Database Backup] Backup directory not configured, skipping backup.")
-                continue
+            # Parse the backup time (HH:MM format)
+            try:
+                backup_hour, backup_minute = map(int, backup_time_str.split(':'))
+            except:
+                backup_hour, backup_minute = 2, 0  # Default to 2:00 AM
             
-            # Create backup directory if it doesn't exist
-            os.makedirs(backup_dir, exist_ok=True)
+            # Calculate time until next backup
+            now = datetime.now()
+            next_backup = now.replace(hour=backup_hour, minute=backup_minute, second=0, microsecond=0)
             
-            # Generate backup filename with timestamp
-            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            backup_file = os.path.join(backup_dir, f'librarrarian_backup_{timestamp}.sql.gz')
+            # If the backup time has already passed today, schedule for tomorrow
+            if next_backup <= now:
+                next_backup += timedelta(days=1)
             
-            print(f"[{datetime.now()}] Starting database backup to: {backup_file}")
+            # Calculate seconds to wait
+            seconds_to_wait = (next_backup - now).total_seconds()
+            print(f"[{datetime.now()}] Next database backup scheduled for: {next_backup}")
             
-            # Use pg_dump to create backup
-            # Get database credentials from environment
-            db_host = os.environ.get('DB_HOST', 'localhost')
-            db_port = os.environ.get('DB_PORT', '5432')
-            db_name = os.environ.get('DB_NAME', 'librarrarian')
-            db_user = os.environ.get('DB_USER', 'transcode')
-            db_password = os.environ.get('DB_PASSWORD', '')
+            # Wait until backup time
+            time.sleep(seconds_to_wait)
             
-            # Set PGPASSWORD environment variable for pg_dump
-            env = os.environ.copy()
-            env['PGPASSWORD'] = db_password
-            
-            # Run pg_dump and pipe through gzip
-            pg_dump_cmd = [
-                'pg_dump',
-                '-h', db_host,
-                '-p', db_port,
-                '-U', db_user,
-                '-d', db_name,
-                '--no-password'
-            ]
-            
-            # Execute pg_dump and gzip
-            with open(backup_file, 'wb') as f:
-                pg_dump_process = subprocess.Popen(
-                    pg_dump_cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    env=env
-                )
-                gzip_process = subprocess.Popen(
-                    ['gzip'],
-                    stdin=pg_dump_process.stdout,
-                    stdout=f,
-                    stderr=subprocess.PIPE
-                )
-                
-                pg_dump_process.stdout.close()
-                gzip_process.communicate()
-                
-                if gzip_process.returncode == 0:
-                    # Get file size for log
-                    file_size = os.path.getsize(backup_file)
-                    file_size_mb = file_size / (1024 * 1024)
-                    print(f"[{datetime.now()}] Database backup completed successfully. Size: {file_size_mb:.2f} MB")
-                else:
-                    print(f"[{datetime.now()}] Database backup failed: gzip returned {gzip_process.returncode}")
-            
-            # Clean up old backups (keep last 7 days)
-            if os.path.exists(backup_dir):
-                backup_files = [f for f in os.listdir(backup_dir) if f.startswith('librarrarian_backup_') and f.endswith('.sql.gz')]
-                backup_files.sort(reverse=True)
-                
-                # Keep only the 7 most recent backups
-                for old_backup in backup_files[7:]:
-                    old_backup_path = os.path.join(backup_dir, old_backup)
-                    try:
-                        os.remove(old_backup_path)
-                        print(f"[{datetime.now()}] Removed old backup: {old_backup}")
-                    except Exception as e:
-                        print(f"[{datetime.now()}] Failed to remove old backup {old_backup}: {e}")
+            # Perform the backup
+            perform_database_backup()
             
         except Exception as e:
             print(f"[{datetime.now()}] Error in database_backup_thread: {e}")

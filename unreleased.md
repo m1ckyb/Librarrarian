@@ -5,8 +5,12 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Added
 - **Estimated Finish Time**: Active nodes now display an estimated finish time (ETA) badge in the footer when transcoding. The ETA is calculated based on current progress and FPS, providing users with an estimate of when the transcode will complete.
 - **Database Backup System**: Implemented automated daily database backups to `/data/backup/` directory. Backups are compressed PostgreSQL dumps with timestamps, and the system automatically retains the last 7 backups while removing older ones.
+- **Configurable Backup Time**: Added ability to configure the time of day for automatic database backups in the Maintenance section of Options (default: 02:00)
+- **Manual Backup**: Added "Run Backup Now" button in the Maintenance section to trigger immediate database backups on demand
 
 ### Changed
+- **Backup Filename Format**: Changed database backup filename format from `librarrarian_backup_YYYYMMDD_HHMMSS.sql.gz` to `YYYYMMDD.HHMMSS.tar.gz` for better readability and consistency
+- **Options Page Layout**: Removed horizontal lines between settings in the "Transcoding & System" section for a cleaner, more modern appearance
 - Standardized all button styles across the application to use outline buttons (`btn-outline-*`) with consistent color coding and Material Design Icons, matching the style introduced in PR #52 for global node controls
 - Updated button styling guidelines in project documentation (remember.md, GEMINI.md, and copilot-instructions.md)
 - Standardized all badge styles to use outline/border style matching button aesthetic for visual consistency:
