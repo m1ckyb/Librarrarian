@@ -682,6 +682,21 @@ setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls
 // Run initial update on page load
 updateStatus();
 
+// Set up global node control button event listeners
+const startAllNodesBtn = document.getElementById('start-all-nodes-btn');
+const stopAllNodesBtn = document.getElementById('stop-all-nodes-btn');
+const pauseAllNodesBtn = document.getElementById('pause-all-nodes-btn');
+
+if (startAllNodesBtn) {
+    startAllNodesBtn.addEventListener('click', startAllNodes);
+}
+if (stopAllNodesBtn) {
+    stopAllNodesBtn.addEventListener('click', stopAllNodes);
+}
+if (pauseAllNodesBtn) {
+    pauseAllNodesBtn.addEventListener('click', pauseAllNodes);
+}
+
 // Initialize all tooltips on the page after the DOM is ready
 var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
 var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
@@ -1171,6 +1186,70 @@ async function pauseResumeNode(hostname, currentCommand) {
     }
 }
 
+// Global control functions for all nodes
+async function startAllNodes() {
+    try {
+        const response = await fetch('/api/nodes/start-all', {
+            method: 'POST',
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateStatus(); // Refresh UI to show nodes starting
+            if (result.count === 0) {
+                alert('No idle nodes to start.');
+            }
+        } else {
+            alert(`Failed to start all nodes: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error starting all nodes:', error);
+        alert('An error occurred while trying to start all nodes.');
+    }
+}
+
+async function stopAllNodes() {
+    if (!confirm('Are you sure you want to stop all running workers? They will finish their current files and then go idle.')) {
+        return;
+    }
+    try {
+        const response = await fetch('/api/nodes/stop-all', {
+            method: 'POST',
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateStatus(); // Refresh UI to show nodes stopping
+            if (result.count === 0) {
+                alert('No running nodes to stop.');
+            }
+        } else {
+            alert(`Failed to stop all nodes: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error stopping all nodes:', error);
+        alert('An error occurred while trying to stop all nodes.');
+    }
+}
+
+async function pauseAllNodes() {
+    try {
+        const response = await fetch('/api/nodes/pause-all', {
+            method: 'POST',
+        });
+        const result = await response.json();
+        if (result.success) {
+            updateStatus(); // Refresh UI to show nodes pausing
+            if (result.count === 0) {
+                alert('No running nodes to pause.');
+            }
+        } else {
+            alert(`Failed to pause all nodes: ${result.error || 'Unknown error'}`);
+        }
+    } catch (error) {
+        console.error('Error pausing all nodes:', error);
+        alert('An error occurred while trying to pause all nodes.');
+    }
+}
+
 // Placeholder for future per-node options
 let nodeOptionsModal = null;
 function showNodeOptions(hostname) {
@@ -1241,13 +1320,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const mainTabs = document.querySelector('#mainTabs');
     const advancedSwitchContainer = document.querySelector('#advanced-switch-container');
+    const globalNodeControls = document.querySelector('#global-node-controls');
 
-    if (mainTabs && advancedSwitchContainer) {
+    if (mainTabs) {
         mainTabs.addEventListener('shown.bs.tab', function (event) {
-            if (event.target.id === 'options-tab') {
-                advancedSwitchContainer.classList.remove('d-none');
-            } else {
-                advancedSwitchContainer.classList.add('d-none');
+            // Show/hide advanced switch container based on tab
+            if (advancedSwitchContainer) {
+                if (event.target.id === 'options-tab') {
+                    advancedSwitchContainer.classList.remove('d-none');
+                } else {
+                    advancedSwitchContainer.classList.add('d-none');
+                }
+            }
+            
+            // Show/hide global node controls based on tab
+            if (globalNodeControls) {
+                if (event.target.id === 'nodes-tab') {
+                    globalNodeControls.classList.remove('d-none');
+                } else {
+                    globalNodeControls.classList.add('d-none');
+                }
             }
         });
     }
