@@ -7,7 +7,7 @@ import base64
 import json
 import re
 from datetime import datetime, timezone, timedelta
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -247,7 +247,6 @@ def get_local_time_string(dt_utc, format='%H:%M:%S'):
     """
     tz_name = os.environ.get('TZ', 'UTC')
     try:
-        from zoneinfo import ZoneInfoNotFoundError
         local_tz = ZoneInfo(tz_name)
         dt_local = dt_utc.astimezone(local_tz)
         return dt_local.strftime(format)
