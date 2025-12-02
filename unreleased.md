@@ -2,6 +2,9 @@
 
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
+### Added
+- Added `DB_PORT` environment variable support for configuring non-standard PostgreSQL ports in both dashboard and worker services
+
 ### Changed
 - Standardized all progress bars across the dashboard to use a bright, energetic teal color (#1EE4A9) for consistent visual appearance
 
