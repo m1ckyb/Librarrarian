@@ -504,22 +504,7 @@
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <h5>Maintenance</h5>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="auto_update" name="auto_update" value="true" {{ 'checked' if settings.get('auto_update', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="auto_update">Enable Worker Auto-Update</label>
-                                    </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="clean_failures" name="clean_failures" value="true" {{ 'checked' if settings.get('clean_failures', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="clean_failures">Clean Failed Jobs on Start</label>
-                                    </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="debug">Enable Debug Logging</label>
-                                    </div>
-                                    
-                                    <hr class="my-3">
-                                    
-                                    <h6 class="mt-3"><strong>Database Backup</strong></h6>
+                                    <h6><strong>Database Backup</strong></h6>
                                     <div class="form-check form-switch mb-2">
                                         <input class="form-check-input" type="checkbox" role="switch" id="backup_enabled" name="backup_enabled" value="true" {{ 'checked' if settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true' }}>
                                         <label class="form-check-label" for="backup_enabled"><strong>Enable Automatic Backups</strong></label>
@@ -553,9 +538,9 @@
                             <div class="col-md-6">
                                 <div class="mb-3 p-3 border rounded">
                                     <h5>Transcoding &amp; System</h5>
-                                    <label for="rescan_delay_minutes" class="form-label"><strong>Automatic Rescan Delay</strong></label>
-                                    <p class="form-text text-body-secondary">Time in minutes between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
-                                    <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
+                                    <label for="rescan_delay_hours" class="form-label"><strong>Automatic Rescan Delay</strong></label>
+                                    <p class="form-text text-body-secondary">Time in hours between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
+                                    <input type="number" class="form-control" id="rescan_delay_hours" name="rescan_delay_hours" value="{{ (settings.get('rescan_delay_minutes', {}).get('setting_value', '0') | int / 60) | round(2) }}" min="0" step="0.25">
                                     <label for="worker_poll_interval" class="form-label mt-3"><strong>Worker Poll Interval</strong></label>
                                     <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
                                     <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">

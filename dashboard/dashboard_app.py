@@ -41,7 +41,7 @@ app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev"
 # This filter will suppress noisy polling endpoints from appearing in the logs.
 class HealthCheckFilter(logging.Filter):
     # Endpoints to suppress from logs (these are polled frequently by the UI)
-    SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status']
+    SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status', '/api/health']
 
     def filter(self, record):
         # The log message for an access log is in record.args
@@ -501,9 +501,6 @@ def initialize_database_if_needed():
                         ('allow_hevc', 'false'),
                         ('allow_av1', 'false'),
                         ('allow_vp9', 'false'),
-                        ('auto_update', 'false'),
-                        ('clean_failures', 'false'),
-                        ('debug', 'false'),
                         ('plex_url', ''),
                         ('plex_token', ''),
                         ('plex_libraries', ''),
@@ -975,9 +972,16 @@ def options():
     except (ValueError, TypeError):
         retention_days_str = '7'  # Default to 7 if invalid
     
+    # Convert hours to minutes for backward compatibility with existing code
+    rescan_hours = request.form.get('rescan_delay_hours', '0')
+    try:
+        rescan_minutes = str(round(float(rescan_hours) * 60))
+    except (ValueError, TypeError):
+        rescan_minutes = '0'
+    
     settings_to_update = {
         'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
-        'rescan_delay_minutes': request.form.get('rescan_delay_minutes', '0'),
+        'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
@@ -989,9 +993,6 @@ def options():
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
         'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
-        'auto_update': 'true' if 'auto_update' in request.form else 'false',
-        'clean_failures': 'true' if 'clean_failures' in request.form else 'false',
-        'debug': 'true' if 'debug' in request.form else 'false',
         'plex_url': request.form.get('plex_url', ''),
         'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
         'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
@@ -1097,11 +1098,8 @@ def api_backup_files():
     Note: Authentication is enforced by the @app.before_request hook.
     """
     try:
-        settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         if not os.path.exists(backup_dir):
             return jsonify(success=True, files=[])
@@ -1142,11 +1140,8 @@ def api_backup_download(filename):
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify(success=False, error="Invalid filename"), 400
         
-        settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         filepath = os.path.join(backup_dir, filename)
         
@@ -1170,11 +1165,8 @@ def api_backup_delete(filename):
         if '..' in filename or '/' in filename or '\\' in filename:
             return jsonify(success=False, error="Invalid filename"), 400
         
-        settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         filepath = os.path.join(backup_dir, filename)
         
@@ -3247,9 +3239,8 @@ def perform_database_backup():
     Returns a tuple: (success: bool, message: str, backup_file: str or None)
     """
     try:
-        # Get backup directory and retention settings
+        # Get retention settings
         settings, _ = get_worker_settings()
-        backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
         
         # Safely parse retention days with validation
         try:
@@ -3263,8 +3254,8 @@ def perform_database_backup():
             print(f"[{datetime.now()}] Warning: Invalid backup_retention_days value, using default of 7")
             retention_days = 7
         
-        if not backup_dir or backup_dir == '':
-            backup_dir = '/data/backup'
+        # Database backups are stored in a fixed location, not the user-configurable backup_directory
+        backup_dir = '/data/backup'
         
         # Create backup directory if it doesn't exist
         os.makedirs(backup_dir, exist_ok=True)
