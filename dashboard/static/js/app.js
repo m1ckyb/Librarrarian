@@ -2027,6 +2027,13 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
     
+    // Helper function to escape HTML to prevent XSS
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
     // Function to load backup files into the modal
     async function loadBackupFiles() {
         const tableBody = document.getElementById('backup-files-table-body');
@@ -2043,26 +2050,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (data.files.length === 0) {
                     tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-muted">No backup files found.</td></tr>';
                 } else {
-                    tableBody.innerHTML = data.files.map(file => `
+                    tableBody.innerHTML = data.files.map(file => {
+                        const safeFilename = escapeHtml(file.filename);
+                        const safeSizeMb = escapeHtml(String(file.size_mb));
+                        const safeCreated = escapeHtml(file.created);
+                        return `
                         <tr>
-                            <td style="word-break: break-all;">${file.filename}</td>
-                            <td>${file.size_mb} MB</td>
-                            <td>${file.created}</td>
+                            <td style="word-break: break-all;">${safeFilename}</td>
+                            <td>${safeSizeMb} MB</td>
+                            <td>${safeCreated}</td>
                             <td>
                                 <div class="btn-group btn-group-sm" role="group">
-                                    <button class="btn btn-outline-primary" onclick="downloadBackup('${file.filename}')" title="Download backup">
+                                    <button class="btn btn-outline-primary" onclick="downloadBackup('${safeFilename}')" title="Download backup">
                                         <span class="mdi mdi-download"></span> Download
                                     </button>
-                                    <button class="btn btn-outline-danger" onclick="deleteBackup('${file.filename}')" title="Delete backup">
+                                    <button class="btn btn-outline-danger" onclick="deleteBackup('${safeFilename}')" title="Delete backup">
                                         <span class="mdi mdi-delete"></span> Delete
                                     </button>
                                 </div>
                             </td>
                         </tr>
-                    `).join('');
+                    `}).join('');
                 }
             } else {
-                alertDiv.innerHTML = `<div class="alert alert-danger" role="alert">Failed to load backup files: ${data.error}</div>`;
+                const safeError = escapeHtml(data.error || 'Unknown error');
+                alertDiv.innerHTML = `<div class="alert alert-danger" role="alert">Failed to load backup files: ${safeError}</div>`;
                 alertDiv.style.display = 'block';
                 tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load backup files.</td></tr>';
             }
@@ -2094,12 +2106,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             
             if (data.success) {
-                alertDiv.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                const safeMessage = escapeHtml(data.message);
+                alertDiv.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">${safeMessage}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 alertDiv.style.display = 'block';
                 // Reload the backup files list
                 loadBackupFiles();
             } else {
-                alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Failed to delete backup: ${data.error}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                const safeError = escapeHtml(data.error || 'Unknown error');
+                alertDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Failed to delete backup: ${safeError}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 alertDiv.style.display = 'block';
             }
         } catch (error) {

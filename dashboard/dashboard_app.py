@@ -1101,11 +1101,16 @@ def api_backup_files():
                     'filename': filename,
                     'size': stat.st_size,
                     'size_mb': round(stat.st_size / (1024 * 1024), 2),
-                    'created': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S')
+                    'created': datetime.fromtimestamp(stat.st_mtime).strftime('%Y-%m-%d %H:%M:%S'),
+                    'mtime': stat.st_mtime  # Store the timestamp for proper sorting
                 })
         
-        # Sort by creation time, newest first
-        backup_files.sort(key=lambda x: x['created'], reverse=True)
+        # Sort by creation time (using timestamp), newest first
+        backup_files.sort(key=lambda x: x['mtime'], reverse=True)
+        
+        # Remove the mtime field before returning to client
+        for f in backup_files:
+            del f['mtime']
         
         return jsonify(success=True, files=backup_files)
     except Exception as e:
@@ -3224,7 +3229,18 @@ def perform_database_backup():
         # Get backup directory and retention settings
         settings, _ = get_worker_settings()
         backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
-        retention_days = int(settings.get('backup_retention_days', {}).get('setting_value', '7'))
+        
+        # Safely parse retention days with validation
+        try:
+            retention_days = int(settings.get('backup_retention_days', {}).get('setting_value', '7'))
+            # Ensure retention is within reasonable bounds
+            if retention_days < 1:
+                retention_days = 1
+            elif retention_days > 365:
+                retention_days = 365
+        except (ValueError, TypeError):
+            print(f"[{datetime.now()}] Warning: Invalid backup_retention_days value, using default of 7")
+            retention_days = 7
         
         if not backup_dir or backup_dir == '':
             backup_dir = '/data/backup'
