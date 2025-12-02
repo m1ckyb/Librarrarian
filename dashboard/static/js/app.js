@@ -1980,6 +1980,41 @@ document.addEventListener('DOMContentLoaded', () => {
             statusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
         }
     }
+
+    // --- Backup Now Button Handler ---
+    const backupNowBtn = document.getElementById('backup-now-btn');
+    const backupStatus = document.getElementById('backup-status');
+    
+    if (backupNowBtn && backupStatus) {
+        backupNowBtn.addEventListener('click', async () => {
+            // Disable button and show loading state
+            backupNowBtn.disabled = true;
+            backupNowBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Running backup...';
+            backupStatus.innerHTML = '';
+            
+            try {
+                const response = await fetch('/api/backup/now', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    backupStatus.innerHTML = `<div class="alert alert-success alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                } else {
+                    backupStatus.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Backup failed: ${data.error}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                }
+            } catch (error) {
+                console.error('Error running backup:', error);
+                backupStatus.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">An error occurred while running the backup.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            } finally {
+                // Re-enable button
+                backupNowBtn.disabled = false;
+                backupNowBtn.innerHTML = '<span class="mdi mdi-database-export"></span> Run Backup Now';
+            }
+        });
+    }
 });
 
 // --- Theme Switcher Logic ---

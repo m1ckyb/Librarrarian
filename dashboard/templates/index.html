@@ -516,6 +516,11 @@
                                         <input class="form-check-input" type="checkbox" role="switch" id="debug" name="debug" value="true" {{ 'checked' if settings.get('debug', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="debug">Enable Debug Logging</label>
                                     </div>
+                                    <label for="backup_time" class="form-label mt-3"><strong>Database Backup Time</strong></label>
+                                    <p class="form-text text-body-secondary">Time of day (HH:MM in 24-hour format) to perform automatic daily database backups.</p>
+                                    <input type="time" class="form-control" id="backup_time" name="backup_time" value="{{ settings.get('backup_time', {}).get('setting_value', '02:00') }}">
+                                    <button type="button" class="btn btn-outline-primary mt-2" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Run Backup Now</button>
+                                    <div id="backup-status" class="mt-2"></div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
                                     <h5>File Handling</h5>
@@ -535,16 +540,13 @@
                                     <label for="rescan_delay_minutes" class="form-label"><strong>Automatic Rescan Delay</strong></label>
                                     <p class="form-text text-body-secondary">Time in minutes between automatic Plex library scans. Set to 0 to disable automatic scanning.</p>
                                     <input type="number" class="form-control" id="rescan_delay_minutes" name="rescan_delay_minutes" value="{{ settings.get('rescan_delay_minutes', {}).get('setting_value', '0') }}" min="0">
-                                    <hr>
-                                    <label for="worker_poll_interval" class="form-label"><strong>Worker Poll Interval</strong></label>
+                                    <label for="worker_poll_interval" class="form-label mt-3"><strong>Worker Poll Interval</strong></label>
                                     <p class="form-text text-body-secondary">Time in seconds a worker waits before asking for a new job when the queue is empty.</p>
                                     <input type="number" class="form-control" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="5">
-                                    <hr>
-                                    <label for="min_length" class="form-label"><strong>Minimum Video Length</strong></label>
+                                    <label for="min_length" class="form-label mt-3"><strong>Minimum Video Length</strong></label>
                                     <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
                                     <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">
-                                    <hr>
-                                    <label class="form-label"><strong>Hardware Acceleration</strong></label>
+                                    <label class="form-label mt-3"><strong>Hardware Acceleration</strong></label>
                                     <p class="form-text text-body-secondary">Force a specific hardware encoder. 'Auto' lets the worker decide.</p>
                                     {% set accel = settings.get('hardware_acceleration', {}).get('setting_value', 'auto') %}
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_auto" value="auto" {{ 'checked' if accel == 'auto' }}><label class="form-check-label" for="accel_auto">Auto</label></div>
@@ -552,8 +554,7 @@
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_qsv" value="qsv" {{ 'checked' if accel == 'qsv' }}><label class="form-check-label" for="accel_qsv">Intel QSV</label></div>
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_vaapi" value="vaapi" {{ 'checked' if accel == 'vaapi' }}><label class="form-check-label" for="accel_vaapi">VA-API</label></div>
                                     <div class="form-check"><input class="form-check-input" type="radio" name="hardware_acceleration" id="accel_cpu" value="cpu" {{ 'checked' if accel == 'cpu' }}><label class="form-check-label" for="accel_cpu">CPU Only</label></div>
-                                    <hr>
-                                    <label class="form-label"><strong>Codecs Eligible for Re-Encoding</strong></label>
+                                    <label class="form-label mt-3"><strong>Codecs Eligible for Re-Encoding</strong></label>
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" role="switch" id="allow_hevc" name="allow_hevc" value="true" {{ 'checked' if settings.get('allow_hevc', {}).get('setting_value') == 'true' }}>
                                         <label class="form-check-label" for="allow_hevc">HEVC (H.265)</label>
