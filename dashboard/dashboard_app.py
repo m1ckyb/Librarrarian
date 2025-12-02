@@ -7,6 +7,7 @@ import base64
 import json
 import re
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -1345,8 +1346,17 @@ def api_status():
                     remaining_seconds = estimated_total_time - elapsed
                     
                     if remaining_seconds > 0:
-                        eta = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
-                        node['eta'] = eta.strftime('%H:%M:%S')
+                        eta_utc = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
+                        # Convert to configured timezone (from TZ environment variable)
+                        tz_name = os.environ.get('TZ', 'UTC')
+                        try:
+                            local_tz = ZoneInfo(tz_name)
+                            eta_local = eta_utc.astimezone(local_tz)
+                            node['eta'] = eta_local.strftime('%H:%M:%S')
+                        except Exception as tz_error:
+                            # Fallback to UTC if timezone conversion fails
+                            print(f"Warning: Could not convert to timezone '{tz_name}': {tz_error}. Using UTC.")
+                            node['eta'] = eta_utc.strftime('%H:%M:%S')
                         node['eta_seconds'] = int(remaining_seconds)
                     else:
                         node['eta'] = 'N/A'
@@ -1362,12 +1372,22 @@ def api_status():
             node['eta'] = None
             node['eta_seconds'] = 0
 
+    # Get current time in configured timezone
+    tz_name = os.environ.get('TZ', 'UTC')
+    try:
+        local_tz = ZoneInfo(tz_name)
+        last_updated_time = datetime.now(timezone.utc).astimezone(local_tz).strftime('%H:%M:%S')
+    except Exception as tz_error:
+        # Fallback to UTC if timezone conversion fails
+        print(f"Warning: Could not convert to timezone '{tz_name}': {tz_error}. Using UTC.")
+        last_updated_time = datetime.now(timezone.utc).strftime('%H:%M:%S')
+    
     return jsonify(
         nodes=nodes,
         fail_count=fail_count,
         db_error=db_error,
         queue_paused=settings.get('pause_job_distribution', {}).get('setting_value') == 'true',
-        last_updated=datetime.now().strftime('%H:%M:%S')
+        last_updated=last_updated_time
     )
 
 @app.route('/api/failures', methods=['GET'])
