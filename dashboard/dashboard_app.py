@@ -3246,33 +3246,35 @@ def database_backup_thread():
     
     while True:
         try:
-            # Get backup time from settings
-            settings, _ = get_worker_settings()
-            backup_time_str = settings.get('backup_time', {}).get('setting_value', '02:00')
+            with app.app_context():
+                # Get backup time from settings
+                settings, _ = get_worker_settings()
+                backup_time_str = settings.get('backup_time', {}).get('setting_value', '02:00')
+                
+                # Parse the backup time (HH:MM format)
+                try:
+                    backup_hour, backup_minute = map(int, backup_time_str.split(':'))
+                except:
+                    backup_hour, backup_minute = 2, 0  # Default to 2:00 AM
+                
+                # Calculate time until next backup
+                now = datetime.now()
+                next_backup = now.replace(hour=backup_hour, minute=backup_minute, second=0, microsecond=0)
+                
+                # If the backup time has already passed today, schedule for tomorrow
+                if next_backup <= now:
+                    next_backup += timedelta(days=1)
+                
+                # Calculate seconds to wait
+                seconds_to_wait = (next_backup - now).total_seconds()
+                print(f"[{datetime.now()}] Next database backup scheduled for: {next_backup}")
             
-            # Parse the backup time (HH:MM format)
-            try:
-                backup_hour, backup_minute = map(int, backup_time_str.split(':'))
-            except:
-                backup_hour, backup_minute = 2, 0  # Default to 2:00 AM
-            
-            # Calculate time until next backup
-            now = datetime.now()
-            next_backup = now.replace(hour=backup_hour, minute=backup_minute, second=0, microsecond=0)
-            
-            # If the backup time has already passed today, schedule for tomorrow
-            if next_backup <= now:
-                next_backup += timedelta(days=1)
-            
-            # Calculate seconds to wait
-            seconds_to_wait = (next_backup - now).total_seconds()
-            print(f"[{datetime.now()}] Next database backup scheduled for: {next_backup}")
-            
-            # Wait until backup time
+            # Wait until backup time (outside app context to avoid holding resources)
             time.sleep(seconds_to_wait)
             
-            # Perform the backup
-            perform_database_backup()
+            # Perform the backup within app context
+            with app.app_context():
+                perform_database_backup()
             
         except Exception as e:
             print(f"[{datetime.now()}] Error in database_backup_thread: {e}")
