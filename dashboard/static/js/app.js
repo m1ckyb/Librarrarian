@@ -430,6 +430,11 @@ function resumeScanUI(scanType, scanSource) {
 // Function to create an HTML element for a single node
 function createNodeCard(node) {
     const isIdle = node.status === 'idle' || node.percent === 0;
+    const isPaused = node.command === 'paused';
+    const pauseButtonIcon = isPaused ? 'play' : 'pause';
+    const pauseButtonText = isPaused ? 'Resume' : 'Pause';
+    const pauseButtonDisabled = node.command === 'idle' || node.status === 'offline' ? 'disabled' : '';
+    
     return `
     <div class="card mb-3">
         <div id="node-${node.hostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
@@ -442,7 +447,7 @@ function createNodeCard(node) {
                     <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
                     <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}><span class="mdi mdi-play"></span> Start</button>
                     <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}><span class="mdi mdi-stop"></span> Stop</button>
-                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}><span class="mdi mdi-${node.command === 'paused' ? 'play' : 'pause'}"></span> ${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
+                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseButtonDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
                 </div>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
             </div>
