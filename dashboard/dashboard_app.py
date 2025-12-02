@@ -7,6 +7,7 @@ import base64
 import json
 import re
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -232,6 +233,31 @@ def get_project_version():
             return open(version_file, 'r').read().strip()
         except FileNotFoundError:
             return "unknown"
+
+def get_local_time_string(dt_utc, format='%H:%M:%S'):
+    """
+    Converts a UTC datetime to the configured timezone and formats it as a string.
+    
+    Args:
+        dt_utc: A timezone-aware datetime object in UTC
+        format: The strftime format string (default: '%H:%M:%S')
+    
+    Returns:
+        A formatted time string in the configured timezone
+    """
+    tz_name = os.environ.get('TZ', 'UTC')
+    try:
+        local_tz = ZoneInfo(tz_name)
+        dt_local = dt_utc.astimezone(local_tz)
+        return dt_local.strftime(format)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        # Fallback to UTC if timezone conversion fails
+        logging.warning(f"Could not convert to timezone '{tz_name}': {e}. Using UTC.")
+        return dt_utc.strftime(format)
+    except Exception as e:
+        # Catch any other unexpected errors
+        logging.error(f"Unexpected error converting timezone '{tz_name}': {e}. Using UTC.")
+        return dt_utc.strftime(format)
 
 # Print a startup banner to the logs
 print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
@@ -1345,8 +1371,9 @@ def api_status():
                     remaining_seconds = estimated_total_time - elapsed
                     
                     if remaining_seconds > 0:
-                        eta = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
-                        node['eta'] = eta.strftime('%H:%M:%S')
+                        eta_utc = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
+                        # Convert to configured timezone (from TZ environment variable)
+                        node['eta'] = get_local_time_string(eta_utc)
                         node['eta_seconds'] = int(remaining_seconds)
                     else:
                         node['eta'] = 'N/A'
@@ -1362,12 +1389,15 @@ def api_status():
             node['eta'] = None
             node['eta_seconds'] = 0
 
+    # Get current time in configured timezone
+    last_updated_time = get_local_time_string(datetime.now(timezone.utc))
+    
     return jsonify(
         nodes=nodes,
         fail_count=fail_count,
         db_error=db_error,
         queue_paused=settings.get('pause_job_distribution', {}).get('setting_value') == 'true',
-        last_updated=datetime.now().strftime('%H:%M:%S')
+        last_updated=last_updated_time
     )
 
 @app.route('/api/failures', methods=['GET'])
