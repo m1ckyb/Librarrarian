@@ -77,6 +77,7 @@ API_KEY = os.environ.get('API_KEY')
 # Read DB config from environment variables, with fallbacks for local testing
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "port": int(os.environ.get("DB_PORT", "5432")),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "librarrarian")

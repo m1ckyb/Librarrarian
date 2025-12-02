@@ -81,6 +81,7 @@ def set_security_headers(response):
 # It is recommended to use environment variables for sensitive data
 DB_CONFIG = {
     "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "port": int(os.environ.get("DB_PORT", "5432")),
     "user": os.environ.get("DB_USER", "librarrarian"),
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "librarrarian")
@@ -954,11 +955,11 @@ def api_jobs():
             params = []
             
             if filter_type:
-                where_clauses.append("job_type = %s")
+                where_clauses.append("jobs.job_type = %s")
                 params.append(filter_type)
             
             if filter_status:
-                where_clauses.append("status = %s")
+                where_clauses.append("jobs.status = %s")
                 params.append(filter_status)
             
             where_sql = ""
@@ -979,13 +980,13 @@ def api_jobs():
                 LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
                 {where_sql}
                 ORDER BY
-                    CASE status
+                    CASE jobs.status
                         WHEN 'encoding' THEN 1
                         WHEN 'pending' THEN 2
                         WHEN 'failed' THEN 3
                         ELSE 4
                     END,
-                    created_at DESC
+                    jobs.created_at DESC
                 LIMIT %s OFFSET %s
             """
             params.extend([per_page, offset])
