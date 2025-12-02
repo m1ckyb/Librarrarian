@@ -3004,7 +3004,7 @@ def update_job(job_id):
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
                     # This is a simple approach; a more robust one would map file paths to libraries
-                    print(f"[{datetime.now()}] Triggering Plex library update for all monitored libraries.")
+                    print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")

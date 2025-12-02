@@ -7,3 +7,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Fixed
 - **ETA Calculation Error**: Fixed "can't subtract offset-naive and offset-aware datetimes" error that occurred when calculating ETA for active transcoding jobs. Both the worker and dashboard now use timezone-aware datetime objects (UTC) for consistent time calculations.
+- **Plex Update Log Message**: Clarified log message for post-transcode Plex library updates to distinguish them from automatic scheduled scans. The message now clearly indicates "Post-transcode: Triggering Plex library update to recognize newly encoded file."
