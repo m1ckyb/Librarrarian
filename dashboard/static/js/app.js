@@ -820,7 +820,7 @@ async function updateJobQueue(page = 1) {
                         ''
                     }
                     ${job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
-                        `<button class="btn btn-xs btn-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
+                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
                         ''
                     }
                 </td>
