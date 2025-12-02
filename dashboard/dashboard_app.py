@@ -6,7 +6,7 @@ import uuid
 import base64
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -738,6 +738,7 @@ def validate_worker_session(hostname, session_token):
     if not conn:
         return False, "Database connection failed"
     
+    cur = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         cur.execute("SELECT session_token, status FROM nodes WHERE hostname = %s", (hostname,))
@@ -763,7 +764,8 @@ def validate_worker_session(hostname, session_token):
         print(f"Error validating worker session: {e}")
         return False, f"Session validation error: {e}"
     finally:
-        cur.close()
+        if cur:
+            cur.close()
 
 # ===========================
 # Flask Routes
@@ -836,7 +838,6 @@ def register_worker():
             if stored_token and stored_token != session_token:
                 # Check if the existing worker is still active (heartbeat within last 5 minutes)
                 if last_heartbeat:
-                    from datetime import timezone
                     time_since_heartbeat = (datetime.now(timezone.utc) - last_heartbeat.replace(tzinfo=timezone.utc)).total_seconds()
                     
                     if time_since_heartbeat < 300:  # 5 minutes

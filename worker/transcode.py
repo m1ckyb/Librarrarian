@@ -8,6 +8,7 @@ import subprocess
 import socket
 import threading
 import json
+import secrets
 from pathlib import Path
 import re
 from datetime import datetime
@@ -221,7 +222,6 @@ def detect_hardware_settings(accel_mode):
 
 def generate_session_token():
     """Generates a unique session token for this worker instance."""
-    import secrets
     return secrets.token_hex(32)  # 64 character hex string
 
 def register_with_dashboard():
