@@ -10,6 +10,10 @@ All upcoming features and bug fixes will be documented here until they are part 
   - Prevents job queue conflicts when accidentally starting duplicate workers
   - Allows legitimate workers to rejoin after crashes or restarts
   - Rejects duplicate worker attempts with clear error messages
+- Added global Start All, Stop All, and Pause All buttons on the Active Nodes tab
+  - Buttons are positioned on the right side of the tab bar
+  - Allow controlling all active nodes with a single click
+  - Only affect nodes that are appropriate for the operation (e.g., Start All only starts idle nodes)
 
 ### Changed
 - Standardized all progress bars across the dashboard to use a bright, energetic teal color (#1EE4A9) for consistent visual appearance

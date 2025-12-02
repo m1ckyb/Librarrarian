@@ -1251,6 +1251,72 @@ def api_resume_node(hostname):
         return jsonify(success=False, error=error), 500
     return jsonify(success=True, message=f"Resume command sent to node '{hostname}'.")
 
+@app.route('/api/nodes/start-all', methods=['POST'])
+def api_start_all_nodes():
+    """API endpoint to start all active nodes."""
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Cannot connect to the PostgreSQL database."), 500
+    
+    try:
+        with db.cursor() as cur:
+            # Start all nodes that are either idle or offline (not already running or paused)
+            cur.execute("""
+                UPDATE nodes 
+                SET command = 'running', last_heartbeat = NOW() 
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
+                AND command IN ('idle', 'offline')
+            """)
+            affected_count = cur.rowcount
+        db.commit()
+        return jsonify(success=True, message=f"Start command sent to {affected_count} node(s).", count=affected_count)
+    except Exception as e:
+        return jsonify(success=False, error=f"Database query failed: {e}"), 500
+
+@app.route('/api/nodes/stop-all', methods=['POST'])
+def api_stop_all_nodes():
+    """API endpoint to stop all active nodes."""
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Cannot connect to the PostgreSQL database."), 500
+    
+    try:
+        with db.cursor() as cur:
+            # Stop all nodes that are running or paused (not already idle)
+            cur.execute("""
+                UPDATE nodes 
+                SET command = 'idle', last_heartbeat = NOW() 
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
+                AND command IN ('running', 'paused')
+            """)
+            affected_count = cur.rowcount
+        db.commit()
+        return jsonify(success=True, message=f"Stop command sent to {affected_count} node(s).", count=affected_count)
+    except Exception as e:
+        return jsonify(success=False, error=f"Database query failed: {e}"), 500
+
+@app.route('/api/nodes/pause-all', methods=['POST'])
+def api_pause_all_nodes():
+    """API endpoint to pause all running nodes."""
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Cannot connect to the PostgreSQL database."), 500
+    
+    try:
+        with db.cursor() as cur:
+            # Pause all nodes that are running (not already paused or idle)
+            cur.execute("""
+                UPDATE nodes 
+                SET command = 'paused', last_heartbeat = NOW() 
+                WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
+                AND command = 'running'
+            """)
+            affected_count = cur.rowcount
+        db.commit()
+        return jsonify(success=True, message=f"Pause command sent to {affected_count} node(s).", count=affected_count)
+    except Exception as e:
+        return jsonify(success=False, error=f"Database query failed: {e}"), 500
+
 @app.route('/api/history', methods=['GET'])
 def api_history():
     """Returns the encoding history as JSON."""

@@ -96,6 +96,19 @@
             <li class="nav-item" role="presentation">
                 <button class="nav-link" id="options-tab" data-bs-toggle="tab" data-bs-target="#options-tab-pane" type="button" role="tab">Options</button>
             </li>
+            <li class="nav-item ms-auto d-flex align-items-center d-none" id="global-node-controls">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Global node controls">
+                    <button type="button" class="btn btn-outline-success" id="start-all-nodes-btn" title="Start all idle nodes">
+                        <span class="mdi mdi-play"></span> Start All
+                    </button>
+                    <button type="button" class="btn btn-outline-danger" id="stop-all-nodes-btn" title="Stop all running nodes">
+                        <span class="mdi mdi-stop"></span> Stop All
+                    </button>
+                    <button type="button" class="btn btn-outline-warning" id="pause-all-nodes-btn" title="Pause all running nodes">
+                        <span class="mdi mdi-pause"></span> Pause All
+                    </button>
+                </div>
+            </li>
             <li class="nav-item ms-auto d-flex align-items-center d-none" id="advanced-switch-container">
                  <div class="form-check form-switch">
                     <input class="form-check-input" type="checkbox" role="switch" id="show-advanced-transcoding">
