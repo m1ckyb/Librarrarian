@@ -439,7 +439,7 @@ function createNodeCard(node) {
             </span>
             <div>
                 <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${(node.status !== 'offline' && node.command !== 'idle') ? 'disabled' : ''}>Start</button>
+                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}>Start</button>
                 <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>Stop</button>
                 <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
@@ -1154,8 +1154,8 @@ async function stopNode(hostname) {
 }
 
 // Function to send 'pause' or 'resume' command
-async function pauseResumeNode(hostname, currentStatus) {
-    const action = currentStatus === 'paused' ? 'resume' : 'pause';
+async function pauseResumeNode(hostname, currentCommand) {
+    const action = currentCommand === 'paused' ? 'resume' : 'pause';
     try {
         const response = await fetch(`/api/nodes/${hostname}/${action}`, {
             method: 'POST',
