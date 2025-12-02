@@ -6,6 +6,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Standardized all progress bars across the dashboard to use a bright, energetic teal color (#1EE4A9) for consistent visual appearance
 
 ### Fixed
+- Fixed database query error "column reference 'status' is ambiguous" by qualifying column references with table names in queries that join the `jobs` and `nodes` tables
 - Fixed force remove button logic: Now only shows for encoding jobs when the worker hasn't sent a heartbeat in 10+ minutes (previously showed based on job age, which didn't account for long-running transcodes)
 - Fixed Active Nodes buttons: Start button is now properly disabled when worker is already running; fixed button enable/disable logic to check both worker status and command fields
 - Implemented Options modal for worker nodes with Quit Worker Process functionality (previously the Options button did nothing)
