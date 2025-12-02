@@ -471,7 +471,10 @@ function createNodeCard(node) {
             `}
         </div>
         <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
-            <span class="text-muted small">Uptime: ${node.uptime_str || 'N/A'}</span>
+            <div>
+                <span class="badge badge-outline-secondary">Uptime: ${node.uptime_str || 'N/A'}</span>
+                ${node.eta ? `<span class="badge badge-outline-info ms-2">ETA: ${node.eta}</span>` : ''}
+            </div>
             <div>
             ${node.percent > 0 ? `
                 <span class="badge badge-outline-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
@@ -884,11 +887,14 @@ async function updateHistoryAndStats() {
         // Process Stats
         const statsData = await statsResponse.json();
         const reductionPercent = parseFloat(statsData.stats.total_reduction_percent);
-        let reductionColorClass = 'bg-success';
+        let reductionBorderClass = 'border-success';
+        let reductionTextClass = 'text-success';
         if (reductionPercent < 50) {
-            reductionColorClass = 'bg-danger';
+            reductionBorderClass = 'border-danger';
+            reductionTextClass = 'text-danger';
         } else if (reductionPercent < 75) {
-            reductionColorClass = 'bg-warning text-dark'; // Add text-dark for better contrast on yellow
+            reductionBorderClass = 'border-warning';
+            reductionTextClass = 'text-warning';
         }
 
         statsCardsContainer.innerHTML = `
@@ -901,8 +907,8 @@ async function updateHistoryAndStats() {
             <div class="col-md-3"><div class="card"><div class="card-body">
                 <h5 class="card-title">${statsData.stats.total_original_size_gb} GB</h5><p class="card-text text-muted">Original Size</p>
             </div></div></div>
-            <div class="col-md-3"><div class="card ${reductionColorClass}"><div class="card-body">
-                <h5 class="card-title">${statsData.stats.total_reduction_percent}%</h5><p class="card-text">Average Reduction</p>
+            <div class="col-md-3"><div class="card ${reductionBorderClass}" style="border-width: 2px;"><div class="card-body">
+                <h5 class="card-title ${reductionTextClass}">${statsData.stats.total_reduction_percent}%</h5><p class="card-text text-muted">Average Reduction</p>
             </div></div></div>
         `;
 

@@ -6,7 +6,7 @@ import uuid
 import base64
 import json
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -239,7 +239,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 9
+TARGET_SCHEMA_VERSION = 10
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -287,6 +287,11 @@ MIGRATIONS = {
     # Version 9: Add session token for worker uniqueness enforcement
     9: [
         "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS session_token VARCHAR(64);"
+    ],
+    # Version 10: Add estimated finish time support for transcodes
+    10: [
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS total_duration REAL;",
+        "ALTER TABLE nodes ADD COLUMN IF NOT EXISTS job_start_time TIMESTAMP WITH TIME ZONE;"
     ],
 }
 
@@ -1194,6 +1199,39 @@ def api_status():
         # Re-implement Speed and Codec for the UI
         node['speed'] = round(node.get('fps', 0) / 24, 1) if node.get('fps') else 0.0
         node['codec'] = 'hevc'
+        
+        # Calculate estimated finish time
+        if node.get('total_duration') and node.get('job_start_time') and node.get('progress', 0) > 0:
+            try:
+                total_duration = float(node['total_duration'])
+                progress = float(node.get('progress', 0))
+                job_start = node['job_start_time']
+                
+                # Calculate elapsed time
+                elapsed = (datetime.now() - job_start).total_seconds()
+                
+                # Calculate estimated total time based on current progress
+                if progress > 0:
+                    estimated_total_time = (elapsed / progress) * 100
+                    remaining_seconds = estimated_total_time - elapsed
+                    
+                    if remaining_seconds > 0:
+                        eta = datetime.now() + timedelta(seconds=remaining_seconds)
+                        node['eta'] = eta.strftime('%H:%M:%S')
+                        node['eta_seconds'] = int(remaining_seconds)
+                    else:
+                        node['eta'] = 'N/A'
+                        node['eta_seconds'] = 0
+                else:
+                    node['eta'] = 'Calculating...'
+                    node['eta_seconds'] = 0
+            except Exception as e:
+                print(f"Error calculating ETA: {e}")
+                node['eta'] = 'N/A'
+                node['eta_seconds'] = 0
+        else:
+            node['eta'] = None
+            node['eta_seconds'] = 0
 
     return jsonify(
         nodes=nodes,
@@ -3066,6 +3104,103 @@ def arr_job_processor_thread():
         # Wait 60 seconds before checking for new internal jobs
         time.sleep(60)
 
+def database_backup_thread():
+    """
+    This background thread performs daily database backups to /data/backup directory.
+    Backups are created as PostgreSQL dumps with timestamps.
+    """
+    db_ready_event.wait()
+    print("Database backup thread is now active.")
+    
+    while True:
+        try:
+            # Wait 24 hours between backups
+            time.sleep(86400)  # 24 hours in seconds
+            
+            # Get backup directory from settings
+            settings, _ = get_worker_settings()
+            backup_dir = settings.get('backup_directory', {}).get('setting_value', '/data/backup')
+            
+            if not backup_dir or backup_dir == '':
+                print("[Database Backup] Backup directory not configured, skipping backup.")
+                continue
+            
+            # Create backup directory if it doesn't exist
+            os.makedirs(backup_dir, exist_ok=True)
+            
+            # Generate backup filename with timestamp
+            timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+            backup_file = os.path.join(backup_dir, f'librarrarian_backup_{timestamp}.sql.gz')
+            
+            print(f"[{datetime.now()}] Starting database backup to: {backup_file}")
+            
+            # Use pg_dump to create backup
+            # Get database credentials from environment
+            db_host = os.environ.get('DB_HOST', 'localhost')
+            db_port = os.environ.get('DB_PORT', '5432')
+            db_name = os.environ.get('DB_NAME', 'librarrarian')
+            db_user = os.environ.get('DB_USER', 'transcode')
+            db_password = os.environ.get('DB_PASSWORD', '')
+            
+            # Set PGPASSWORD environment variable for pg_dump
+            env = os.environ.copy()
+            env['PGPASSWORD'] = db_password
+            
+            # Run pg_dump and pipe through gzip
+            pg_dump_cmd = [
+                'pg_dump',
+                '-h', db_host,
+                '-p', db_port,
+                '-U', db_user,
+                '-d', db_name,
+                '--no-password'
+            ]
+            
+            # Execute pg_dump and gzip
+            with open(backup_file, 'wb') as f:
+                pg_dump_process = subprocess.Popen(
+                    pg_dump_cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    env=env
+                )
+                gzip_process = subprocess.Popen(
+                    ['gzip'],
+                    stdin=pg_dump_process.stdout,
+                    stdout=f,
+                    stderr=subprocess.PIPE
+                )
+                
+                pg_dump_process.stdout.close()
+                gzip_process.communicate()
+                
+                if gzip_process.returncode == 0:
+                    # Get file size for log
+                    file_size = os.path.getsize(backup_file)
+                    file_size_mb = file_size / (1024 * 1024)
+                    print(f"[{datetime.now()}] Database backup completed successfully. Size: {file_size_mb:.2f} MB")
+                else:
+                    print(f"[{datetime.now()}] Database backup failed: gzip returned {gzip_process.returncode}")
+            
+            # Clean up old backups (keep last 7 days)
+            if os.path.exists(backup_dir):
+                backup_files = [f for f in os.listdir(backup_dir) if f.startswith('librarrarian_backup_') and f.endswith('.sql.gz')]
+                backup_files.sort(reverse=True)
+                
+                # Keep only the 7 most recent backups
+                for old_backup in backup_files[7:]:
+                    old_backup_path = os.path.join(backup_dir, old_backup)
+                    try:
+                        os.remove(old_backup_path)
+                        print(f"[{datetime.now()}] Removed old backup: {old_backup}")
+                    except Exception as e:
+                        print(f"[{datetime.now()}] Failed to remove old backup {old_backup}: {e}")
+            
+        except Exception as e:
+            print(f"[{datetime.now()}] Error in database_backup_thread: {e}")
+            # Continue running even if backup fails
+            time.sleep(3600)  # Wait 1 hour before retrying on error
+
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
@@ -3075,6 +3210,8 @@ cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
 arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
 arr_job_processor.start()
+backup_thread = threading.Thread(target=database_backup_thread, daemon=True)
+backup_thread.start()
 
 if __name__ == '__main__':
     # For local development, run migrations then start the app

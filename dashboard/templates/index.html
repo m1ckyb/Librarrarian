@@ -146,7 +146,12 @@
                                 {% endif %}
                             </div>
                             <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
-                                <span class="text-muted small">Uptime: {{ node.uptime_str or 'N/A' }}</span>
+                                <div>
+                                    <span class="badge badge-outline-secondary">Uptime: {{ node.uptime_str or 'N/A' }}</span>
+                                    {% if node.eta %}
+                                    <span class="badge badge-outline-info ms-2">ETA: {{ node.eta }}</span>
+                                    {% endif %}
+                                </div>
                                 <div>
                                 {% if node.percent > 0 %}
                                     <span class="badge badge-outline-secondary me-2">FPS: {{ node.fps }}</span>
@@ -660,7 +665,7 @@
                             </div>
 
                         {% else %}
-                            <h5>Sonarr <span class="badge bg-secondary">Disabled</span></h5>
+                            <h5>Sonarr <span class="badge badge-outline-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-sonarr-link">enable the Sonarr integration in the Options tab</a>.
@@ -697,7 +702,7 @@
                             </div>
 
                         {% else %}
-                            <h5>Radarr <span class="badge bg-secondary">Disabled</span></h5>
+                            <h5>Radarr <span class="badge badge-outline-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-radarr-link">enable the Radarr integration in the Options tab</a>.
@@ -740,7 +745,7 @@
                             </div>
 
                         {% else %}
-                            <h5>Lidarr <span class="badge bg-secondary">Disabled</span></h5>
+                            <h5>Lidarr <span class="badge badge-outline-secondary">Disabled</span></h5>
                             <p class="form-text text-body-secondary">
                                 To use these tools, please 
                                 <a href="#" id="enable-lidarr-link">enable the Lidarr integration in the Options tab</a>.
