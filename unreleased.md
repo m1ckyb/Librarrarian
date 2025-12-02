@@ -4,6 +4,12 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Added
 - Added `DB_PORT` environment variable support for configuring non-standard PostgreSQL ports in both dashboard and worker services
+- Implemented worker session token system to prevent multiple workers with the same hostname from operating simultaneously
+  - Workers now generate a unique session token on startup and register with the dashboard
+  - Dashboard validates session tokens on all worker API calls
+  - Prevents job queue conflicts when accidentally starting duplicate workers
+  - Allows legitimate workers to rejoin after crashes or restarts
+  - Rejects duplicate worker attempts with clear error messages
 
 ### Changed
 - Standardized all progress bars across the dashboard to use a bright, energetic teal color (#1EE4A9) for consistent visual appearance
