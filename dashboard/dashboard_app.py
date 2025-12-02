@@ -1261,9 +1261,10 @@ def api_start_all_nodes():
     try:
         with db.cursor() as cur:
             # Start all nodes that are either idle or offline (not already running or paused)
+            # Only update command, not last_heartbeat (heartbeat should only be updated by workers)
             cur.execute("""
                 UPDATE nodes 
-                SET command = 'running', last_heartbeat = NOW() 
+                SET command = 'running' 
                 WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
                 AND command IN ('idle', 'offline')
             """)
@@ -1283,9 +1284,10 @@ def api_stop_all_nodes():
     try:
         with db.cursor() as cur:
             # Stop all nodes that are running or paused (not already idle)
+            # Only update command, not last_heartbeat (heartbeat should only be updated by workers)
             cur.execute("""
                 UPDATE nodes 
-                SET command = 'idle', last_heartbeat = NOW() 
+                SET command = 'idle' 
                 WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
                 AND command IN ('running', 'paused')
             """)
@@ -1305,9 +1307,10 @@ def api_pause_all_nodes():
     try:
         with db.cursor() as cur:
             # Pause all nodes that are running (not already paused or idle)
+            # Only update command, not last_heartbeat (heartbeat should only be updated by workers)
             cur.execute("""
                 UPDATE nodes 
-                SET command = 'paused', last_heartbeat = NOW() 
+                SET command = 'paused' 
                 WHERE last_heartbeat > NOW() - INTERVAL '5 minutes' 
                 AND command = 'running'
             """)
