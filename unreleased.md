@@ -23,6 +23,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Automatic Rescan Delay Input**: Changed from number input to range slider (0-24 hours) with real-time value display showing hours or minutes
 - **Worker Poll Interval Input**: Changed from number input to range slider (0-600 seconds) with real-time value display
 - **Gunicorn Logging**: Reduced log level from "debug" to "info" to minimize Docker container log noise from frequent API polling
+- **Automatic Plex Library Scans Display**: When set to 0, now displays "Disabled" instead of "0 hrs (disabled)" for cleaner UI
+- **Worker Poll Interval Display**: When set to 0, now displays "Disabled" instead of "0s (disabled)" for cleaner UI
 
 ### Fixed
 - **Backup Error Handling**: Improved backup process to properly check both pg_dump and gzip for errors, preventing silent backup corruption. Failed backups now clean up incomplete files automatically.

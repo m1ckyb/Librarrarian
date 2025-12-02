@@ -2320,7 +2320,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function updateRescanDelayDisplay() {
             const hours = parseFloat(rescanDelaySlider.value);
             if (hours === 0) {
-                rescanDelayValue.textContent = '0 hrs (disabled)';
+                rescanDelayValue.textContent = 'Disabled';
             } else if (hours < 1) {
                 const minutes = Math.round(hours * 60);
                 rescanDelayValue.textContent = `${minutes} min`;
@@ -2344,7 +2344,7 @@ document.addEventListener('DOMContentLoaded', () => {
         function updatePollIntervalDisplay() {
             const seconds = parseInt(pollIntervalSlider.value);
             if (seconds === 0) {
-                pollIntervalValue.textContent = '0s (disabled)';
+                pollIntervalValue.textContent = 'Disabled';
             } else {
                 pollIntervalValue.textContent = `${seconds}s`;
             }
