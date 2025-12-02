@@ -1337,7 +1337,7 @@ def api_status():
                 job_start = node['job_start_time']
                 
                 # Calculate elapsed time
-                elapsed = (datetime.now() - job_start).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - job_start).total_seconds()
                 
                 # Calculate estimated total time based on current progress
                 if progress > 0:
@@ -1345,7 +1345,7 @@ def api_status():
                     remaining_seconds = estimated_total_time - elapsed
                     
                     if remaining_seconds > 0:
-                        eta = datetime.now() + timedelta(seconds=remaining_seconds)
+                        eta = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
                         node['eta'] = eta.strftime('%H:%M:%S')
                         node['eta_seconds'] = int(remaining_seconds)
                     else:
@@ -3004,7 +3004,7 @@ def update_job(job_id):
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
                     # This is a simple approach; a more robust one would map file paths to libraries
-                    print(f"[{datetime.now()}] Triggering Plex library update for all monitored libraries.")
+                    print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
