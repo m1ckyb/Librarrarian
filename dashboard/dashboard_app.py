@@ -234,6 +234,32 @@ def get_project_version():
         except FileNotFoundError:
             return "unknown"
 
+def get_local_time_string(dt_utc, format='%H:%M:%S'):
+    """
+    Converts a UTC datetime to the configured timezone and formats it as a string.
+    
+    Args:
+        dt_utc: A timezone-aware datetime object in UTC
+        format: The strftime format string (default: '%H:%M:%S')
+    
+    Returns:
+        A formatted time string in the configured timezone
+    """
+    tz_name = os.environ.get('TZ', 'UTC')
+    try:
+        from zoneinfo import ZoneInfoNotFoundError
+        local_tz = ZoneInfo(tz_name)
+        dt_local = dt_utc.astimezone(local_tz)
+        return dt_local.strftime(format)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        # Fallback to UTC if timezone conversion fails
+        logging.warning(f"Could not convert to timezone '{tz_name}': {e}. Using UTC.")
+        return dt_utc.strftime(format)
+    except Exception as e:
+        # Catch any other unexpected errors
+        logging.error(f"Unexpected error converting timezone '{tz_name}': {e}. Using UTC.")
+        return dt_utc.strftime(format)
+
 # Print a startup banner to the logs
 print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 
@@ -1348,15 +1374,7 @@ def api_status():
                     if remaining_seconds > 0:
                         eta_utc = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
                         # Convert to configured timezone (from TZ environment variable)
-                        tz_name = os.environ.get('TZ', 'UTC')
-                        try:
-                            local_tz = ZoneInfo(tz_name)
-                            eta_local = eta_utc.astimezone(local_tz)
-                            node['eta'] = eta_local.strftime('%H:%M:%S')
-                        except Exception as tz_error:
-                            # Fallback to UTC if timezone conversion fails
-                            print(f"Warning: Could not convert to timezone '{tz_name}': {tz_error}. Using UTC.")
-                            node['eta'] = eta_utc.strftime('%H:%M:%S')
+                        node['eta'] = get_local_time_string(eta_utc)
                         node['eta_seconds'] = int(remaining_seconds)
                     else:
                         node['eta'] = 'N/A'
@@ -1373,14 +1391,7 @@ def api_status():
             node['eta_seconds'] = 0
 
     # Get current time in configured timezone
-    tz_name = os.environ.get('TZ', 'UTC')
-    try:
-        local_tz = ZoneInfo(tz_name)
-        last_updated_time = datetime.now(timezone.utc).astimezone(local_tz).strftime('%H:%M:%S')
-    except Exception as tz_error:
-        # Fallback to UTC if timezone conversion fails
-        print(f"Warning: Could not convert to timezone '{tz_name}': {tz_error}. Using UTC.")
-        last_updated_time = datetime.now(timezone.utc).strftime('%H:%M:%S')
+    last_updated_time = get_local_time_string(datetime.now(timezone.utc))
     
     return jsonify(
         nodes=nodes,
