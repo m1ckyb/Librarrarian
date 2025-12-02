@@ -11,7 +11,7 @@ import json
 import secrets
 from pathlib import Path
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 import requests
 
 # Check for Postgres Driver
@@ -458,7 +458,7 @@ def process_file(filepath, db, settings):
         return False, {"reason": "Invalid or malicious filepath detected", "log": f"Filepath validation failed for: {filepath}"}
     
     print(f"[{datetime.now()}] Starting transcode for: {local_filepath}")
-    job_start_time = datetime.now()
+    job_start_time = datetime.now(timezone.utc)
     db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0, job_start_time=job_start_time)
 
     # --- Get settings from the dashboard ---

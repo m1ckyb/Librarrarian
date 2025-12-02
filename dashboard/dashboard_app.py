@@ -1337,7 +1337,7 @@ def api_status():
                 job_start = node['job_start_time']
                 
                 # Calculate elapsed time
-                elapsed = (datetime.now() - job_start).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - job_start).total_seconds()
                 
                 # Calculate estimated total time based on current progress
                 if progress > 0:
@@ -1345,7 +1345,7 @@ def api_status():
                     remaining_seconds = estimated_total_time - elapsed
                     
                     if remaining_seconds > 0:
-                        eta = datetime.now() + timedelta(seconds=remaining_seconds)
+                        eta = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
                         node['eta'] = eta.strftime('%H:%M:%S')
                         node['eta_seconds'] = int(remaining_seconds)
                     else:
