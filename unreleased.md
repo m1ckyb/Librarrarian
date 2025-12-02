@@ -16,6 +16,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Options Page Layout**: Removed horizontal lines between settings in the "Transcoding & System" section for a cleaner, more modern appearance
 - **Backup Section Title**: Changed "Database Backup Time" to "Database Backup" in the Maintenance section for better clarity and to accommodate the new enable/disable toggle and retention settings
 - **Backup Cleanup Logic**: Updated backup cleanup to respect the configurable retention policy instead of always keeping exactly 7 backups
+- **Automatic Rescan Delay**: Changed from minutes to hours for better usability. Setting to 0 still disables automatic scanning. The UI now displays and accepts hours with 0.25-hour increments (15-minute precision)
 
 ### Fixed
 - **Backup Error Handling**: Improved backup process to properly check both pg_dump and gzip for errors, preventing silent backup corruption. Failed backups now clean up incomplete files automatically.
@@ -35,7 +36,11 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Changelog modal now displays 5 entries per page with pagination controls instead of one long scrollable page
 - **Docker Compose**: Added `./librarrarian:/data` volume mount to dashboard service for backup storage
 
+### Removed
+- **Obsolete Settings**: Removed "Enable Worker Auto-Update", "Clean Failed Jobs on Start", and "Enable Debug Logging" settings from the Maintenance section as they were non-functional and no longer relevant with the Docker-based architecture
+
 ### Fixed
+- **Logging Suppression**: Added `/api/health` to the list of suppressed endpoints to reduce noisy debug log entries. Both `/api/status` and `/api/health` are now filtered from access logs as they are polled frequently by the UI
 - Fixed timezone support in Alpine Docker images by installing `tzdata` package - times will now correctly display in the configured timezone instead of UTC
 - **Pagination Z-Index**: Fixed Job Queue and History pagination page numbers showing through the footer by adding `z-index: 1050` to the footer CSS
 - **Dashboard Startup Error**: Fixed `NameError: name 'require_login' is not defined` that prevented the dashboard from starting. Removed incorrect `@require_login` decorator from `/api/backup/now` endpoint as all routes are already protected by the `@app.before_request` hook
