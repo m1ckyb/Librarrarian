@@ -438,10 +438,12 @@ function createNodeCard(node) {
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
-                <button class="btn btn-sm btn-outline-secondary me-2" onclick="showNodeOptions('${node.hostname}')">Options</button>
-                <button class="btn btn-sm btn-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}>Start</button>
-                <button class="btn btn-sm btn-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>Stop</button>
-                <button class="btn btn-sm btn-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}>${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
+                <div class="btn-group btn-group-sm me-2" role="group">
+                    <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
+                    <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${node.status === 'offline' || node.command === 'idle' ? '' : 'disabled'}><span class="mdi mdi-play"></span> Start</button>
+                    <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}><span class="mdi mdi-stop"></span> Stop</button>
+                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${node.command === 'idle' || node.status === 'offline' ? 'disabled' : ''}><span class="mdi mdi-${node.command === 'paused' ? 'play' : 'pause'}"></span> ${node.command === 'paused' ? 'Resume' : 'Pause'}</button>
+                </div>
                 <span class="badge ${node.version_mismatch ? 'bg-danger' : 'bg-info'}">${node.version || 'N/A'}</span>
             </div>
         </div>

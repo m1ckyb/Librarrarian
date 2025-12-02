@@ -173,22 +173,22 @@
                     <div>
                         <div class="btn-toolbar" role="toolbar" aria-label="Job queue actions">
                             <div class="btn-group me-2" role="group" aria-label="Scan controls">
-                                <button class="btn btn-primary" id="manual-scan-btn" title="Trigger a manual scan of the active media integration"><span class="mdi mdi-sync"></span> Scan Media</button>
+                                <button class="btn btn-outline-primary" id="manual-scan-btn" title="Trigger a manual scan of the active media integration"><span class="mdi mdi-sync"></span> Scan Media</button>
                                 <div class="input-group-text" title="Force the scanner to re-add files that are already in the queue or history">
                                     <input class="form-check-input mt-0" type="checkbox" id="force-rescan-checkbox">
                                     <label class="form-check-label ms-2" for="force-rescan-checkbox">Force</label>
                                 </div>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Main queue controls">
-                                <button class="btn btn-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
+                                <button class="btn btn-outline-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Cleanup and clear controls">
-                                <button class="btn btn-info" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
-                                <button class="btn btn-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
-                                <button class="btn btn-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
+                                <button class="btn btn-outline-info" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
+                                <button class="btn btn-outline-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
+                                <button class="btn btn-outline-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
                             </div>
                             <div class="btn-group" role="group" aria-label="Clear controls">
-                                <button class="btn btn-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
+                                <button class="btn btn-outline-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
                             </div>
                         </div>
                     </div>
@@ -208,7 +208,9 @@
                         </select>
                     </div>
                     <div class="col-md-3 d-flex align-items-end">
-                        <button class="btn btn-sm btn-outline-secondary" id="job-filter-clear" title="Clear all filters"><span class="mdi mdi-filter-off"></span> Clear Filters</button>
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-outline-secondary" id="job-filter-clear" title="Clear all filters"><span class="mdi mdi-filter-off"></span> Clear Filters</button>
+                        </div>
                     </div>
                 </div>
                 <div id="scan-status" class="mb-3"></div>
@@ -254,7 +256,7 @@
                         <div class="w-50">
                             <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node...">
                         </div>
-                        <button class="btn btn-danger" id="clear-history-btn">Clear All History</button>
+                        <button class="btn btn-outline-danger" id="clear-history-btn"><span class="mdi mdi-delete-sweep"></span> Clear All History</button>
                     </div>
                     <!-- Full History Table -->
                     <table class="table table-hover table-sm">
@@ -333,10 +335,10 @@
                                                 <label class="form-label"><strong>Authentication</strong></label>
                                                 <div>
                                                     {% if plex_token %}
-                                                        <button type="button" class="btn btn-danger" id="plex-logout-btn">Unlink Plex Account</button>
+                                                        <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Plex Account</button>
                                                         <div class="mt-2 text-success">✓ Account Linked</div>
                                                     {% else %}
-                                                        <button type="button" class="btn btn-primary" id="plex-login-btn">Link Plex Account</button>
+                                                        <button type="button" class="btn btn-outline-primary" id="plex-login-btn"><span class="mdi mdi-link"></span> Link Plex Account</button>
                                                     {% endif %}
                                                 </div>
                                             </div>
@@ -391,7 +393,7 @@
                                         <p class="form-text text-body-secondary">When a transcode completes, automatically trigger Sonarr to rescan the file and rename it if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.</p>
                                     </div>
 
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <button type="button" class="btn btn-outline-secondary mt-3" onclick="testArrConnection('sonarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="sonarr-test-status" class="mt-2"></div>
                                 </div>
                                 <!-- Radarr Tab -->
@@ -423,7 +425,7 @@
                                         <label class="form-check-label" for="radarr_auto_rename_after_transcode"><strong>Auto-Rename After Transcode</strong></label>
                                         <p class="form-text text-body-secondary">When a transcode completes, automatically trigger Radarr to rescan the file and rename it if your naming format includes codec information (e.g., x265). This follows the renamarr pattern: rescan → update media info → rename.</p>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('radarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <button type="button" class="btn btn-outline-secondary mt-3" onclick="testArrConnection('radarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="radarr-test-status" class="mt-2"></div>
                                 </div>
                                 <!-- Lidarr Tab -->
@@ -449,7 +451,7 @@
                                         <label class="form-check-label" for="lidarr_send_to_queue"><strong>Create Rename Jobs in Queue</strong></label>
                                         <p class="form-text text-body-secondary">If enabled, creates 'Rename Job' entries in the job queue that require approval. If disabled, files are renamed directly via the Lidarr API.</p>
                                     </div>
-                                    <button type="button" class="btn btn-secondary mt-3" onclick="testArrConnection('lidarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
+                                    <button type="button" class="btn btn-outline-secondary mt-3" onclick="testArrConnection('lidarr')"><span class="mdi mdi-lan-check"></span> Test Connection</button>
                                     <div id="lidarr-test-status" class="mt-2"></div>
                                 </div>
                             </div>
@@ -601,7 +603,7 @@
                                 </div>
                             </div>
                         </div>
-                        <button type="submit" class="btn btn-primary">Save Settings</button>
+                        <button type="submit" class="btn btn-outline-primary"><span class="mdi mdi-content-save"></span> Save Settings</button>
                     </form>
                 </div>
             </div>
@@ -629,10 +631,10 @@
                                 </div></div></div>
                             </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
-                            <div class="d-flex justify-content-start align-items-center mb-3">
-                                <button id="sonarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
-                                <button id="sonarr-quality-scan-button" class="btn btn-info me-2"><i class="mdi mdi-television-classic me-1"></i>Scan for Quality</button>
-                                <button id="sonarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            <div class="btn-group mb-3" role="group">
+                                <button id="sonarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
+                                <button id="sonarr-quality-scan-button" class="btn btn-outline-info"><span class="mdi mdi-television-classic"></span> Scan for Quality</button>
+                                <button id="sonarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
                             <!-- Feedback & Progress for Rename Scan -->
@@ -679,9 +681,9 @@
                                 </div></div></div>
                             </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Radarr instance.</p>
-                            <div class="d-flex justify-content-start align-items-center mb-3">
-                                <button id="radarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
-                                <button id="radarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            <div class="btn-group mb-3" role="group">
+                                <button id="radarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
+                                <button id="radarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
                             <!-- Feedback & Progress for Radarr Rename Scan -->
@@ -722,9 +724,9 @@
                                 </div></div></div>
                             </div>
                             <p class="form-text text-body-secondary">Run manual scans against your Lidarr instance.</p>
-                            <div class="d-flex justify-content-start align-items-center mb-3">
-                                <button id="lidarr-rename-scan-button" class="btn btn-primary me-2"><i class="mdi mdi-pen me-1"></i>Scan for Renames</button>
-                                <button id="lidarr-cancel-scan-button" class="btn btn-danger" style="display: none;"><i class="mdi mdi-cancel me-1"></i>Cancel Scan</button>
+                            <div class="btn-group mb-3" role="group">
+                                <button id="lidarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
+                                <button id="lidarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
                             <!-- Feedback & Progress for Lidarr Rename Scan -->
@@ -752,7 +754,7 @@
                     <div class="p-3 border rounded mb-4">
                         <h5>System Cleanup</h5>
                         <p class="form-text text-body-secondary">This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers. This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
-                        <button class="btn btn-warning" id="create-cleanup-jobs-btn">Queue Stale File Cleanup</button>
+                        <button class="btn btn-outline-warning" id="create-cleanup-jobs-btn"><span class="mdi mdi-broom"></span> Queue Stale File Cleanup</button>
                         <div id="cleanup-status" class="mt-3"></div>
                     </div>
 
@@ -760,7 +762,7 @@
                     <div class="p-3 border rounded mb-4">
                         <h5>Data Export</h5>
                         <p class="form-text text-body-secondary">Export all your settings, pending jobs, encoding history, and media source configurations to a JSON file for backup purposes. This can be used to restore your configuration on a new installation in the future.</p>
-                        <a href="/api/export" class="btn btn-secondary" id="export-data-btn"><span class="mdi mdi-download"></span> Export Data</a>
+                        <a href="/api/export" class="btn btn-outline-secondary" id="export-data-btn"><span class="mdi mdi-download"></span> Export Data</a>
                     </div>
                 </div>
             </div>
