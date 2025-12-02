@@ -3183,6 +3183,7 @@ def perform_database_backup():
             
             pg_dump_process.stdout.close()
             gzip_stderr = gzip_process.communicate()[1]
+            pg_dump_process.wait()  # Wait for pg_dump to finish
             pg_dump_stderr = pg_dump_process.stderr.read()
             
             # Check both processes for errors

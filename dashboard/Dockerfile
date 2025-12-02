@@ -19,8 +19,8 @@ FROM python:3.14-alpine3.21
 
 WORKDIR /app
 
-# Install runtime dependencies (iputils for ping, curl for healthchecks, tzdata for timezone support)
-RUN apk add --no-cache iputils curl libffi tzdata
+# Install runtime dependencies (iputils for ping, curl for healthchecks, tzdata for timezone support, postgresql-client for pg_dump)
+RUN apk add --no-cache iputils curl libffi tzdata postgresql-client
 
 # Copy the virtual environment from the builder stage
 COPY --from=builder /opt/venv /opt/venv
