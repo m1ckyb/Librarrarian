@@ -265,7 +265,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 13
+TARGET_SCHEMA_VERSION = 14
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -328,9 +328,44 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_retention_days', '7') ON CONFLICT (setting_name) DO NOTHING;"
     ],
-    # Version 13: Add setting to suppress verbose log messages
+    # Version 13: Add setting to suppress verbose log messages (deprecated in v14, migrated to granular settings)
     13: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('suppress_verbose_logs', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 14: Add Jellyfin support and multi-server capabilities
+    14: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_host', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_api_key', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_libraries', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_from', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_to', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('primary_media_server', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        # Migrate suppress_verbose_logs to new granular logging settings
+        # If suppress_verbose_logs exists, copy its value to the new settings; otherwise use 'false'
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') THEN
+                INSERT INTO worker_settings (setting_name, setting_value)
+                SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs'
+                ON CONFLICT (setting_name) DO NOTHING;
+                
+                INSERT INTO worker_settings (setting_name, setting_value)
+                SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs'
+                ON CONFLICT (setting_name) DO NOTHING;
+            ELSE
+                INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_job_requests', 'false')
+                ON CONFLICT (setting_name) DO NOTHING;
+                
+                INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_plex_updates', 'false')
+                ON CONFLICT (setting_name) DO NOTHING;
+            END IF;
+        END $$;
+        """,
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
 }
 
@@ -510,6 +545,7 @@ def initialize_database_if_needed():
                         scanner_type VARCHAR(50) NOT NULL,
                         media_type VARCHAR(50) NOT NULL,
                         is_hidden BOOLEAN DEFAULT false,
+                        server_type VARCHAR(50) DEFAULT 'plex',
                         UNIQUE(source_name, scanner_type)
                     );
                 """)
@@ -552,7 +588,17 @@ def initialize_database_if_needed():
                         ('lidarr_enabled', 'false'),
                         ('sonarr_auto_rename_after_transcode', 'false'),
                         ('radarr_auto_rename_after_transcode', 'false'),
-                        ('suppress_verbose_logs', 'false')
+                        ('jellyfin_host', ''),
+                        ('jellyfin_api_key', ''),
+                        ('jellyfin_libraries', ''),
+                        ('jellyfin_path_from', ''),
+                        ('jellyfin_path_to', ''),
+                        ('jellyfin_path_mapping_enabled', 'true'),
+                        ('primary_media_server', 'plex'),
+                        ('enable_multi_server', 'false'),
+                        ('hide_job_requests', 'false'),
+                        ('hide_plex_updates', 'false'),
+                        ('hide_jellyfin_updates', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
 
@@ -1063,7 +1109,8 @@ def options():
         rescan_minutes = '0'
     
     settings_to_update = {
-        'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
+        'primary_media_server': request.form.get('primary_media_server', 'plex'),
+        'enable_multi_server': 'true' if 'enable_multi_server' in request.form else 'false',
         'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
@@ -1087,10 +1134,15 @@ def options():
         'plex_path_from': request.form.get('plex_path_from', ''),
         'plex_path_to': request.form.get('plex_path_to', ''),
         'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
+        'jellyfin_path_from': request.form.get('jellyfin_path_from', ''),
+        'jellyfin_path_to': request.form.get('jellyfin_path_to', ''),
+        'jellyfin_path_mapping_enabled': 'true' if 'jellyfin_path_mapping_enabled' in request.form else 'false',
         'sonarr_enabled': 'true' if 'sonarr_enabled' in request.form else 'false',
         'radarr_enabled': 'true' if 'radarr_enabled' in request.form else 'false',
         'lidarr_enabled': 'true' if 'lidarr_enabled' in request.form else 'false',
-        'suppress_verbose_logs': 'true' if 'suppress_verbose_logs' in request.form else 'false',
+        'hide_job_requests': 'true' if 'hide_job_requests' in request.form else 'false',
+        'hide_plex_updates': 'true' if 'hide_plex_updates' in request.form else 'false',
+        'hide_jellyfin_updates': 'true' if 'hide_jellyfin_updates' in request.form else 'false',
     }
     # Add the new *Arr settings
     for arr_type in ['sonarr', 'radarr', 'lidarr']:
@@ -1124,6 +1176,7 @@ def options():
 
             # 2. Update media type and hide status assignments
             all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
+            all_jellyfin_sources = {k.replace('type_jellyfin_', '') for k in request.form if k.startswith('type_jellyfin_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
             for source_name in all_plex_sources:
@@ -1131,8 +1184,18 @@ def options():
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
-                    VALUES (%s, 'plex', %s, %s)
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'plex', %s, %s, 'plex')
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
+
+            for source_name in all_jellyfin_sources:
+                media_type = request.form.get(f'type_jellyfin_{source_name}')
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
@@ -1141,8 +1204,8 @@ def options():
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
-                    VALUES (%s, 'internal', %s, %s)
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'internal', %s, %s, 'internal')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
@@ -1755,6 +1818,127 @@ def plex_logout():
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/jellyfin/login', methods=['POST'])
+def jellyfin_login():
+    """Links a Jellyfin server by saving the host URL and API key."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+
+    if not jellyfin_host or not jellyfin_api_key:
+        return jsonify(success=False, error="Server URL and API key are required."), 400
+
+    # Validate the connection by attempting to fetch libraries
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key. Please check your Jellyfin API key."), 401
+        elif response.status_code != 200:
+            return jsonify(success=False, error=f"Jellyfin server returned error status: {response.status_code}"), 503
+        
+        # Connection successful, save the credentials
+        update_worker_setting('jellyfin_host', jellyfin_host)
+        update_worker_setting('jellyfin_api_key', jellyfin_api_key)
+        return jsonify(success=True, message="Jellyfin server linked successfully!")
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify(success=False, error=f"Failed to connect to Jellyfin: {e}"), 503
+
+@app.route('/api/jellyfin/logout', methods=['POST'])
+def jellyfin_logout():
+    """Unlinks the Jellyfin server by clearing the stored credentials."""
+    success1, error1 = update_worker_setting('jellyfin_api_key', '')
+    success2, error2 = update_worker_setting('jellyfin_host', '')
+    if success1 and success2:
+        return jsonify(success=True, message="Jellyfin server unlinked.")
+    else:
+        return jsonify(success=False, error=error1 or error2), 500
+
+@app.route('/api/jellyfin/libraries', methods=['GET'])
+def jellyfin_get_libraries():
+    """Fetches a list of libraries from the configured Jellyfin server, merged with saved settings."""
+    settings, db_error = get_worker_settings()
+    if db_error: return jsonify(libraries=[], error=db_error), 500
+
+    jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+    jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+
+    if not all([jellyfin_host, jellyfin_api_key]):
+        return jsonify(libraries=[], error="Jellyfin is not configured or authenticated."), 400
+
+    try:
+        # First, get the user ID (we'll use the first user for simplicity)
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        users_response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        users_response.raise_for_status()
+        users = users_response.json()
+        
+        if not users:
+            return jsonify(libraries=[], error="No users found on Jellyfin server."), 400
+        
+        user_id = users[0]['Id']
+        
+        # Fetch libraries (called "Views" in Jellyfin API)
+        views_response = requests.get(
+            f"{jellyfin_host}/Users/{user_id}/Views",
+            headers=headers,
+            timeout=10
+        )
+        views_response.raise_for_status()
+        jellyfin_libraries = views_response.json().get('Items', [])
+        
+        db = get_db()
+        
+        # 1. Fetch saved types from the database into a dictionary
+        saved_types = {}
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'jellyfin'")
+            for row in cur.fetchall():
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+
+        # 2. Fetch libraries from Jellyfin and merge with saved settings
+        result_libraries = []
+        
+        for library in jellyfin_libraries:
+            lib_name = library.get('Name')
+            lib_type = library.get('CollectionType', 'other')
+            lib_id = library.get('Id')
+            
+            # Map Jellyfin types to our types
+            type_mapping = {
+                'movies': 'movie',
+                'tvshows': 'show',
+                'music': 'music',
+                'books': 'other',
+                'photos': 'other',
+                'homevideos': 'other'
+            }
+            mapped_type = type_mapping.get(lib_type, 'other')
+            
+            saved_setting = saved_types.get(lib_name)
+            if saved_setting:
+                result_libraries.append({
+                    'title': lib_name,
+                    'type': saved_setting['type'],
+                    'is_hidden': saved_setting['is_hidden'],
+                    'jellyfin_type': lib_type,
+                    'id': lib_id
+                })
+            else:
+                # If not in our DB, use Jellyfin's info and default to not hidden
+                result_libraries.append({
+                    'title': lib_name,
+                    'type': mapped_type,
+                    'is_hidden': False,
+                    'jellyfin_type': lib_type,
+                    'id': lib_id
+                })
+
+        return jsonify(libraries=result_libraries)
+    except Exception as e:
+        return jsonify(libraries=[], error=f"Could not connect to Jellyfin or process libraries: {e}"), 500
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
@@ -2960,8 +3144,8 @@ def request_job():
     # Check if the queue is paused
     settings, _ = get_worker_settings()
     
-    # Log job request if verbose logging is not suppressed
-    if settings.get('suppress_verbose_logs', {}).get('setting_value') != 'true':
+    # Log job request if not hidden
+    if settings.get('hide_job_requests', {}).get('setting_value') != 'true':
         print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
     
     if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
@@ -3127,8 +3311,8 @@ def update_job(job_id):
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
                     # This is a simple approach; a more robust one would map file paths to libraries
-                    # Log Plex update if verbose logging is not suppressed
-                    if settings.get('suppress_verbose_logs', {}).get('setting_value') != 'true':
+                    # Log Plex update if not hidden
+                    if settings.get('hide_plex_updates', {}).get('setting_value') != 'true':
                         print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
             except Exception as e:

@@ -297,25 +297,31 @@
                     {% endwith %}
 
                     <form method="POST" action="/options" class="mt-4">
-                        <!-- Plex Settings -->
+                        <!-- Media Servers Settings -->
                         <div class="p-3 border rounded mb-4" id="integrations-section">
-                            <h5>Integrations</h5>
-                            <p class="form-text text-body-secondary">Select your primary media scanner. Only one can be active at a time.</p>
+                            <h5>Media Servers</h5>
                             
-                            {% set scanner_type = settings.get('media_scanner_type', {}).get('setting_value', 'plex') %}
+                            {% set primary_media_server = settings.get('primary_media_server', {}).get('setting_value', 'plex') %}
+                            {% set enable_multi_server = settings.get('enable_multi_server', {}).get('setting_value', 'false') == 'true' %}
+                            
                             <div class="mb-3">
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="media_scanner_type" id="scanner_plex" value="plex" {{ 'checked' if scanner_type == 'plex' }}>
-                                    <label class="form-check-label" for="scanner_plex">Plex</label>
-                                </div>
-                                <div class="form-check form-check-inline">
-                                    <input class="form-check-input" type="radio" name="media_scanner_type" id="scanner_internal" value="internal" {{ 'checked' if scanner_type == 'internal' }}>
-                                    <label class="form-check-label" for="scanner_internal">Internal Media Scanner</label>
-                                </div>
+                                <label class="form-label"><strong>Primary Media Server</strong></label>
+                                <p class="form-text text-body-secondary">Select the primary source of truth for your media library.</p>
+                                <select class="form-select" name="primary_media_server" id="primary_media_server">
+                                    <option value="plex" {{ 'selected' if primary_media_server == 'plex' }}>Plex</option>
+                                    <option value="jellyfin" {{ 'selected' if primary_media_server == 'jellyfin' }}>Jellyfin</option>
+                                </select>
+                            </div>
+
+                            <div class="form-check form-switch mb-3">
+                                <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" {{ 'checked' if enable_multi_server }}>
+                                <label class="form-check-label" for="enable_multi_server"><strong>Enable Multiple Servers</strong></label>
+                                <p class="form-text text-body-secondary">Enable syncing file information to both Plex and Jellyfin after transcoding.</p>
                             </div>
 
                             <ul class="nav nav-tabs" id="integrationsTab" role="tablist">
                                 <li class="nav-item" role="presentation"><button class="nav-link active" id="plex-integration-tab" data-bs-toggle="tab" data-bs-target="#plex-integration-pane" type="button">Plex</button></li>
+                                <li class="nav-item" role="presentation"><button class="nav-link" id="jellyfin-integration-tab" data-bs-toggle="tab" data-bs-target="#jellyfin-integration-pane" type="button">Jellyfin</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="internal-integration-tab" data-bs-toggle="tab" data-bs-target="#internal-integration-pane" type="button">Internal</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="sonarr-integration-tab" data-bs-toggle="tab" data-bs-target="#sonarr-integration-pane" type="button">Sonarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="radarr-integration-tab" data-bs-toggle="tab" data-bs-target="#radarr-integration-pane" type="button">Radarr</button></li>
@@ -326,32 +332,48 @@
                                 <!-- Plex Tab -->
                                 <div class="tab-pane fade show active" id="plex-integration-pane" role="tabpanel">
                                     {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
-                                    <div class="row">
-                                        <div class="col-md-6 mb-3">
-                                            <div class="mb-3">
-                                                <label for="plex_url" class="form-label"><strong>Plex Server URL</strong></label>
-                                                <input type="text" class="form-control" id="plex_url" name="plex_url" value="{{ settings.get('plex_url', {}).get('setting_value', '') }}" placeholder="http://192.168.1.100:32400">
-                                            </div>
-                                            <div class="mb-3">
-                                                <label class="form-label"><strong>Authentication</strong></label>
-                                                <div>
-                                                    {% if plex_token %}
-                                                        <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Plex Account</button>
-                                                        <div class="mt-2 text-success">✓ Account Linked</div>
-                                                    {% else %}
-                                                        <button type="button" class="btn btn-outline-primary" id="plex-login-btn"><span class="mdi mdi-link"></span> Link Plex Account</button>
-                                                    {% endif %}
-                                                </div>
-                                            </div>
+                                    <div class="mb-3">
+                                        <label class="form-label"><strong>Authentication</strong></label>
+                                        <div>
+                                            {% if plex_token %}
+                                                <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink</button>
+                                                <div class="mt-2 text-success">✓ Account Linked</div>
+                                            {% else %}
+                                                <button type="button" class="btn btn-outline-primary" id="plex-login-btn"><span class="mdi mdi-link"></span> Link</button>
+                                            {% endif %}
                                         </div>
-                                        <div class="col-md-6 mb-3" id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
-                                            <label class="form-label"><strong>Monitored Libraries</strong></label>
-                                            <div class="form-check form-switch float-end">
-                                                <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
-                                                <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
-                                            </div>
-                                            <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 150px; overflow-y: auto;"></div>
+                                    </div>
+                                    <div id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
+                                        <label class="form-label"><strong>Monitored Libraries</strong></label>
+                                        <div class="form-check form-switch float-end">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
+                                            <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
                                         </div>
+                                        <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Jellyfin Tab -->
+                                <div class="tab-pane fade" id="jellyfin-integration-pane" role="tabpanel">
+                                    {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
+                                    <div class="mb-3">
+                                        <label class="form-label"><strong>Authentication</strong></label>
+                                        <div>
+                                            {% if jellyfin_api_key %}
+                                                <button type="button" class="btn btn-outline-danger" id="jellyfin-logout-btn"><span class="mdi mdi-link-off"></span> Unlink</button>
+                                                <div class="mt-2 text-success">✓ Server Linked</div>
+                                            {% else %}
+                                                <button type="button" class="btn btn-outline-primary" id="jellyfin-login-btn"><span class="mdi mdi-link"></span> Link</button>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                    <div id="jellyfin-libraries-container" {% if not jellyfin_api_key %}style="display: none;"{% endif %}>
+                                        <label class="form-label"><strong>Monitored Libraries</strong></label>
+                                        <div class="form-check form-switch float-end">
+                                            <input class="form-check-input" type="checkbox" role="switch" id="jellyfin-show-hidden-toggle">
+                                            <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
+                                        </div>
+                                        <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
                                     </div>
                                 </div>
                                 <!-- Internal Scanner Tab -->
@@ -499,10 +521,24 @@
                                         <input class="form-check-input" type="checkbox" role="switch" id="clock-24hr" name="clock_24hr" value="true" {{ 'checked' if settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true' }}>
                                         <label class="form-check-label" for="clock-24hr">Use 24-Hour Clock</label>
                                     </div>
+                                    <h6><strong>Logging Options</strong></h6>
+                                    <p class="form-text text-body-secondary small">Control which types of messages appear in Docker logs.</p>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="suppress_verbose_logs" name="suppress_verbose_logs" value="true" {{ 'checked' if settings.get('suppress_verbose_logs', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="suppress_verbose_logs">Suppress Verbose Logs</label>
-                                        <p class="form-text text-body-secondary small">Hide routine operational messages (e.g., job requests, Plex updates) from Docker logs.</p>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="hide_job_requests" name="hide_job_requests" value="true" {{ 'checked' if settings.get('hide_job_requests', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="hide_job_requests">Hide Job Requests</label>
+                                        <p class="form-text text-body-secondary small">Suppress worker job request messages from logs.</p>
+                                    </div>
+                                    {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
+                                    <div class="form-check form-switch" {% if not plex_token %}style="opacity: 0.5;"{% endif %}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="hide_plex_updates" name="hide_plex_updates" value="true" {{ 'checked' if settings.get('hide_plex_updates', {}).get('setting_value') == 'true' }} {% if not plex_token %}disabled{% endif %}>
+                                        <label class="form-check-label" for="hide_plex_updates">Hide Plex Updates</label>
+                                        <p class="form-text text-body-secondary small">Suppress Plex library update notifications from logs.{% if not plex_token %} (Disabled: Plex not linked){% endif %}</p>
+                                    </div>
+                                    {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
+                                    <div class="form-check form-switch" {% if not jellyfin_api_key %}style="opacity: 0.5;"{% endif %}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="hide_jellyfin_updates" name="hide_jellyfin_updates" value="true" {{ 'checked' if settings.get('hide_jellyfin_updates', {}).get('setting_value') == 'true' }} {% if not jellyfin_api_key %}disabled{% endif %}>
+                                        <label class="form-check-label" for="hide_jellyfin_updates">Hide Jellyfin Updates</label>
+                                        <p class="form-text text-body-secondary small">Suppress Jellyfin library update notifications from logs.{% if not jellyfin_api_key %} (Disabled: Jellyfin not linked){% endif %}</p>
                                     </div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
@@ -790,6 +826,7 @@
     {% include 'modals/failures_modal.html' %}
     {% include 'modals/node_options_modal.html' %}
     {% include 'modals/plex_login_modal.html' %}
+    {% include 'modals/jellyfin_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
     {% include 'modals/backup_modal.html' %}
 
