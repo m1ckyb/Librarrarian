@@ -484,6 +484,15 @@ def process_file(filepath, db, settings):
     original_path = Path(local_filepath)
     temp_output_path = original_path.parent / f"tmp_{original_path.name}"
     final_output_path = original_path.with_suffix('.mkv') # Always output to MKV
+    
+    # --- Get original file size before transcoding ---
+    # We do this early because the file could be moved/deleted by external processes
+    # (Plex, Sonarr, etc.) after transcoding completes
+    try:
+        original_size = os.path.getsize(original_path)
+    except FileNotFoundError:
+        print(f"[{datetime.now()}] FAILED: Original file not found before transcode: {original_path}")
+        return False, {"reason": "Original file not found", "log": f"File disappeared before transcoding could start: {original_path}"}
 
     # --- Build FFmpeg Command ---
     ffmpeg_cmd = ["ffmpeg", "-y", "-hide_banner"]
@@ -531,22 +540,40 @@ def process_file(filepath, db, settings):
     # --- Process Results ---
     if process.returncode == 0:
         print(f"[{datetime.now()}] Finished transcode for: {local_filepath}")
-        original_size = os.path.getsize(local_filepath)
+        
+        # Check if temp file was created successfully
+        if not os.path.exists(temp_output_path):
+            print(f"[{datetime.now()}] FAILED: Temporary output file not created: {temp_output_path}")
+            return False, {"reason": "FFmpeg did not create output file", "log": "".join(log_buffer)}
+        
         new_size = os.path.getsize(temp_output_path)
 
         # Handle file replacement
-        if settings.get('keep_original') == 'true':
+        # Check if original file still exists (it might have been moved/deleted by external process)
+        original_exists = os.path.exists(original_path)
+        
+        if not original_exists:
+            print(f"⚠️ WARNING: Original file disappeared during transcode: {original_path}")
+            print(f"  -> This may have been moved/deleted by Plex, Sonarr, or another process")
+            print(f"  -> Skipping original file cleanup, proceeding with temp file rename")
+        elif settings.get('keep_original') == 'true':
             backup_dir_str = settings.get('backup_directory', '')
             if backup_dir_str:
-                backup_path = Path(backup_dir_str) / original_path.name
-                print(f"  -> Moving original to backup: {backup_path}")
-                backup_path.parent.mkdir(parents=True, exist_ok=True)
-                shutil.move(original_path, backup_path)
+                try:
+                    backup_path = Path(backup_dir_str) / original_path.name
+                    print(f"  -> Moving original to backup: {backup_path}")
+                    backup_path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(original_path, backup_path)
+                except FileNotFoundError:
+                    print(f"  -> [WARNING] Original file disappeared before backup could be made, skipping")
             else:
                 print("  -> Keeping original file (no backup directory specified).")
         else:
-            print(f"  -> Deleting original file: {original_path}")
-            os.remove(original_path)
+            try:
+                print(f"  -> Deleting original file: {original_path}")
+                os.remove(original_path)
+            except FileNotFoundError:
+                print(f"  -> [WARNING] Original file was already deleted by another process, skipping")
         
         print(f"  -> Renaming temporary file to final output: {final_output_path}")
         os.rename(temp_output_path, final_output_path)
