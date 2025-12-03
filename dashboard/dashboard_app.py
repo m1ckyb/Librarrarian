@@ -2763,16 +2763,208 @@ def run_plex_scan(force_scan=False):
         scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
         scanner_lock.release()
 
+def run_jellyfin_scan(force_scan=False):
+    """
+    The core logic for scanning Jellyfin libraries. This function is designed to be
+    called ONLY by the background scanner thread.
+    It uses a lock to prevent concurrent scans.
+    """
+    if not scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Scan trigger ignored: A scan is already in progress.")
+        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+
+    try:
+        with app.app_context():
+            # Update progress state at the start
+            scan_progress_state.update({"is_running": True, "current_step": "Initializing Jellyfin scan...", "total_steps": 0, "progress": 0, "scan_source": "jellyfin", "scan_type": "media"})
+            
+            settings, db_error = get_worker_settings()
+
+            if db_error:
+                scan_progress_state.update({"current_step": "Error: Database not available."})
+                return {"success": False, "message": "Database not available."}
+
+            jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+            jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+
+            if not all([jellyfin_host, jellyfin_api_key]):
+                scan_progress_state.update({"current_step": "Error: Jellyfin not fully configured."})
+                return {"success": False, "message": "Jellyfin integration is not fully configured."}
+
+            conn = get_db()
+
+            try:
+                scan_progress_state.update({"current_step": "Connecting to Jellyfin server..."})
+                headers = {'X-Emby-Token': jellyfin_api_key}
+                
+                # Get the first user
+                users_response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+                users_response.raise_for_status()
+                users = users_response.json()
+                
+                if not users:
+                    scan_progress_state.update({"current_step": "Error: No users found on Jellyfin server."})
+                    return {"success": False, "message": "No users found on Jellyfin server."}
+                
+                user_id = users[0]['Id']
+            except requests.exceptions.RequestException as e:
+                scan_progress_state.update({"current_step": f"Error: Could not connect to Jellyfin."})
+                return {"success": False, "message": f"Could not connect to Jellyfin server: {e}"}
+
+            # Get list of libraries to scan from database
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT source_name, media_type 
+                    FROM media_source_types 
+                    WHERE scanner_type = 'jellyfin' AND media_type != 'none' AND NOT is_hidden
+                """)
+                library_settings = cur.fetchall()
+                
+                if not library_settings:
+                    scan_progress_state.update({"current_step": "Error: No Jellyfin libraries configured for scanning."})
+                    return {"success": False, "message": "No Jellyfin libraries configured for scanning."}
+
+                # Only check existing jobs/history if it's NOT a forced scan
+                if force_scan:
+                    existing_jobs = set()
+                    encoded_history = set()
+                else:
+                    cur.execute("SELECT filepath FROM jobs")
+                    existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                    cur.execute("SELECT filename FROM encoded_files")
+                    encoded_history = {row['filename'] for row in cur.fetchall()}
+                
+                # Build list of codecs to skip based on settings
+                skip_codecs = []
+                if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.extend(['hevc', 'h265'])
+                if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.append('av1')
+                if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.append('vp9')
+
+                new_files_found = 0
+                library_names = [lib['source_name'] for lib in library_settings]
+                print(f"[{datetime.now()}] Jellyfin Scanner: Starting scan of libraries: {', '.join(library_names)}")
+                
+                # Get all Jellyfin libraries
+                views_response = requests.get(f"{jellyfin_host}/Users/{user_id}/Views", headers=headers, timeout=10)
+                views_response.raise_for_status()
+                all_jellyfin_libraries = {lib['Name']: lib['Id'] for lib in views_response.json().get('Items', [])}
+                
+                # Map media types to Jellyfin item types
+                media_type_mapping = {
+                    'movie': 'Movie',
+                    'show': 'Episode',
+                    'music': 'Audio',
+                    'other': 'Movie,Episode'  # Fallback for unspecified types
+                }
+                
+                # First pass: count total items for progress tracking
+                total_items = 0
+                for lib_setting in library_settings:
+                    lib_name = lib_setting['source_name']
+                    if lib_name not in all_jellyfin_libraries:
+                        print(f"[{datetime.now()}] Warning: Library '{lib_name}' not found in Jellyfin")
+                        continue
+                    
+                    library_id = all_jellyfin_libraries[lib_name]
+                    media_type = lib_setting.get('media_type', 'other')
+                    item_types = media_type_mapping.get(media_type, 'Movie,Episode')
+                    
+                    try:
+                        count_response = requests.get(
+                            f"{jellyfin_host}/Users/{user_id}/Items",
+                            headers=headers,
+                            params={'ParentId': library_id, 'Recursive': 'true', 'IncludeItemTypes': item_types},
+                            timeout=10
+                        )
+                        count_response.raise_for_status()
+                        total_items += count_response.json().get('TotalRecordCount', 0)
+                    except requests.exceptions.RequestException:
+                        pass
+                
+                scan_progress_state.update({"total_steps": total_items})
+                items_processed = 0
+                
+                for lib_setting in library_settings:
+                    lib_name = lib_setting['source_name']
+                    if lib_name not in all_jellyfin_libraries:
+                        continue
+                        
+                    library_id = all_jellyfin_libraries[lib_name]
+                    media_type = lib_setting.get('media_type', 'other')
+                    item_types = media_type_mapping.get(media_type, 'Movie,Episode')
+                    
+                    print(f"[{datetime.now()}] Jellyfin Scanner: Scanning '{lib_name}'...")
+                    scan_progress_state.update({"current_step": f"Scanning library: {lib_name}"})
+                    
+                    try:
+                        # Get all items from this library
+                        items_response = requests.get(
+                            f"{jellyfin_host}/Users/{user_id}/Items",
+                            headers=headers,
+                            params={
+                                'ParentId': library_id,
+                                'Recursive': 'true',
+                                'IncludeItemTypes': item_types,
+                                'Fields': 'Path,MediaStreams'
+                            },
+                            timeout=30
+                        )
+                        items_response.raise_for_status()
+                        items = items_response.json().get('Items', [])
+                        
+                        for item in items:
+                            items_processed += 1
+                            filepath = item.get('Path')
+                            
+                            if not filepath:
+                                continue
+                            
+                            # Get the video codec from MediaStreams
+                            codec = None
+                            media_streams = item.get('MediaStreams', [])
+                            for stream in media_streams:
+                                if stream.get('Type') == 'Video':
+                                    codec = stream.get('Codec', '').lower()
+                                    break
+                            
+                            scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
+                            
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            if codec and codec not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
+                                print(f"    -> Adding file to queue (codec: {codec}).")
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                if cur.rowcount > 0:
+                                    new_files_found += 1
+                    
+                    except requests.exceptions.RequestException as e:
+                        print(f"[{datetime.now()}] Error scanning Jellyfin library '{lib_name}': {e}")
+                
+                # Commit all the inserts at the end of the scan
+                conn.commit()
+                message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+                scan_progress_state.update({"current_step": message})
+                return {"success": True, "message": message}
+    finally:
+        # Clear progress state after a brief delay to let UI catch the final message
+        time.sleep(2)
+        scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
+        scanner_lock.release()
+
 @app.route('/api/scan/trigger', methods=['POST'])
 def api_trigger_scan():
-    """API endpoint to manually trigger a Plex scan."""
+    """
+    API endpoint to manually trigger a media server scan based on primary_media_server setting.
+    The scanner thread will use force_scan=True for manual scans to ensure a complete rescan.
+    """
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    force = request.json.get('force', False) if request.is_json else False
-    print(f"[{datetime.now()}] Manual scan requested via API (Force: {force}).")
+    print(f"[{datetime.now()}] Manual scan requested via API.")
     
-    # Trigger the background thread to run the scan with the correct force flag
+    # Trigger the background thread to run the scan
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
@@ -3303,20 +3495,36 @@ def update_job(job_id):
                 "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, %s, 'completed')",
                 (job_id, job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
             )
-            # Trigger a Plex library scan
+            
+            # Trigger media server library updates (Plex and/or Jellyfin)
             try:
                 settings, _ = get_worker_settings()
+                
+                # Trigger Plex library scan if configured
                 plex_url = settings.get('plex_url', {}).get('setting_value')
                 plex_token = settings.get('plex_token', {}).get('setting_value')
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
-                    # This is a simple approach; a more robust one would map file paths to libraries
                     # Log Plex update if not hidden
                     if settings.get('hide_plex_updates', {}).get('setting_value') != 'true':
                         print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
+                
+                # Trigger Jellyfin library scan if configured
+                jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+                jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+                if jellyfin_host and jellyfin_api_key:
+                    try:
+                        headers = {'X-Emby-Token': jellyfin_api_key}
+                        # Log Jellyfin update if not hidden
+                        if settings.get('hide_jellyfin_updates', {}).get('setting_value') != 'true':
+                            print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
+                        response = requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
+                        response.raise_for_status()
+                    except requests.exceptions.RequestException as e:
+                        print(f"⚠️ Could not trigger Jellyfin scan: {e}")
             except Exception as e:
-                print(f"⚠️ Could not trigger Plex scan: {e}")
+                print(f"⚠️ Could not trigger media server scan: {e}")
 
             # Trigger Sonarr/Radarr rescan and auto-rename if enabled
             try:
@@ -3349,10 +3557,10 @@ def update_job(job_id):
 # --- Background Threads ---
 
 def plex_scanner_thread():
-    """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    """Main scanner thread that handles media server scans based on primary_media_server setting."""
     # This thread now waits for the db_ready_event before starting its loop.
     db_ready_event.wait()
-    print("Plex Scanner thread is now active.")
+    print("Media Scanner thread is now active.")
 
     while True:
         print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
@@ -3376,16 +3584,32 @@ def plex_scanner_thread():
             print(f"[{datetime.now()}] Manual scan trigger received.")
             with app.app_context():
                 settings, _ = get_worker_settings()
-                scanner_type = settings.get('media_scanner_type', {}).get('setting_value', 'plex')
-                if scanner_type == 'internal':
+                primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
+                
+                # Determine which scanner to use based on primary_media_server
+                if primary_server == 'jellyfin':
+                    run_jellyfin_scan(force_scan=True)
+                elif primary_server == 'internal':
                     run_internal_scan(force_scan=True)
-                else:
+                else:  # default to plex
                     run_plex_scan(force_scan=True)
+                    
             scan_now_event.clear() # Reset the event for the next time
         elif delay > 0:
-            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
-            # This will need to be updated to also check scanner type
-            run_plex_scan(force_scan=False)
+            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic scan.")
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
+                
+                # Trigger automatic scan based on primary server
+                if primary_server == 'jellyfin':
+                    run_jellyfin_scan(force_scan=False)
+                elif primary_server == 'internal':
+                    run_internal_scan(force_scan=False)
+                else:  # default to plex
+                    run_plex_scan(force_scan=False)
+
+
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""

@@ -3,6 +3,9 @@
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
 ### Added
+- **Jellyfin Library Scanning Support**: Added `run_jellyfin_scan()` function that scans Jellyfin libraries for files needing transcoding, following the same pattern as Plex scanning
+- **Post-Transcode Jellyfin Library Updates**: Jellyfin libraries are now automatically refreshed after transcode completion, with proper error handling and respecting the `hide_jellyfin_updates` setting
+- **Primary Server Awareness in Scan Button**: Manual and automatic scans now route to the correct media server (Plex, Jellyfin, or Internal) based on the `primary_media_server` setting
 - **Jellyfin Support**: Added comprehensive support for Jellyfin media server as an alternative or complement to Plex
   - Jellyfin authentication via API key
   - Jellyfin library discovery and management
