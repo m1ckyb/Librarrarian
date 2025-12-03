@@ -265,7 +265,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 13
+TARGET_SCHEMA_VERSION = 14
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -331,6 +331,21 @@ MIGRATIONS = {
     # Version 13: Add setting to suppress verbose log messages
     13: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('suppress_verbose_logs', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 14: Add Jellyfin support and multi-server capabilities
+    14: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_host', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_api_key', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_libraries', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_from', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_to', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('primary_media_server', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_job_requests', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_plex_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
 }
 
@@ -510,6 +525,7 @@ def initialize_database_if_needed():
                         scanner_type VARCHAR(50) NOT NULL,
                         media_type VARCHAR(50) NOT NULL,
                         is_hidden BOOLEAN DEFAULT false,
+                        server_type VARCHAR(50) DEFAULT 'plex',
                         UNIQUE(source_name, scanner_type)
                     );
                 """)
@@ -552,7 +568,18 @@ def initialize_database_if_needed():
                         ('lidarr_enabled', 'false'),
                         ('sonarr_auto_rename_after_transcode', 'false'),
                         ('radarr_auto_rename_after_transcode', 'false'),
-                        ('suppress_verbose_logs', 'false')
+                        ('suppress_verbose_logs', 'false'),
+                        ('jellyfin_host', ''),
+                        ('jellyfin_api_key', ''),
+                        ('jellyfin_libraries', ''),
+                        ('jellyfin_path_from', ''),
+                        ('jellyfin_path_to', ''),
+                        ('jellyfin_path_mapping_enabled', 'true'),
+                        ('primary_media_server', 'plex'),
+                        ('enable_multi_server', 'false'),
+                        ('hide_job_requests', 'false'),
+                        ('hide_plex_updates', 'false'),
+                        ('hide_jellyfin_updates', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
 
@@ -1755,6 +1782,125 @@ def plex_logout():
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/jellyfin/login', methods=['POST'])
+def jellyfin_login():
+    """Links a Jellyfin server by saving the host URL and API key."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+
+    if not jellyfin_host or not jellyfin_api_key:
+        return jsonify(success=False, error="Server URL and API key are required."), 400
+
+    # Validate the connection by attempting to fetch libraries
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Failed to connect to Jellyfin. Status: {response.status_code}"), 401
+        
+        # Connection successful, save the credentials
+        update_worker_setting('jellyfin_host', jellyfin_host)
+        update_worker_setting('jellyfin_api_key', jellyfin_api_key)
+        return jsonify(success=True, message="Jellyfin server linked successfully!")
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify(success=False, error=f"Failed to connect to Jellyfin: {e}"), 401
+
+@app.route('/api/jellyfin/logout', methods=['POST'])
+def jellyfin_logout():
+    """Unlinks the Jellyfin server by clearing the stored credentials."""
+    success1, error1 = update_worker_setting('jellyfin_api_key', '')
+    success2, error2 = update_worker_setting('jellyfin_host', '')
+    if success1 and success2:
+        return jsonify(success=True, message="Jellyfin server unlinked.")
+    else:
+        return jsonify(success=False, error=error1 or error2), 500
+
+@app.route('/api/jellyfin/libraries', methods=['GET'])
+def jellyfin_get_libraries():
+    """Fetches a list of libraries from the configured Jellyfin server, merged with saved settings."""
+    settings, db_error = get_worker_settings()
+    if db_error: return jsonify(libraries=[], error=db_error), 500
+
+    jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+    jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+
+    if not all([jellyfin_host, jellyfin_api_key]):
+        return jsonify(libraries=[], error="Jellyfin is not configured or authenticated."), 400
+
+    try:
+        # First, get the user ID (we'll use the first user for simplicity)
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        users_response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        users_response.raise_for_status()
+        users = users_response.json()
+        
+        if not users:
+            return jsonify(libraries=[], error="No users found on Jellyfin server."), 400
+        
+        user_id = users[0]['Id']
+        
+        # Fetch libraries (called "Views" in Jellyfin API)
+        views_response = requests.get(
+            f"{jellyfin_host}/Users/{user_id}/Views",
+            headers=headers,
+            timeout=10
+        )
+        views_response.raise_for_status()
+        jellyfin_libraries = views_response.json().get('Items', [])
+        
+        db = get_db()
+        
+        # 1. Fetch saved types from the database into a dictionary
+        saved_types = {}
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'jellyfin'")
+            for row in cur.fetchall():
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+
+        # 2. Fetch libraries from Jellyfin and merge with saved settings
+        result_libraries = []
+        
+        for library in jellyfin_libraries:
+            lib_name = library.get('Name')
+            lib_type = library.get('CollectionType', 'other')
+            lib_id = library.get('Id')
+            
+            # Map Jellyfin types to our types
+            type_mapping = {
+                'movies': 'movie',
+                'tvshows': 'show',
+                'music': 'music',
+                'books': 'other',
+                'photos': 'other',
+                'homevideos': 'other'
+            }
+            mapped_type = type_mapping.get(lib_type, 'other')
+            
+            saved_setting = saved_types.get(lib_name)
+            if saved_setting:
+                result_libraries.append({
+                    'title': lib_name,
+                    'type': saved_setting['type'],
+                    'is_hidden': saved_setting['is_hidden'],
+                    'jellyfin_type': lib_type,
+                    'id': lib_id
+                })
+            else:
+                # If not in our DB, use Jellyfin's info and default to not hidden
+                result_libraries.append({
+                    'title': lib_name,
+                    'type': mapped_type,
+                    'is_hidden': False,
+                    'jellyfin_type': lib_type,
+                    'id': lib_id
+                })
+
+        return jsonify(libraries=result_libraries)
+    except Exception as e:
+        return jsonify(libraries=[], error=f"Could not connect to Jellyfin or process libraries: {e}"), 500
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
