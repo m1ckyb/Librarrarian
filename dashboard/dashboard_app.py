@@ -671,7 +671,7 @@ def get_failed_files_list():
             cur.execute("""
                 SELECT 
                     jobs.id,
-                    jobs.file_path as filename,
+                    jobs.filepath as filename,
                     'Stuck transcode - Worker is online but processing other jobs' as reason,
                     jobs.updated_at as reported_at,
                     'Job appears to have failed silently. Worker came back online and started processing higher job IDs.' as log,
