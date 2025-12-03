@@ -447,7 +447,7 @@ function createNodeCard(node) {
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
-                <div class="btn-group btn-group-sm me-2" role="group">
+                <div class="btn-group btn-group-sm me-2" role="group" style="gap: 2px;">
                     <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
                     <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
                     <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
