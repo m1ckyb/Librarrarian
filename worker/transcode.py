@@ -565,7 +565,7 @@ def process_file(filepath, db, settings):
                     backup_path.parent.mkdir(parents=True, exist_ok=True)
                     shutil.move(original_path, backup_path)
                 except FileNotFoundError:
-                    print(f"[{datetime.now()}]   -> Original file disappeared before backup, skipping")
+                    print(f"  -> [WARNING] Original file disappeared before backup could be made, skipping")
             else:
                 print("  -> Keeping original file (no backup directory specified).")
         else:
@@ -573,7 +573,7 @@ def process_file(filepath, db, settings):
                 print(f"  -> Deleting original file: {original_path}")
                 os.remove(original_path)
             except FileNotFoundError:
-                print(f"[{datetime.now()}]   -> Original file already deleted, skipping")
+                print(f"  -> [WARNING] Original file was already deleted by another process, skipping")
         
         print(f"  -> Renaming temporary file to final output: {final_output_path}")
         os.rename(temp_output_path, final_output_path)
