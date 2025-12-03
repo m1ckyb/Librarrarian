@@ -1,3 +1,15 @@
+// --- Utility Functions ---
+/**
+ * Escapes HTML special characters to prevent XSS vulnerabilities
+ * @param {string} text - The text to escape
+ * @returns {string} The escaped text
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // --- Sonarr Tools Logic (Corrected and placed in index.html) ---
 const sonarrRenameScanButton = document.getElementById('sonarr-rename-scan-button');
 const sonarrQualityScanButton = document.getElementById('sonarr-quality-scan-button');
@@ -1719,25 +1731,33 @@ document.addEventListener('DOMContentLoaded', () => {
         const createJellyfinLinkDropdown = (plexLibName) => {
             // Note: Backend handling for library linking needs to be implemented
             // These form fields (link_plex_*) are not yet processed by the server
+            const escapedLibName = escapeHtml(plexLibName);
             const options = ['<option value="">-- None --</option>']
-                .concat(jellyfinLibs.map(jLib => `<option value="${jLib.title}">${jLib.title}</option>`))
+                .concat(jellyfinLibs.map(jLib => {
+                    const escapedTitle = escapeHtml(jLib.title);
+                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                }))
                 .join('');
-            return `<select class="form-select form-select-sm" name="link_plex_${plexLibName}" style="width: 180px;">${options}</select>`;
+            return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
 
         if (data.libraries && data.libraries.length > 0) {
-            container.innerHTML = data.libraries.map(lib => `
+            container.innerHTML = data.libraries.map(lib => {
+                const escapedTitle = escapeHtml(lib.title);
+                const escapedKey = escapeHtml(lib.key);
+                return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 150px;">
-                        <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
+                        <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
+                        <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
-                        ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
+                        ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
                         ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } else {
             container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
         }
@@ -1806,24 +1826,31 @@ document.addEventListener('DOMContentLoaded', () => {
         const createPlexLinkDropdown = (jellyfinLibName) => {
             // Note: Backend handling for library linking needs to be implemented
             // These form fields (link_jellyfin_*) are not yet processed by the server
+            const escapedLibName = escapeHtml(jellyfinLibName);
             const options = ['<option value="">-- None --</option>']
-                .concat(plexLibs.map(pLib => `<option value="${pLib.title}">${pLib.title}</option>`))
+                .concat(plexLibs.map(pLib => {
+                    const escapedTitle = escapeHtml(pLib.title);
+                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                }))
                 .join('');
-            return `<select class="form-select form-select-sm" name="link_jellyfin_${jellyfinLibName}" style="width: 180px;">${options}</select>`;
+            return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
 
         if (data.libraries && data.libraries.length > 0) {
-            container.innerHTML = data.libraries.map(lib => `
+            container.innerHTML = data.libraries.map(lib => {
+                const escapedTitle = escapeHtml(lib.title);
+                return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 150px;">
-                        <label class="form-check-label">${lib.title}</label>
+                        <label class="form-check-label">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
-                        ${createDropdown(`type_jellyfin_${lib.title}`, lib.type)}
+                        ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
                         ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } else {
             container.innerHTML = '<p class="text-muted">No libraries found.</p>';
         }
