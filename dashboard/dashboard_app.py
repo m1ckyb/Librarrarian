@@ -1090,6 +1090,7 @@ def options():
         'sonarr_enabled': 'true' if 'sonarr_enabled' in request.form else 'false',
         'radarr_enabled': 'true' if 'radarr_enabled' in request.form else 'false',
         'lidarr_enabled': 'true' if 'lidarr_enabled' in request.form else 'false',
+        'suppress_verbose_logs': 'true' if 'suppress_verbose_logs' in request.form else 'false',
     }
     # Add the new *Arr settings
     for arr_type in ['sonarr', 'radarr', 'lidarr']:
