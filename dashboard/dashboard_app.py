@@ -265,7 +265,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 12
+TARGET_SCHEMA_VERSION = 13
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -327,6 +327,10 @@ MIGRATIONS = {
     12: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_retention_days', '7') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 13: Add setting to suppress verbose log messages
+    13: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('suppress_verbose_logs', 'false') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -547,7 +551,8 @@ def initialize_database_if_needed():
                         ('radarr_enabled', 'false'),
                         ('lidarr_enabled', 'false'),
                         ('sonarr_auto_rename_after_transcode', 'false'),
-                        ('radarr_auto_rename_after_transcode', 'false')
+                        ('radarr_auto_rename_after_transcode', 'false'),
+                        ('suppress_verbose_logs', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
 
@@ -2951,10 +2956,13 @@ def request_job():
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
     
-    print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
-    
     # Check if the queue is paused
     settings, _ = get_worker_settings()
+    
+    # Log job request if verbose logging is not suppressed
+    if settings.get('suppress_verbose_logs', {}).get('setting_value') != 'true':
+        print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
+    
     if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
         print(f"[{datetime.now()}] Job request from {worker_hostname} denied: Queue is paused.")
         return jsonify({}) # Return empty response as if no jobs are available
@@ -3118,7 +3126,9 @@ def update_job(job_id):
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
                     # This is a simple approach; a more robust one would map file paths to libraries
-                    print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
+                    # Log Plex update if verbose logging is not suppressed
+                    if settings.get('suppress_verbose_logs', {}).get('setting_value') != 'true':
+                        print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
