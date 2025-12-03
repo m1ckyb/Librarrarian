@@ -681,6 +681,9 @@ window.deleteFailedJob = async function(jobId) {
             document.getElementById('view-errors-btn').click();
             // Also refresh the status to update the count
             updateStatus();
+        } else {
+            const data = await response.json();
+            alert(`Error: ${data.error || 'Failed to delete job'}`);
         }
     } catch (error) {
         console.error('Error deleting job:', error);
