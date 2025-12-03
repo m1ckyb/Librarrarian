@@ -328,7 +328,7 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_retention_days', '7') ON CONFLICT (setting_name) DO NOTHING;"
     ],
-    # Version 13: Add setting to suppress verbose log messages
+    # Version 13: Add setting to suppress verbose log messages (deprecated in v14, migrated to granular settings)
     13: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('suppress_verbose_logs', 'false') ON CONFLICT (setting_name) DO NOTHING;"
     ],
@@ -342,9 +342,28 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('primary_media_server', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO NOTHING;",
-        # Migrate suppress_verbose_logs to new granular logging settings, with defaults if old setting doesn't exist
-        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' UNION ALL SELECT 'hide_job_requests', 'false' WHERE NOT EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') ON CONFLICT (setting_name) DO NOTHING;",
-        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' UNION ALL SELECT 'hide_plex_updates', 'false' WHERE NOT EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') ON CONFLICT (setting_name) DO NOTHING;",
+        # Migrate suppress_verbose_logs to new granular logging settings
+        # If suppress_verbose_logs exists, copy its value to the new settings; otherwise use 'false'
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') THEN
+                INSERT INTO worker_settings (setting_name, setting_value)
+                SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs'
+                ON CONFLICT (setting_name) DO NOTHING;
+                
+                INSERT INTO worker_settings (setting_name, setting_value)
+                SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs'
+                ON CONFLICT (setting_name) DO NOTHING;
+            ELSE
+                INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_job_requests', 'false')
+                ON CONFLICT (setting_name) DO NOTHING;
+                
+                INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_plex_updates', 'false')
+                ON CONFLICT (setting_name) DO NOTHING;
+            END IF;
+        END $$;
+        """,
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
@@ -1814,8 +1833,10 @@ def jellyfin_login():
         headers = {'X-Emby-Token': jellyfin_api_key}
         response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
         
-        if response.status_code != 200:
-            return jsonify(success=False, error=f"Failed to connect to Jellyfin. Status: {response.status_code}"), 401
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key. Please check your Jellyfin API key."), 401
+        elif response.status_code != 200:
+            return jsonify(success=False, error=f"Jellyfin server returned error status: {response.status_code}"), 503
         
         # Connection successful, save the credentials
         update_worker_setting('jellyfin_host', jellyfin_host)
@@ -1823,7 +1844,7 @@ def jellyfin_login():
         return jsonify(success=True, message="Jellyfin server linked successfully!")
         
     except requests.exceptions.RequestException as e:
-        return jsonify(success=False, error=f"Failed to connect to Jellyfin: {e}"), 401
+        return jsonify(success=False, error=f"Failed to connect to Jellyfin: {e}"), 503
 
 @app.route('/api/jellyfin/logout', methods=['POST'])
 def jellyfin_logout():
@@ -3123,8 +3144,8 @@ def request_job():
     # Check if the queue is paused
     settings, _ = get_worker_settings()
     
-    # Log job request if verbose logging is not suppressed
-    if settings.get('suppress_verbose_logs', {}).get('setting_value') != 'true':
+    # Log job request if not hidden
+    if settings.get('hide_job_requests', {}).get('setting_value') != 'true':
         print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
     
     if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
@@ -3290,8 +3311,8 @@ def update_job(job_id):
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
                     # This is a simple approach; a more robust one would map file paths to libraries
-                    # Log Plex update if verbose logging is not suppressed
-                    if settings.get('suppress_verbose_logs', {}).get('setting_value') != 'true':
+                    # Log Plex update if not hidden
+                    if settings.get('hide_plex_updates', {}).get('setting_value') != 'true':
                         print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
             except Exception as e:
