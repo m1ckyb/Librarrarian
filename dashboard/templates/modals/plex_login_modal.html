@@ -7,7 +7,12 @@
                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
-                <p class="text-muted">Enter your Plex.tv username and password. This is a one-time login to retrieve an authentication token. Your credentials are not stored.</p>
+                <p class="text-muted">Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.</p>
+                <div class="mb-3">
+                    <label for="plex-modal-url" class="form-label">Plex Server URL</label>
+                    <input type="text" class="form-control" id="plex-modal-url" placeholder="http://192.168.1.100:32400">
+                    <div class="form-text">Example: http://plex:32400 or https://plex.example.com:32400</div>
+                </div>
                 <div class="mb-3">
                     <label for="plex-username" class="form-label">Plex Username</label>
                     <input type="text" class="form-control" id="plex-username" autocomplete="username">

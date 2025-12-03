@@ -1091,6 +1091,8 @@ def options():
     
     settings_to_update = {
         'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
+        'primary_media_server': request.form.get('primary_media_server', 'plex'),
+        'enable_multi_server': 'true' if 'enable_multi_server' in request.form else 'false',
         'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
@@ -1114,10 +1116,16 @@ def options():
         'plex_path_from': request.form.get('plex_path_from', ''),
         'plex_path_to': request.form.get('plex_path_to', ''),
         'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
+        'jellyfin_path_from': request.form.get('jellyfin_path_from', ''),
+        'jellyfin_path_to': request.form.get('jellyfin_path_to', ''),
+        'jellyfin_path_mapping_enabled': 'true' if 'jellyfin_path_mapping_enabled' in request.form else 'false',
         'sonarr_enabled': 'true' if 'sonarr_enabled' in request.form else 'false',
         'radarr_enabled': 'true' if 'radarr_enabled' in request.form else 'false',
         'lidarr_enabled': 'true' if 'lidarr_enabled' in request.form else 'false',
         'suppress_verbose_logs': 'true' if 'suppress_verbose_logs' in request.form else 'false',
+        'hide_job_requests': 'true' if 'hide_job_requests' in request.form else 'false',
+        'hide_plex_updates': 'true' if 'hide_plex_updates' in request.form else 'false',
+        'hide_jellyfin_updates': 'true' if 'hide_jellyfin_updates' in request.form else 'false',
     }
     # Add the new *Arr settings
     for arr_type in ['sonarr', 'radarr', 'lidarr']:
@@ -1151,6 +1159,7 @@ def options():
 
             # 2. Update media type and hide status assignments
             all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
+            all_jellyfin_sources = {k.replace('type_jellyfin_', '') for k in request.form if k.startswith('type_jellyfin_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
             for source_name in all_plex_sources:
@@ -1158,8 +1167,18 @@ def options():
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
-                    VALUES (%s, 'plex', %s, %s)
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'plex', %s, %s, 'plex')
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
+
+            for source_name in all_jellyfin_sources:
+                media_type = request.form.get(f'type_jellyfin_{source_name}')
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
@@ -1168,8 +1187,8 @@ def options():
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
-                    VALUES (%s, 'internal', %s, %s)
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'internal', %s, %s, 'internal')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
