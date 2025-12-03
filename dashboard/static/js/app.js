@@ -1894,6 +1894,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // - Disable sync checkbox
             // - Disable Media Servers tab
             // - Enable Internal Media Scanner tab
+            // - Hide library containers
             if (multiServerCheckbox) {
                 multiServerCheckbox.disabled = true;
                 multiServerCheckbox.checked = false;
@@ -1904,6 +1905,11 @@ document.addEventListener('DOMContentLoaded', () => {
             if (internalTab) {
                 internalTab.disabled = false;
             }
+            if (plexContainer) plexContainer.style.display = 'none';
+            if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+            
+            // Don't load libraries when internal is selected
+            return;
         } else {
             // If Plex or Jellyfin is selected:
             // - Enable sync checkbox
@@ -1934,10 +1940,11 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (jellyfinContainer) jellyfinContainer.style.display = 'block';
                 }
             }
+            
+            // Load libraries for the selected server(s)
+            loadPlexLibraries();
+            loadJellyfinLibraries();
         }
-        
-        loadPlexLibraries();
-        loadJellyfinLibraries();
     }
     
     // Reload libraries when primary server changes
