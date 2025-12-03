@@ -2,10 +2,17 @@
 
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
+### Added
+- Primary Media Server selection with radio buttons (Plex/Jellyfin/Internal Media Scanner) in Media Servers tab
+- Multi-server library linking: when "Enable Multiple Servers" is enabled, an additional dropdown appears to link libraries between Plex and Jellyfin
+- Two-column layout for Media Servers tab: authentication controls on left, monitored libraries on right
+
 ### Changed
-- Restructured Options page: renamed "Media Servers" section to "Integrations"
-- Renamed "Plex" integration tab to "Media Servers" and consolidated Plex and Jellyfin settings into a single tab
-- Removed separate "Jellyfin" tab; Plex and Jellyfin authentication buttons now appear side-by-side in the Media Servers tab
-- Updated button colors: Plex link button is now orange (#e5a00d), Jellyfin link button is now purple (#aa5cc3)
-- Separated "Logging Options" into its own section, moved out of "UI Options"
-- Added small gap (2px) between Start/Stop/Pause buttons in Active Nodes tab for improved visual separation
+- Restructured Media Servers tab with side-by-side Plex and Jellyfin authentication sections instead of vertically separated
+- Increased gap between Start/Stop/Pause buttons from 2px to 4px in Active Nodes tab for improved visual separation
+- Removed horizontal rule separators between Plex and Jellyfin sections in Media Servers tab
+- Library containers now always visible, showing appropriate message when not authenticated
+
+### Fixed
+- Fixed "Monitored Libraries" incorrectly showing "not configured" message when Plex/Jellyfin was authenticated
+- Library lists now load immediately when authenticated instead of requiring display check

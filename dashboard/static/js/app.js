@@ -1697,15 +1697,42 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await response.json();
         const currentLibs = window.Librarrarian.settings.plexLibraries;
 
+        // Check if multi-server is enabled and primary server is Plex
+        const multiServerEnabled = document.getElementById('enable_multi_server')?.checked;
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        const showJellyfinLink = multiServerEnabled && primaryServer === 'plex';
+
+        // Fetch Jellyfin libraries if needed for linking
+        let jellyfinLibs = [];
+        if (showJellyfinLink) {
+            try {
+                const jellyfinResponse = await fetch('/api/jellyfin/libraries');
+                const jellyfinData = await jellyfinResponse.json();
+                if (jellyfinData.libraries) {
+                    jellyfinLibs = jellyfinData.libraries;
+                }
+            } catch (e) {
+                console.log('Could not fetch Jellyfin libraries for linking');
+            }
+        }
+
+        const createJellyfinLinkDropdown = (plexLibName) => {
+            const options = ['<option value="">-- None --</option>']
+                .concat(jellyfinLibs.map(jLib => `<option value="${jLib.title}">${jLib.title}</option>`))
+                .join('');
+            return `<select class="form-select form-select-sm" name="link_plex_${plexLibName}" style="width: 180px;">${options}</select>`;
+        };
+
         if (data.libraries && data.libraries.length > 0) {
             container.innerHTML = data.libraries.map(lib => `
                 <div class="d-flex align-items-center mb-2 media-source-item">
-                    <div class="form-check">
+                    <div class="form-check" style="min-width: 150px;">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                         <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
                     </div>
-                    <div class="ms-auto d-flex align-items-center me-2">
+                    <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
+                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
             `).join('');
@@ -1755,14 +1782,41 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Check if multi-server is enabled and primary server is Jellyfin
+        const multiServerEnabled = document.getElementById('enable_multi_server')?.checked;
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        const showPlexLink = multiServerEnabled && primaryServer === 'jellyfin';
+
+        // Fetch Plex libraries if needed for linking
+        let plexLibs = [];
+        if (showPlexLink) {
+            try {
+                const plexResponse = await fetch('/api/plex/libraries');
+                const plexData = await plexResponse.json();
+                if (plexData.libraries) {
+                    plexLibs = plexData.libraries;
+                }
+            } catch (e) {
+                console.log('Could not fetch Plex libraries for linking');
+            }
+        }
+
+        const createPlexLinkDropdown = (jellyfinLibName) => {
+            const options = ['<option value="">-- None --</option>']
+                .concat(plexLibs.map(pLib => `<option value="${pLib.title}">${pLib.title}</option>`))
+                .join('');
+            return `<select class="form-select form-select-sm" name="link_jellyfin_${jellyfinLibName}" style="width: 180px;">${options}</select>`;
+        };
+
         if (data.libraries && data.libraries.length > 0) {
             container.innerHTML = data.libraries.map(lib => `
                 <div class="d-flex align-items-center mb-2 media-source-item">
-                    <div class="form-check flex-grow-1">
+                    <div class="form-check" style="min-width: 150px;">
                         <label class="form-check-label">${lib.title}</label>
                     </div>
-                    <div class="ms-auto d-flex align-items-center me-2">
+                    <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${lib.title}`, lib.type)}
+                        ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
             `).join('');
@@ -1780,6 +1834,25 @@ document.addEventListener('DOMContentLoaded', () => {
     if (jellyfinLibrariesContainer) {
         loadJellyfinLibraries();
     }
+
+    // --- Event listeners for multi-server library linking ---
+    // Reload libraries when multi-server is toggled
+    const multiServerCheckbox = document.getElementById('enable_multi_server');
+    if (multiServerCheckbox) {
+        multiServerCheckbox.addEventListener('change', () => {
+            loadPlexLibraries();
+            loadJellyfinLibraries();
+        });
+    }
+
+    // Reload libraries when primary server changes
+    const primaryServerRadios = document.querySelectorAll('input[name="primary_media_server"]');
+    primaryServerRadios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            loadPlexLibraries();
+            loadJellyfinLibraries();
+        });
+    });
 
     // --- Dynamic Internal Folder Loading ---
     async function loadInternalFolders() {
