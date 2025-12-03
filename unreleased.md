@@ -28,3 +28,5 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Database Migration**: Existing `suppress_verbose_logs` setting is automatically migrated to `hide_job_requests` and `hide_plex_updates` in migration #14
 
 ### Fixed
+- Fixed migration SQL redundancy where default values were being inserted after conditional migration
+- Removed deprecated `media_scanner_type` setting from options form processing
