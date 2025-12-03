@@ -2036,7 +2036,6 @@ def api_internal_folders():
 
 scanner_lock = threading.Lock()
 scan_now_event = threading.Event()
-jellyfin_scan_now_event = threading.Event()
 sonarr_rename_scan_event = threading.Event()
 sonarr_quality_scan_event = threading.Event()
 radarr_rename_scan_event = threading.Event()
@@ -2947,10 +2946,10 @@ def api_trigger_scan():
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    force = request.json.get('force', False) if request.is_json else False
-    print(f"[{datetime.now()}] Manual scan requested via API (Force: {force}).")
+    print(f"[{datetime.now()}] Manual scan requested via API.")
     
-    # Trigger the background thread to run the scan with the correct force flag
+    # Trigger the background thread to run the scan
+    # Manual scans always use force_scan=True to ensure a complete rescan
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
@@ -3500,12 +3499,15 @@ def update_job(job_id):
                 jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
                 jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
                 if jellyfin_host and jellyfin_api_key:
-                    headers = {'X-Emby-Token': jellyfin_api_key}
-                    # Trigger a library scan in Jellyfin
-                    # Log Jellyfin update if not hidden
-                    if settings.get('hide_jellyfin_updates', {}).get('setting_value') != 'true':
-                        print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
-                    requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
+                    try:
+                        headers = {'X-Emby-Token': jellyfin_api_key}
+                        # Log Jellyfin update if not hidden
+                        if settings.get('hide_jellyfin_updates', {}).get('setting_value') != 'true':
+                            print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
+                        response = requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
+                        response.raise_for_status()
+                    except requests.exceptions.RequestException as jf_error:
+                        print(f"⚠️ Could not trigger Jellyfin scan: {jf_error}")
             except Exception as e:
                 print(f"⚠️ Could not trigger media server scan: {e}")
 
@@ -3592,18 +3594,7 @@ def plex_scanner_thread():
                 else:  # default to plex
                     run_plex_scan(force_scan=False)
 
-def jellyfin_scanner_thread():
-    """Background thread dedicated to Jellyfin library scans."""
-    # This thread now waits for the db_ready_event before starting its loop.
-    db_ready_event.wait()
-    print("Jellyfin Scanner thread is now active.")
 
-    while True:
-        # Wait indefinitely until the event is set
-        jellyfin_scan_now_event.wait()
-        print(f"[{datetime.now()}] Manual Jellyfin scan trigger received.")
-        jellyfin_scan_now_event.clear() # Reset the event
-        run_jellyfin_scan(force_scan=True)
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
@@ -3943,8 +3934,6 @@ def database_backup_thread():
 # Start the background threads when the app is initialized by Gunicorn.
 scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
 scanner_thread.start()
-jellyfin_thread = threading.Thread(target=jellyfin_scanner_thread, daemon=True)
-jellyfin_thread.start()
 arr_background_scanner = threading.Thread(target=arr_background_thread, daemon=True)
 arr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
