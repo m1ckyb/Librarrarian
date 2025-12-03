@@ -501,7 +501,7 @@ def process_file(filepath, db, settings):
     print(f"🔩 FFmpeg command: {' '.join(ffmpeg_cmd)}")
 
     # --- Execute FFmpeg and Capture Output ---
-    process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True)
+    process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True, errors='replace')
     
     total_duration_seconds = 0
     log_buffer = []
