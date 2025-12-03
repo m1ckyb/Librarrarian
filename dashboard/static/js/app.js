@@ -822,19 +822,18 @@ async function updateJobQueue(page = 1) {
                 <td>${job.assigned_to || 'N/A'}</td>
                 <td>${new Date(job.created_at).toLocaleString()}</td>
                 <td>
-                    ${['pending', 'awaiting_approval', 'failed'].includes(job.status) ?
-                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
-                        ''
-                    }
-                    ${job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
-                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
-                        ''
-                    }
                     ${job.is_stuck ?
+                        // Stuck job: worker is online but processing higher job IDs
                         `<div class="btn-group btn-group-sm" role="group">
                             <button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Remove stuck job"><span class="mdi mdi-delete"></span> Remove</button>
                             <button class="btn btn-xs btn-outline-primary" onclick="requeueJob(${job.id})" title="Re-add to queue"><span class="mdi mdi-refresh"></span> Re-add</button>
                         </div>` :
+                    job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
+                        // Worker offline: show force remove
+                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
+                    ['pending', 'awaiting_approval', 'failed'].includes(job.status) ?
+                        // Regular deletable jobs
+                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
                         ''
                     }
                 </td>

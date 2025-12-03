@@ -1297,8 +1297,10 @@ def api_jobs():
             # We also calculate the age of the job in minutes to detect stuck jobs.
             # For encoding jobs, we also check the worker's last_heartbeat to determine if the worker is stuck.
             # We also check if the worker is processing higher job IDs (indicating this job failed silently)
-            # NOTE: LEFT JOIN with nodes table could impact performance if there are many jobs.
-            # Consider adding indexes on jobs.assigned_to and nodes.hostname if performance becomes an issue.
+            # NOTE: The subquery for higher_job_id_by_same_worker executes per row. For better performance
+            # with large job queues, consider using a window function (LEAD/LAG) or adding an index on
+            # (assigned_to, status, id). Current implementation is acceptable for typical queue sizes (<10k jobs).
+            # Also consider adding an index on jobs.assigned_to and nodes.hostname if needed.
             query = f"""
                 SELECT jobs.*,
                        EXTRACT(EPOCH FROM (NOW() - jobs.updated_at)) / 60 AS age_minutes,
