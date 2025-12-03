@@ -97,7 +97,7 @@
                 <button class="nav-link" id="options-tab" data-bs-toggle="tab" data-bs-target="#options-tab-pane" type="button" role="tab">Options</button>
             </li>
             <li class="nav-item ms-auto d-flex align-items-center d-none" id="global-node-controls">
-                <div class="btn-group btn-group-sm" role="group" aria-label="Global node controls">
+                <div class="btn-group btn-group-sm" role="group" aria-label="Global node controls" style="gap: 4px;">
                     <button type="button" class="btn btn-outline-success" id="start-all-nodes-btn" title="Start all idle nodes">
                         <span class="mdi mdi-play"></span> Start All
                     </button>
@@ -297,13 +297,43 @@
                     {% endwith %}
 
                     <form method="POST" action="/options" class="mt-4">
+                        {% set primary_media_server = settings.get('primary_media_server', {}).get('setting_value', 'plex') %}
+                        {% set enable_multi_server = settings.get('enable_multi_server', {}).get('setting_value', 'false') == 'true' %}
+                        {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
+                        {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
+                        
+                        <!-- Primary Media Server Selection (Above Integrations) -->
+                        <div class="p-3 border rounded mb-4" id="primary-media-server-section">
+                            <h5>Primary Media Server</h5>
+                            <p class="form-text text-body-secondary mb-3">Select your primary media scanner. Only one can be active at a time.</p>
+                            
+                            <div class="d-flex align-items-center gap-3 flex-wrap">
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="primary_media_server" id="primary_plex" value="plex" {{ 'checked' if primary_media_server == 'plex' }}>
+                                    <label class="form-check-label" for="primary_plex">Plex</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="primary_media_server" id="primary_jellyfin" value="jellyfin" {{ 'checked' if primary_media_server == 'jellyfin' }}>
+                                    <label class="form-check-label" for="primary_jellyfin">Jellyfin</label>
+                                </div>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="radio" name="primary_media_server" id="primary_internal" value="internal" {{ 'checked' if primary_media_server == 'internal' }}>
+                                    <label class="form-check-label" for="primary_internal">Internal Media Scanner</label>
+                                </div>
+                                <div class="form-check form-switch ms-auto">
+                                    <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" {{ 'checked' if enable_multi_server }}>
+                                    <label class="form-check-label" for="enable_multi_server"><strong>Sync Between Plex &amp; Jellyfin</strong></label>
+                                </div>
+                            </div>
+                        </div>
+                        
                         <!-- Integrations Settings -->
                         <div class="p-3 border rounded mb-4" id="integrations-section">
                             <h5>Integrations</h5>
                             
                             <ul class="nav nav-tabs" id="integrationsTab" role="tablist">
                                 <li class="nav-item" role="presentation"><button class="nav-link active" id="media-servers-tab" data-bs-toggle="tab" data-bs-target="#media-servers-pane" type="button">Media Servers</button></li>
-                                <li class="nav-item" role="presentation"><button class="nav-link" id="internal-integration-tab" data-bs-toggle="tab" data-bs-target="#internal-integration-pane" type="button">Internal</button></li>
+                                <li class="nav-item" role="presentation"><button class="nav-link" id="internal-integration-tab" data-bs-toggle="tab" data-bs-target="#internal-integration-pane" type="button">Internal Media Scanner</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="sonarr-integration-tab" data-bs-toggle="tab" data-bs-target="#sonarr-integration-pane" type="button">Sonarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="radarr-integration-tab" data-bs-toggle="tab" data-bs-target="#radarr-integration-pane" type="button">Radarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="lidarr-integration-tab" data-bs-toggle="tab" data-bs-target="#lidarr-integration-pane" type="button">Lidarr</button></li>
@@ -312,35 +342,6 @@
                             <div class="tab-content border border-top-0 p-3" id="integrationsTabContent">
                                 <!-- Media Servers Tab -->
                                 <div class="tab-pane fade show active" id="media-servers-pane" role="tabpanel">
-                                    {% set primary_media_server = settings.get('primary_media_server', {}).get('setting_value', 'plex') %}
-                                    {% set enable_multi_server = settings.get('enable_multi_server', {}).get('setting_value', 'false') == 'true' %}
-                                    {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
-                                    {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
-                                    
-                                    <!-- Primary Media Server Selection -->
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>Primary Media Server</strong></label>
-                                        <p class="form-text text-body-secondary mb-2">Select your primary media scanner. Only one can be active at a time.</p>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="primary_media_server" id="primary_plex" value="plex" {{ 'checked' if primary_media_server == 'plex' }}>
-                                            <label class="form-check-label" for="primary_plex">Plex</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="primary_media_server" id="primary_jellyfin" value="jellyfin" {{ 'checked' if primary_media_server == 'jellyfin' }}>
-                                            <label class="form-check-label" for="primary_jellyfin">Jellyfin</label>
-                                        </div>
-                                        <div class="form-check">
-                                            <input class="form-check-input" type="radio" name="primary_media_server" id="primary_internal" value="internal" {{ 'checked' if primary_media_server == 'internal' }}>
-                                            <label class="form-check-label" for="primary_internal">Internal Media Scanner</label>
-                                        </div>
-                                    </div>
-
-                                    <div class="form-check form-switch mb-4">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" {{ 'checked' if enable_multi_server }}>
-                                        <label class="form-check-label" for="enable_multi_server"><strong>Enable Multiple Servers</strong></label>
-                                        <p class="form-text text-body-secondary">Enable syncing file information to both Plex and Jellyfin after transcoding.</p>
-                                    </div>
-
                                     <hr class="my-4">
 
                                     <!-- Two-column layout: Auth on left, Libraries on right -->
@@ -874,6 +875,7 @@
                 plexToken: "{{ settings.get('plex_token', {}).get('setting_value', '') }}",
                 plexLibraries: "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
                 jellyfinApiKey: "{{ settings.get('jellyfin_api_key', {}).get('setting_value', '') }}",
+                jellyfinLibraries: "{{ settings.get('jellyfin_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
                 internalScanPaths: "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',').filter(Boolean)
             },
             version: "{{ version }}"

@@ -3,16 +3,20 @@
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
 ### Added
-- Primary Media Server selection with radio buttons (Plex/Jellyfin/Internal Media Scanner) in Media Servers tab
-- Multi-server library linking UI: when "Enable Multiple Servers" is enabled, an additional dropdown appears to link libraries between Plex and Jellyfin (Note: backend storage support pending)
-- Two-column layout for Media Servers tab: authentication controls on left, monitored libraries on right
+- Multi-server library linking UI: when "Sync Between Plex & Jellyfin" is enabled, an additional dropdown appears to link libraries between Plex and Jellyfin (Note: backend storage support pending)
+- Checkboxes for Jellyfin libraries to match Plex library selection behavior
 
 ### Changed
-- Restructured Media Servers tab with side-by-side Plex and Jellyfin authentication sections instead of vertically separated
-- Increased gap between Start/Stop/Pause buttons from 2px to 4px in Active Nodes tab for improved visual separation
-- Removed horizontal rule separators between Plex and Jellyfin sections in Media Servers tab
-- Library containers now always visible, showing appropriate message when not authenticated
+- Moved Primary Media Server selection (Plex/Jellyfin/Internal Media Scanner) above Integrations section as a standalone section
+- Renamed "Enable Multiple Servers" to "Sync Between Plex & Jellyfin" and moved it to be inline with media server selection
+- Renamed "Internal" tab to "Internal Media Scanner" for clarity
+- Increased gap between global Start/Stop/Pause buttons from 0px to 4px in Active Nodes tab for improved visual separation (matching individual node buttons)
+- Two-column layout for Media Servers tab: authentication controls on left, monitored libraries on right
+- Monitored Libraries now shows only the selected server's libraries when sync is disabled, or both when sync is enabled
 
 ### Fixed
-- Fixed "Monitored Libraries" incorrectly showing "not configured" message when Plex/Jellyfin was authenticated
-- Library lists now load immediately when authenticated instead of requiring display check
+- Fixed "Plex is not configured or authenticated" message appearing when Internal Media Scanner is selected
+- Media Servers tab is now disabled when Internal Media Scanner is selected
+- Internal Media Scanner tab is now disabled when Plex or Jellyfin is selected  
+- "Sync Between Plex & Jellyfin" checkbox is now disabled and unchecked when Internal Media Scanner is selected
+- Library containers now properly show/hide based on primary server selection and sync mode

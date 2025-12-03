@@ -1157,6 +1157,8 @@ def options():
     settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
+    jellyfin_libraries = request.form.getlist('jellyfin_libraries')
+    settings_to_update['jellyfin_libraries'] = ','.join(jellyfin_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
     settings_to_update['internal_scan_paths'] = ','.join(internal_paths)
 
