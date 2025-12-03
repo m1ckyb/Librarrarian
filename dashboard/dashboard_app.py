@@ -677,10 +677,13 @@ def get_failed_files_list():
                     'Job appears to have failed silently. Worker came back online and started processing higher job IDs.' as log,
                     'stuck_job' as type
                 FROM jobs
-                LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
                 WHERE jobs.status = 'encoding'
                 AND jobs.assigned_to IS NOT NULL
-                AND EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 < 10
+                AND EXISTS (
+                    SELECT 1 FROM nodes
+                    WHERE nodes.hostname = jobs.assigned_to
+                    AND nodes.last_heartbeat > NOW() - INTERVAL '10 minutes'
+                )
                 AND EXISTS (
                     SELECT 1 FROM jobs AS j2
                     WHERE j2.assigned_to = jobs.assigned_to
