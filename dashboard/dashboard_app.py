@@ -342,9 +342,13 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('primary_media_server', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        # Migrate suppress_verbose_logs to new granular logging settings
+        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        # Add defaults if suppress_verbose_logs didn't exist
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_job_requests', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_plex_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
-        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
 }
@@ -568,7 +572,6 @@ def initialize_database_if_needed():
                         ('lidarr_enabled', 'false'),
                         ('sonarr_auto_rename_after_transcode', 'false'),
                         ('radarr_auto_rename_after_transcode', 'false'),
-                        ('suppress_verbose_logs', 'false'),
                         ('jellyfin_host', ''),
                         ('jellyfin_api_key', ''),
                         ('jellyfin_libraries', ''),
@@ -1122,7 +1125,6 @@ def options():
         'sonarr_enabled': 'true' if 'sonarr_enabled' in request.form else 'false',
         'radarr_enabled': 'true' if 'radarr_enabled' in request.form else 'false',
         'lidarr_enabled': 'true' if 'lidarr_enabled' in request.form else 'false',
-        'suppress_verbose_logs': 'true' if 'suppress_verbose_logs' in request.form else 'false',
         'hide_job_requests': 'true' if 'hide_job_requests' in request.form else 'false',
         'hide_plex_updates': 'true' if 'hide_plex_updates' in request.form else 'false',
         'hide_jellyfin_updates': 'true' if 'hide_jellyfin_updates' in request.form else 'false',

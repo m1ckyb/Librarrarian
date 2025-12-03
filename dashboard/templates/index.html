@@ -521,10 +521,24 @@
                                         <input class="form-check-input" type="checkbox" role="switch" id="clock-24hr" name="clock_24hr" value="true" {{ 'checked' if settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true' }}>
                                         <label class="form-check-label" for="clock-24hr">Use 24-Hour Clock</label>
                                     </div>
+                                    <h6><strong>Logging Options</strong></h6>
+                                    <p class="form-text text-body-secondary small">Control which types of messages appear in Docker logs.</p>
                                     <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch" id="suppress_verbose_logs" name="suppress_verbose_logs" value="true" {{ 'checked' if settings.get('suppress_verbose_logs', {}).get('setting_value') == 'true' }}>
-                                        <label class="form-check-label" for="suppress_verbose_logs">Suppress Verbose Logs</label>
-                                        <p class="form-text text-body-secondary small">Hide routine operational messages (e.g., job requests, Plex updates) from Docker logs.</p>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="hide_job_requests" name="hide_job_requests" value="true" {{ 'checked' if settings.get('hide_job_requests', {}).get('setting_value') == 'true' }}>
+                                        <label class="form-check-label" for="hide_job_requests">Hide Job Requests</label>
+                                        <p class="form-text text-body-secondary small">Suppress worker job request messages from logs.</p>
+                                    </div>
+                                    {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
+                                    <div class="form-check form-switch" {% if not plex_token %}style="opacity: 0.5;"{% endif %}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="hide_plex_updates" name="hide_plex_updates" value="true" {{ 'checked' if settings.get('hide_plex_updates', {}).get('setting_value') == 'true' }} {% if not plex_token %}disabled{% endif %}>
+                                        <label class="form-check-label" for="hide_plex_updates">Hide Plex Updates</label>
+                                        <p class="form-text text-body-secondary small">Suppress Plex library update notifications from logs.{% if not plex_token %} (Disabled: Plex not linked){% endif %}</p>
+                                    </div>
+                                    {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
+                                    <div class="form-check form-switch" {% if not jellyfin_api_key %}style="opacity: 0.5;"{% endif %}>
+                                        <input class="form-check-input" type="checkbox" role="switch" id="hide_jellyfin_updates" name="hide_jellyfin_updates" value="true" {{ 'checked' if settings.get('hide_jellyfin_updates', {}).get('setting_value') == 'true' }} {% if not jellyfin_api_key %}disabled{% endif %}>
+                                        <label class="form-check-label" for="hide_jellyfin_updates">Hide Jellyfin Updates</label>
+                                        <p class="form-text text-body-secondary small">Suppress Jellyfin library update notifications from logs.{% if not jellyfin_api_key %} (Disabled: Jellyfin not linked){% endif %}</p>
                                     </div>
                                 </div>
                                 <div class="mb-3 p-3 border rounded">
