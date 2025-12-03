@@ -582,23 +582,46 @@ document.getElementById('view-errors-btn').addEventListener('click', async () =>
         const response = await fetch('/api/failures');
         const data = await response.json();
         if (data.files && data.files.length > 0) {
-            tableBody.innerHTML = data.files.map((file, index) => `
-                <tr>
-                    <td style="word-break: break-all;">${file.filename}</td>
-                    <td>${file.reason}</td>
-                    <td>${file.reported_at}</td>
-                    <td>
+            tableBody.innerHTML = data.files.map((file, index) => {
+                let actionsHtml = '';
+                if (file.type === 'stuck_job') {
+                    // Stuck job: show re-add and clear buttons
+                    actionsHtml = `
+                        <div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-outline-primary" onclick="requeueFailedJob(${file.id})" title="Re-add to queue">
+                                <span class="mdi mdi-refresh"></span> Re-add
+                            </button>
+                            <button class="btn btn-outline-danger" onclick="deleteFailedJob(${file.id})" title="Remove stuck job">
+                                <span class="mdi mdi-delete"></span> Clear
+                            </button>
+                        </div>
+                        <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
+                            View Details
+                        </button>
+                    `;
+                } else {
+                    // Regular failed file: show view log button
+                    actionsHtml = `
                         <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
                             View Log
                         </button>
-                    </td>
-                </tr>
-                <tr class="collapse" id="collapse-log-${index}">
-                    <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
-                </tr>
-            `).join('');
+                    `;
+                }
+                
+                return `
+                    <tr>
+                        <td style="word-break: break-all;">${file.filename}</td>
+                        <td>${file.reason}</td>
+                        <td>${file.reported_at}</td>
+                        <td>${actionsHtml}</td>
+                    </tr>
+                    <tr class="collapse" id="collapse-log-${index}">
+                        <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
+                    </tr>
+                `;
+            }).join('');
         } else {
-            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files found.</td></tr>';
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files or stuck jobs found.</td></tr>';
         }
     } catch (error) {
         tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load errors.</td></tr>';
@@ -623,6 +646,50 @@ document.getElementById('clear-errors-btn').addEventListener('click', async () =
         alert('An error occurred while trying to clear the failures.');
     }
 });
+
+// Function to re-queue a stuck job from the failures modal
+window.requeueFailedJob = async function(jobId) {
+    if (!confirm(`Are you sure you want to re-add job ${jobId} to the queue? This will reset it to pending status.`)) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/jobs/requeue/${jobId}`, { method: 'POST' });
+        if (response.ok) {
+            // Refresh the failures list
+            document.getElementById('view-errors-btn').click();
+            // Also refresh the status to update the count
+            updateStatus();
+        } else {
+            const data = await response.json();
+            alert(`Error: ${data.error || 'Failed to re-queue job'}`);
+        }
+    } catch (error) {
+        console.error('Error re-queuing job:', error);
+        alert('An error occurred while trying to re-queue the job.');
+    }
+}
+
+// Function to delete a stuck job from the failures modal
+window.deleteFailedJob = async function(jobId) {
+    if (!confirm(`Are you sure you want to permanently delete job ${jobId}?`)) {
+        return;
+    }
+    try {
+        const response = await fetch(`/api/jobs/delete/${jobId}`, { method: 'POST' });
+        if (response.ok) {
+            // Refresh the failures list
+            document.getElementById('view-errors-btn').click();
+            // Also refresh the status to update the count
+            updateStatus();
+        } else {
+            const data = await response.json();
+            alert(`Error: ${data.error || 'Failed to delete job'}`);
+        }
+    } catch (error) {
+        console.error('Error deleting job:', error);
+        alert('An error occurred while trying to delete the job.');
+    }
+}
 
 async function pollScanProgress() {
     if (!isPollingForScan) return;
