@@ -9,10 +9,10 @@ All upcoming features and bug fixes will be documented here until they are part 
   - New Jellyfin login modal with host URL and API key inputs
   - Support for primary media server selection (Plex OR Jellyfin)
   - Toggle to enable multiple media servers for syncing file information to both Plex and Jellyfin
-- **Enhanced Logging Controls**: Added new logging control settings to database
+- **Enhanced Logging Controls**: Replaced single "Suppress Verbose Logs" toggle with granular logging controls
   - `hide_job_requests` - Hide worker job request messages from logs
-  - `hide_plex_updates` - Hide Plex library update notifications from logs
-  - `hide_jellyfin_updates` - Hide Jellyfin library update notifications from logs
+  - `hide_plex_updates` - Hide Plex library update notifications from logs (enabled only if Plex is linked)
+  - `hide_jellyfin_updates` - Hide Jellyfin library update notifications from logs (enabled only if Jellyfin is linked)
 - **API Endpoints**:
   - `/api/jellyfin/login` - Authenticate and link Jellyfin server
   - `/api/jellyfin/logout` - Unlink Jellyfin server
@@ -21,8 +21,10 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Changed
 - **Options Tab**: Renamed "Integrations" section to "Media Servers" to better reflect its purpose
 - **Plex Configuration**: Moved Plex server URL from main Options page to Plex login modal for consistency
-- **Media Server Selection**: Replaced single media scanner radio buttons with a primary media server dropdown
+- **Media Server Selection**: Replaced single media scanner radio buttons with a primary media server dropdown (Plex or Jellyfin)
 - **Database Schema**: Updated to version 14 with Jellyfin-related settings and `server_type` column in media_source_types table
 - **UI Layout**: Reorganized Media Servers tab to show Plex, Jellyfin, Internal, Sonarr, Radarr, and Lidarr in a cleaner tab structure
+- **Logging Configuration**: Replaced "Suppress Verbose Logs" with a dedicated "Logging Options" section containing separate toggles for different log types
+- **Database Migration**: Existing `suppress_verbose_logs` setting is automatically migrated to `hide_job_requests` and `hide_plex_updates` in migration #14
 
 ### Fixed

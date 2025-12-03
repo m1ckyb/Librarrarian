@@ -342,13 +342,10 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('primary_media_server', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO NOTHING;",
-        # Migrate suppress_verbose_logs to new granular logging settings
-        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' ON CONFLICT (setting_name) DO NOTHING;",
-        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' ON CONFLICT (setting_name) DO NOTHING;",
+        # Migrate suppress_verbose_logs to new granular logging settings, with defaults if old setting doesn't exist
+        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' UNION ALL SELECT 'hide_job_requests', 'false' WHERE NOT EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs' UNION ALL SELECT 'hide_plex_updates', 'false' WHERE NOT EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
-        # Add defaults if suppress_verbose_logs didn't exist
-        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_job_requests', 'false') ON CONFLICT (setting_name) DO NOTHING;",
-        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_plex_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
 }
@@ -1093,7 +1090,6 @@ def options():
         rescan_minutes = '0'
     
     settings_to_update = {
-        'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
         'primary_media_server': request.form.get('primary_media_server', 'plex'),
         'enable_multi_server': 'true' if 'enable_multi_server' in request.form else 'false',
         'rescan_delay_minutes': rescan_minutes,
