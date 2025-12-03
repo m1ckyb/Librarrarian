@@ -2792,7 +2792,6 @@ def run_jellyfin_scan(force_scan=False):
                 return {"success": False, "message": "Jellyfin integration is not fully configured."}
 
             conn = get_db()
-            cur = conn.cursor(cursor_factory=RealDictCursor)
 
             try:
                 scan_progress_state.update({"current_step": "Connecting to Jellyfin server..."})
@@ -2808,132 +2807,146 @@ def run_jellyfin_scan(force_scan=False):
                     return {"success": False, "message": "No users found on Jellyfin server."}
                 
                 user_id = users[0]['Id']
-            except Exception as e:
+            except requests.exceptions.RequestException as e:
                 scan_progress_state.update({"current_step": f"Error: Could not connect to Jellyfin."})
                 return {"success": False, "message": f"Could not connect to Jellyfin server: {e}"}
 
             # Get list of libraries to scan from database
-            cur.execute("""
-                SELECT source_name, media_type 
-                FROM media_source_types 
-                WHERE scanner_type = 'jellyfin' AND media_type != 'none' AND NOT is_hidden
-            """)
-            library_settings = cur.fetchall()
-            
-            if not library_settings:
-                scan_progress_state.update({"current_step": "Error: No Jellyfin libraries configured for scanning."})
-                return {"success": False, "message": "No Jellyfin libraries configured for scanning."}
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT source_name, media_type 
+                    FROM media_source_types 
+                    WHERE scanner_type = 'jellyfin' AND media_type != 'none' AND NOT is_hidden
+                """)
+                library_settings = cur.fetchall()
+                
+                if not library_settings:
+                    scan_progress_state.update({"current_step": "Error: No Jellyfin libraries configured for scanning."})
+                    return {"success": False, "message": "No Jellyfin libraries configured for scanning."}
 
-            # Only check existing jobs/history if it's NOT a forced scan
-            if force_scan:
-                existing_jobs = set()
-                encoded_history = set()
-            else:
-                cur.execute("SELECT filepath FROM jobs")
-                existing_jobs = {row['filepath'] for row in cur.fetchall()}
-                cur.execute("SELECT filename FROM encoded_files")
-                encoded_history = {row['filename'] for row in cur.fetchall()}
-            
-            # Build list of codecs to skip based on settings
-            skip_codecs = []
-            if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
-                skip_codecs.extend(['hevc', 'h265'])
-            if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
-                skip_codecs.append('av1')
-            if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
-                skip_codecs.append('vp9')
+                # Only check existing jobs/history if it's NOT a forced scan
+                if force_scan:
+                    existing_jobs = set()
+                    encoded_history = set()
+                else:
+                    cur.execute("SELECT filepath FROM jobs")
+                    existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                    cur.execute("SELECT filename FROM encoded_files")
+                    encoded_history = {row['filename'] for row in cur.fetchall()}
+                
+                # Build list of codecs to skip based on settings
+                skip_codecs = []
+                if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.extend(['hevc', 'h265'])
+                if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.append('av1')
+                if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.append('vp9')
 
-            new_files_found = 0
-            library_names = [lib['source_name'] for lib in library_settings]
-            print(f"[{datetime.now()}] Jellyfin Scanner: Starting scan of libraries: {', '.join(library_names)}")
-            
-            # Get all Jellyfin libraries
-            views_response = requests.get(f"{jellyfin_host}/Users/{user_id}/Views", headers=headers, timeout=10)
-            views_response.raise_for_status()
-            all_jellyfin_libraries = {lib['Name']: lib['Id'] for lib in views_response.json().get('Items', [])}
-            
-            # First pass: count total items for progress tracking
-            total_items = 0
-            for lib_setting in library_settings:
-                lib_name = lib_setting['source_name']
-                if lib_name not in all_jellyfin_libraries:
-                    print(f"[{datetime.now()}] Warning: Library '{lib_name}' not found in Jellyfin")
-                    continue
+                new_files_found = 0
+                library_names = [lib['source_name'] for lib in library_settings]
+                print(f"[{datetime.now()}] Jellyfin Scanner: Starting scan of libraries: {', '.join(library_names)}")
                 
-                library_id = all_jellyfin_libraries[lib_name]
-                try:
-                    count_response = requests.get(
-                        f"{jellyfin_host}/Users/{user_id}/Items",
-                        headers=headers,
-                        params={'ParentId': library_id, 'Recursive': 'true', 'IncludeItemTypes': 'Movie,Episode'},
-                        timeout=10
-                    )
-                    count_response.raise_for_status()
-                    total_items += count_response.json().get('TotalRecordCount', 0)
-                except Exception:
-                    pass
-            
-            scan_progress_state.update({"total_steps": total_items})
-            items_processed = 0
-            
-            for lib_setting in library_settings:
-                lib_name = lib_setting['source_name']
-                if lib_name not in all_jellyfin_libraries:
-                    continue
+                # Get all Jellyfin libraries
+                views_response = requests.get(f"{jellyfin_host}/Users/{user_id}/Views", headers=headers, timeout=10)
+                views_response.raise_for_status()
+                all_jellyfin_libraries = {lib['Name']: lib['Id'] for lib in views_response.json().get('Items', [])}
+                
+                # Map media types to Jellyfin item types
+                media_type_mapping = {
+                    'movie': 'Movie',
+                    'show': 'Episode',
+                    'music': 'Audio',
+                    'other': 'Movie,Episode'  # Fallback for unspecified types
+                }
+                
+                # First pass: count total items for progress tracking
+                total_items = 0
+                for lib_setting in library_settings:
+                    lib_name = lib_setting['source_name']
+                    if lib_name not in all_jellyfin_libraries:
+                        print(f"[{datetime.now()}] Warning: Library '{lib_name}' not found in Jellyfin")
+                        continue
                     
-                library_id = all_jellyfin_libraries[lib_name]
-                print(f"[{datetime.now()}] Jellyfin Scanner: Scanning '{lib_name}'...")
-                scan_progress_state.update({"current_step": f"Scanning library: {lib_name}"})
-                
-                try:
-                    # Get all items from this library
-                    items_response = requests.get(
-                        f"{jellyfin_host}/Users/{user_id}/Items",
-                        headers=headers,
-                        params={
-                            'ParentId': library_id,
-                            'Recursive': 'true',
-                            'IncludeItemTypes': 'Movie,Episode',
-                            'Fields': 'Path,MediaStreams'
-                        },
-                        timeout=30
-                    )
-                    items_response.raise_for_status()
-                    items = items_response.json().get('Items', [])
+                    library_id = all_jellyfin_libraries[lib_name]
+                    media_type = lib_setting.get('media_type', 'other')
+                    item_types = media_type_mapping.get(media_type, 'Movie,Episode')
                     
-                    for item in items:
-                        items_processed += 1
-                        filepath = item.get('Path')
-                        
-                        if not filepath:
-                            continue
-                        
-                        # Get the video codec from MediaStreams
-                        codec = None
-                        media_streams = item.get('MediaStreams', [])
-                        for stream in media_streams:
-                            if stream.get('Type') == 'Video':
-                                codec = stream.get('Codec', '').lower()
-                                break
-                        
-                        scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
-                        
-                        print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
-                        if codec and codec not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
-                            print(f"    -> Adding file to queue (codec: {codec}).")
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                            if cur.rowcount > 0:
-                                new_files_found += 1
+                    try:
+                        count_response = requests.get(
+                            f"{jellyfin_host}/Users/{user_id}/Items",
+                            headers=headers,
+                            params={'ParentId': library_id, 'Recursive': 'true', 'IncludeItemTypes': item_types},
+                            timeout=10
+                        )
+                        count_response.raise_for_status()
+                        total_items += count_response.json().get('TotalRecordCount', 0)
+                    except requests.exceptions.RequestException:
+                        pass
                 
-                except Exception as e:
-                    print(f"[{datetime.now()}] Error scanning Jellyfin library '{lib_name}': {e}")
-            
-            # Commit all the inserts at the end of the scan
-            conn.commit()
-            message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
-            scan_progress_state.update({"current_step": message})
-            cur.close()
-            return {"success": True, "message": message}
+                scan_progress_state.update({"total_steps": total_items})
+                items_processed = 0
+                
+                for lib_setting in library_settings:
+                    lib_name = lib_setting['source_name']
+                    if lib_name not in all_jellyfin_libraries:
+                        continue
+                        
+                    library_id = all_jellyfin_libraries[lib_name]
+                    media_type = lib_setting.get('media_type', 'other')
+                    item_types = media_type_mapping.get(media_type, 'Movie,Episode')
+                    
+                    print(f"[{datetime.now()}] Jellyfin Scanner: Scanning '{lib_name}'...")
+                    scan_progress_state.update({"current_step": f"Scanning library: {lib_name}"})
+                    
+                    try:
+                        # Get all items from this library
+                        items_response = requests.get(
+                            f"{jellyfin_host}/Users/{user_id}/Items",
+                            headers=headers,
+                            params={
+                                'ParentId': library_id,
+                                'Recursive': 'true',
+                                'IncludeItemTypes': item_types,
+                                'Fields': 'Path,MediaStreams'
+                            },
+                            timeout=30
+                        )
+                        items_response.raise_for_status()
+                        items = items_response.json().get('Items', [])
+                        
+                        for item in items:
+                            items_processed += 1
+                            filepath = item.get('Path')
+                            
+                            if not filepath:
+                                continue
+                            
+                            # Get the video codec from MediaStreams
+                            codec = None
+                            media_streams = item.get('MediaStreams', [])
+                            for stream in media_streams:
+                                if stream.get('Type') == 'Video':
+                                    codec = stream.get('Codec', '').lower()
+                                    break
+                            
+                            scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
+                            
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            if codec and codec not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
+                                print(f"    -> Adding file to queue (codec: {codec}).")
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                if cur.rowcount > 0:
+                                    new_files_found += 1
+                    
+                    except requests.exceptions.RequestException as e:
+                        print(f"[{datetime.now()}] Error scanning Jellyfin library '{lib_name}': {e}")
+                
+                # Commit all the inserts at the end of the scan
+                conn.commit()
+                message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+                scan_progress_state.update({"current_step": message})
+                return {"success": True, "message": message}
     finally:
         # Clear progress state after a brief delay to let UI catch the final message
         time.sleep(2)
@@ -3506,8 +3519,8 @@ def update_job(job_id):
                             print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
                         response = requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
                         response.raise_for_status()
-                    except requests.exceptions.RequestException as jf_error:
-                        print(f"⚠️ Could not trigger Jellyfin scan: {jf_error}")
+                    except requests.exceptions.RequestException as e:
+                        print(f"⚠️ Could not trigger Jellyfin scan: {e}")
             except Exception as e:
                 print(f"⚠️ Could not trigger media server scan: {e}")
 
