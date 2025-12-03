@@ -768,6 +768,26 @@ async function loadJobQueueFilters() {
     }
 }
 
+// Helper function to generate action buttons for job queue
+function getJobActionButtons(job) {
+    if (job.is_stuck) {
+        // Stuck job: worker is online but processing higher job IDs
+        return `<div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Remove stuck job"><span class="mdi mdi-delete"></span> Remove</button>
+            <button class="btn btn-xs btn-outline-primary" onclick="requeueJob(${job.id})" title="Re-add to queue"><span class="mdi mdi-refresh"></span> Re-add</button>
+        </div>`;
+    }
+    if (job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10) {
+        // Worker offline: show force remove
+        return `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>`;
+    }
+    if (['pending', 'awaiting_approval', 'failed'].includes(job.status)) {
+        // Regular deletable jobs
+        return `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>`;
+    }
+    return '';
+}
+
 async function updateJobQueue(page = 1) {
     jobQueueCurrentPage = page;
     
@@ -821,16 +841,7 @@ async function updateJobQueue(page = 1) {
                 </td>
                 <td>${job.assigned_to || 'N/A'}</td>
                 <td>${new Date(job.created_at).toLocaleString()}</td>
-                <td>
-                    ${['pending', 'awaiting_approval', 'failed'].includes(job.status) ?
-                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
-                        ''
-                    }
-                    ${job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
-                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
-                        ''
-                    }
-                </td>
+                <td>${getJobActionButtons(job)}</td>
             </tr>
         `).join('');
         tableBody.innerHTML = rowsHtml;
@@ -1937,6 +1948,24 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error deleting job:', error);
             alert('An error occurred while trying to delete the job.');
+        }
+    }
+
+    window.requeueJob = async function(jobId) {
+        if (!confirm(`Are you sure you want to re-add job ${jobId} to the queue? This will reset it to pending status.`)) {
+            return;
+        }
+        try {
+            const response = await fetch(`/api/jobs/requeue/${jobId}`, { method: 'POST' });
+            if (response.ok) {
+                updateJobQueue(jobQueueCurrentPage); // Refresh the queue
+            } else {
+                const data = await response.json();
+                alert(`Error: ${data.error || 'Failed to re-queue job'}`);
+            }
+        } catch (error) {
+            console.error('Error re-queuing job:', error);
+            alert('An error occurred while trying to re-queue the job.');
         }
     }
 

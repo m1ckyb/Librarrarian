@@ -1229,12 +1229,32 @@ def api_delete_job(job_id):
         db = get_db()
         with db.cursor() as cur:
             cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+            rowcount = cur.rowcount
         db.commit()
-        if cur.rowcount == 0:
+        if rowcount == 0:
             return jsonify(success=False, error="Job not found."), 404
         return jsonify(success=True, message=f"Job {job_id} deleted successfully.")
     except Exception as e:
         print(f"Error deleting job {job_id}: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/jobs/requeue/<int:job_id>', methods=['POST'])
+def api_requeue_job(job_id):
+    """Resets a job back to pending status, clearing its assignment and updating timestamp."""
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET status = 'pending', assigned_to = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                (job_id,)
+            )
+            rowcount = cur.rowcount
+        db.commit()
+        if rowcount == 0:
+            return jsonify(success=False, error="Job not found."), 404
+        return jsonify(success=True, message=f"Job {job_id} re-added to queue successfully.")
+    except Exception as e:
+        print(f"Error re-queuing job {job_id}: {e}")
         return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/jobs', methods=['GET'])
@@ -1278,12 +1298,16 @@ def api_jobs():
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
             # We also calculate the age of the job in minutes to detect stuck jobs.
             # For encoding jobs, we also check the worker's last_heartbeat to determine if the worker is stuck.
-            # NOTE: LEFT JOIN with nodes table could impact performance if there are many jobs.
-            # Consider adding indexes on jobs.assigned_to and nodes.hostname if performance becomes an issue.
+            # We also check if the worker is processing higher job IDs (indicating this job failed silently)
+            # NOTE: The subquery for higher_job_id_by_same_worker executes per row. For better performance
+            # with large job queues, consider using a window function (LEAD/LAG) or adding an index on
+            # (assigned_to, status, id). Current implementation is acceptable for typical queue sizes (<10k jobs).
+            # Also consider adding an index on jobs.assigned_to and nodes.hostname if needed.
             query = f"""
                 SELECT jobs.*,
                        EXTRACT(EPOCH FROM (NOW() - jobs.updated_at)) / 60 AS age_minutes,
-                       EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 AS minutes_since_heartbeat
+                       EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 AS minutes_since_heartbeat,
+                       (SELECT MAX(id) FROM jobs AS j2 WHERE j2.assigned_to = jobs.assigned_to AND j2.status = 'encoding' AND j2.id > jobs.id) AS higher_job_id_by_same_worker
                 FROM jobs
                 LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
                 {where_sql}
@@ -1302,6 +1326,14 @@ def api_jobs():
             jobs = cur.fetchall()
             for job in jobs:
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                # Mark job as stuck if worker is online and processing higher job IDs
+                job['is_stuck'] = (
+                    job['status'] == 'encoding' and 
+                    job['assigned_to'] and 
+                    job['minutes_since_heartbeat'] is not None and 
+                    job['minutes_since_heartbeat'] < 10 and  # Worker is still online
+                    job['higher_job_id_by_same_worker'] is not None  # Worker is processing higher job IDs
+                )
             
             # Query for the total number of jobs to calculate total pages (respecting filters)
             # count_params should only include the filter parameters, not LIMIT and OFFSET
