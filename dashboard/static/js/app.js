@@ -1,3 +1,15 @@
+// --- Utility Functions ---
+/**
+ * Escapes HTML special characters to prevent XSS vulnerabilities
+ * @param {string} text - The text to escape
+ * @returns {string} The escaped text
+ */
+function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // --- Sonarr Tools Logic (Corrected and placed in index.html) ---
 const sonarrRenameScanButton = document.getElementById('sonarr-rename-scan-button');
 const sonarrQualityScanButton = document.getElementById('sonarr-quality-scan-button');
@@ -447,7 +459,7 @@ function createNodeCard(node) {
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
-                <div class="btn-group btn-group-sm me-2" role="group" style="gap: 2px;">
+                <div class="btn-group btn-group-sm me-2" role="group" style="gap: 4px;">
                     <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
                     <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
                     <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
@@ -1689,7 +1701,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasToken = window.Librarrarian.settings.plexToken !== "";
 
         if (!hasToken) {
-            container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and link your account to see libraries.</p>`;
+            container.innerHTML = `<p class="text-muted">Link your Plex account to see libraries.</p>`;
             return;
         }
 
@@ -1697,18 +1709,55 @@ document.addEventListener('DOMContentLoaded', () => {
         const data = await response.json();
         const currentLibs = window.Librarrarian.settings.plexLibraries;
 
+        // Check if multi-server is enabled and primary server is Plex
+        const multiServerEnabled = document.getElementById('enable_multi_server')?.checked;
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        const showJellyfinLink = multiServerEnabled && primaryServer === 'plex';
+
+        // Fetch Jellyfin libraries if needed for linking
+        let jellyfinLibs = [];
+        if (showJellyfinLink) {
+            try {
+                const jellyfinResponse = await fetch('/api/jellyfin/libraries');
+                const jellyfinData = await jellyfinResponse.json();
+                if (jellyfinData.libraries) {
+                    jellyfinLibs = jellyfinData.libraries;
+                }
+            } catch (e) {
+                console.log('Could not fetch Jellyfin libraries for linking');
+            }
+        }
+
+        const createJellyfinLinkDropdown = (plexLibName) => {
+            // Note: Backend handling for library linking needs to be implemented
+            // These form fields (link_plex_*) are not yet processed by the server
+            const escapedLibName = escapeHtml(plexLibName);
+            const options = ['<option value="">-- None --</option>']
+                .concat(jellyfinLibs.map(jLib => {
+                    const escapedTitle = escapeHtml(jLib.title);
+                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                }))
+                .join('');
+            return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
+        };
+
         if (data.libraries && data.libraries.length > 0) {
-            container.innerHTML = data.libraries.map(lib => `
+            container.innerHTML = data.libraries.map(lib => {
+                const escapedTitle = escapeHtml(lib.title);
+                const escapedKey = escapeHtml(lib.key);
+                return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
-                    <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="plex_libraries" value="${lib.title}" id="lib-${lib.key}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="lib-${lib.key}">${lib.title}</label>
+                    <div class="form-check" style="min-width: 150px;">
+                        <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
+                        <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
-                    <div class="ms-auto d-flex align-items-center me-2">
-                        ${createDropdown(`type_plex_${lib.title}`, lib.plex_type, lib.type)}
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
+                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } else {
             container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
         }
@@ -1718,7 +1767,8 @@ document.addEventListener('DOMContentLoaded', () => {
             applyPlexVisibility();
         }
     }
-    if (document.getElementById('plex-libraries-container').style.display !== 'none') {
+    // Always load Plex libraries on page load (the function checks for token internally)
+    if (document.getElementById('plex-libraries-container')) {
         loadPlexLibraries();
     }
 
@@ -1736,6 +1786,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
             return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
         };
+
+        const hasApiKey = window.Librarrarian.settings.jellyfinApiKey !== "";
+
+        if (!hasApiKey) {
+            container.innerHTML = `<p class="text-muted">Link your Jellyfin server to see libraries.</p>`;
+            return;
+        }
+
         container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading libraries...';
 
         const response = await fetch('/api/jellyfin/libraries');
@@ -1746,17 +1804,53 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
+        // Check if multi-server is enabled and primary server is Jellyfin
+        const multiServerEnabled = document.getElementById('enable_multi_server')?.checked;
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        const showPlexLink = multiServerEnabled && primaryServer === 'jellyfin';
+
+        // Fetch Plex libraries if needed for linking
+        let plexLibs = [];
+        if (showPlexLink) {
+            try {
+                const plexResponse = await fetch('/api/plex/libraries');
+                const plexData = await plexResponse.json();
+                if (plexData.libraries) {
+                    plexLibs = plexData.libraries;
+                }
+            } catch (e) {
+                console.log('Could not fetch Plex libraries for linking');
+            }
+        }
+
+        const createPlexLinkDropdown = (jellyfinLibName) => {
+            // Note: Backend handling for library linking needs to be implemented
+            // These form fields (link_jellyfin_*) are not yet processed by the server
+            const escapedLibName = escapeHtml(jellyfinLibName);
+            const options = ['<option value="">-- None --</option>']
+                .concat(plexLibs.map(pLib => {
+                    const escapedTitle = escapeHtml(pLib.title);
+                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                }))
+                .join('');
+            return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
+        };
+
         if (data.libraries && data.libraries.length > 0) {
-            container.innerHTML = data.libraries.map(lib => `
+            container.innerHTML = data.libraries.map(lib => {
+                const escapedTitle = escapeHtml(lib.title);
+                return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
-                    <div class="form-check flex-grow-1">
-                        <label class="form-check-label">${lib.title}</label>
+                    <div class="form-check" style="min-width: 150px;">
+                        <label class="form-check-label">${escapedTitle}</label>
                     </div>
-                    <div class="ms-auto d-flex align-items-center me-2">
-                        ${createDropdown(`type_jellyfin_${lib.title}`, lib.type)}
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
+                        ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
-            `).join('');
+            `;
+            }).join('');
         } else {
             container.innerHTML = '<p class="text-muted">No libraries found.</p>';
         }
@@ -1766,10 +1860,30 @@ document.addEventListener('DOMContentLoaded', () => {
             applyJellyfinVisibility();
         }
     }
+    // Always load Jellyfin libraries on page load (the function checks for API key internally)
     const jellyfinLibrariesContainer = document.getElementById('jellyfin-libraries-container');
-    if (jellyfinLibrariesContainer && jellyfinLibrariesContainer.style.display !== 'none') {
+    if (jellyfinLibrariesContainer) {
         loadJellyfinLibraries();
     }
+
+    // --- Event listeners for multi-server library linking ---
+    // Reload libraries when multi-server is toggled
+    const multiServerCheckbox = document.getElementById('enable_multi_server');
+    if (multiServerCheckbox) {
+        multiServerCheckbox.addEventListener('change', () => {
+            loadPlexLibraries();
+            loadJellyfinLibraries();
+        });
+    }
+
+    // Reload libraries when primary server changes
+    const primaryServerRadios = document.querySelectorAll('input[name="primary_media_server"]');
+    primaryServerRadios.forEach(radio => {
+        radio.addEventListener('change', () => {
+            loadPlexLibraries();
+            loadJellyfinLibraries();
+        });
+    });
 
     // --- Dynamic Internal Folder Loading ---
     async function loadInternalFolders() {
