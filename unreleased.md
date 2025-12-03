@@ -4,7 +4,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Added
 - Primary Media Server selection with radio buttons (Plex/Jellyfin/Internal Media Scanner) in Media Servers tab
-- Multi-server library linking: when "Enable Multiple Servers" is enabled, an additional dropdown appears to link libraries between Plex and Jellyfin
+- Multi-server library linking UI: when "Enable Multiple Servers" is enabled, an additional dropdown appears to link libraries between Plex and Jellyfin (Note: backend storage support pending)
 - Two-column layout for Media Servers tab: authentication controls on left, monitored libraries on right
 
 ### Changed

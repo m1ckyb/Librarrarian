@@ -1717,6 +1717,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const createJellyfinLinkDropdown = (plexLibName) => {
+            // Note: Backend handling for library linking needs to be implemented
+            // These form fields (link_plex_*) are not yet processed by the server
             const options = ['<option value="">-- None --</option>']
                 .concat(jellyfinLibs.map(jLib => `<option value="${jLib.title}">${jLib.title}</option>`))
                 .join('');
@@ -1802,6 +1804,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         const createPlexLinkDropdown = (jellyfinLibName) => {
+            // Note: Backend handling for library linking needs to be implemented
+            // These form fields (link_jellyfin_*) are not yet processed by the server
             const options = ['<option value="">-- None --</option>']
                 .concat(plexLibs.map(pLib => `<option value="${pLib.title}">${pLib.title}</option>`))
                 .join('');
