@@ -2955,14 +2955,16 @@ def run_jellyfin_scan(force_scan=False):
 
 @app.route('/api/scan/trigger', methods=['POST'])
 def api_trigger_scan():
-    """API endpoint to manually trigger a media server scan based on primary_media_server setting."""
+    """
+    API endpoint to manually trigger a media server scan based on primary_media_server setting.
+    The scanner thread will use force_scan=True for manual scans to ensure a complete rescan.
+    """
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
     print(f"[{datetime.now()}] Manual scan requested via API.")
     
     # Trigger the background thread to run the scan
-    # Manual scans always use force_scan=True to ensure a complete rescan
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
