@@ -768,6 +768,26 @@ async function loadJobQueueFilters() {
     }
 }
 
+// Helper function to generate action buttons for job queue
+function getJobActionButtons(job) {
+    if (job.is_stuck) {
+        // Stuck job: worker is online but processing higher job IDs
+        return `<div class="btn-group btn-group-sm" role="group">
+            <button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Remove stuck job"><span class="mdi mdi-delete"></span> Remove</button>
+            <button class="btn btn-xs btn-outline-primary" onclick="requeueJob(${job.id})" title="Re-add to queue"><span class="mdi mdi-refresh"></span> Re-add</button>
+        </div>`;
+    }
+    if (job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10) {
+        // Worker offline: show force remove
+        return `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>`;
+    }
+    if (['pending', 'awaiting_approval', 'failed'].includes(job.status)) {
+        // Regular deletable jobs
+        return `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>`;
+    }
+    return '';
+}
+
 async function updateJobQueue(page = 1) {
     jobQueueCurrentPage = page;
     
@@ -821,22 +841,7 @@ async function updateJobQueue(page = 1) {
                 </td>
                 <td>${job.assigned_to || 'N/A'}</td>
                 <td>${new Date(job.created_at).toLocaleString()}</td>
-                <td>
-                    ${job.is_stuck ?
-                        // Stuck job: worker is online but processing higher job IDs
-                        `<div class="btn-group btn-group-sm" role="group">
-                            <button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Remove stuck job"><span class="mdi mdi-delete"></span> Remove</button>
-                            <button class="btn btn-xs btn-outline-primary" onclick="requeueJob(${job.id})" title="Re-add to queue"><span class="mdi mdi-refresh"></span> Re-add</button>
-                        </div>` :
-                    job.status === 'encoding' && job.minutes_since_heartbeat && job.minutes_since_heartbeat > 10 ?
-                        // Worker offline: show force remove
-                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
-                    ['pending', 'awaiting_approval', 'failed'].includes(job.status) ?
-                        // Regular deletable jobs
-                        `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Delete Job">&times;</button>` :
-                        ''
-                    }
-                </td>
+                <td>${getJobActionButtons(job)}</td>
             </tr>
         `).join('');
         tableBody.innerHTML = rowsHtml;

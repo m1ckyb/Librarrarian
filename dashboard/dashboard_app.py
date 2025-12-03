@@ -1229,8 +1229,9 @@ def api_delete_job(job_id):
         db = get_db()
         with db.cursor() as cur:
             cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+            rowcount = cur.rowcount
         db.commit()
-        if cur.rowcount == 0:
+        if rowcount == 0:
             return jsonify(success=False, error="Job not found."), 404
         return jsonify(success=True, message=f"Job {job_id} deleted successfully.")
     except Exception as e:
@@ -1247,8 +1248,9 @@ def api_requeue_job(job_id):
                 "UPDATE jobs SET status = 'pending', assigned_to = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
                 (job_id,)
             )
+            rowcount = cur.rowcount
         db.commit()
-        if cur.rowcount == 0:
+        if rowcount == 0:
             return jsonify(success=False, error="Job not found."), 404
         return jsonify(success=True, message=f"Job {job_id} re-added to queue successfully.")
     except Exception as e:
