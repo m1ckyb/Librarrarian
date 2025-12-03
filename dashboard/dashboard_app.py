@@ -610,9 +610,29 @@ def get_cluster_status():
                 # Remove the raw timedelta object as it's not JSON serializable
                 node.pop('uptime', None)
             
-            # Get total failure count
+            # Get total failure count (failed_files + stuck jobs)
             cur.execute("SELECT COUNT(*) as cnt FROM failed_files")
             failures = cur.fetchone()['cnt']
+            
+            # Count stuck jobs: jobs in 'encoding' status where worker is online and processing higher job IDs
+            cur.execute("""
+                SELECT COUNT(*) as cnt FROM jobs
+                WHERE status = 'encoding'
+                AND assigned_to IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM nodes
+                    WHERE nodes.hostname = jobs.assigned_to
+                    AND nodes.last_heartbeat > NOW() - INTERVAL '10 minutes'
+                )
+                AND EXISTS (
+                    SELECT 1 FROM jobs AS j2
+                    WHERE j2.assigned_to = jobs.assigned_to
+                    AND j2.status = 'encoding'
+                    AND j2.id > jobs.id
+                )
+            """)
+            stuck_count = cur.fetchone()['cnt']
+            failures += stuck_count
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
@@ -632,7 +652,7 @@ def get_cluster_status():
     return nodes, failures, db_error
 
 def get_failed_files_list():
-    """Fetches the detailed list of failed files from the database."""
+    """Fetches the detailed list of failed files from the database, including stuck jobs."""
     db = get_db()
     files = []
     db_error = None
@@ -643,9 +663,38 @@ def get_failed_files_list():
     
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            # Use 'failed_at' column (actual column name) but alias it to 'reported_at' for frontend compatibility
-            cur.execute("SELECT filename, reason, failed_at AS reported_at, log FROM failed_files ORDER BY failed_at DESC")
+            # Get regular failed files
+            cur.execute("SELECT id, filename, reason, failed_at AS reported_at, log, 'failed_file' as type FROM failed_files ORDER BY failed_at DESC")
             files = cur.fetchall()
+            
+            # Get stuck jobs (jobs in 'encoding' status where worker is online and processing higher job IDs)
+            cur.execute("""
+                SELECT 
+                    jobs.id,
+                    jobs.file_path as filename,
+                    'Stuck transcode - Worker is online but processing other jobs' as reason,
+                    jobs.updated_at as reported_at,
+                    'Job appears to have failed silently. Worker came back online and started processing higher job IDs.' as log,
+                    'stuck_job' as type
+                FROM jobs
+                LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
+                WHERE jobs.status = 'encoding'
+                AND jobs.assigned_to IS NOT NULL
+                AND EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 < 10
+                AND EXISTS (
+                    SELECT 1 FROM jobs AS j2
+                    WHERE j2.assigned_to = jobs.assigned_to
+                    AND j2.status = 'encoding'
+                    AND j2.id > jobs.id
+                )
+                ORDER BY jobs.updated_at DESC
+            """)
+            stuck_jobs = cur.fetchall()
+            files.extend(stuck_jobs)
+            
+            # Sort all files by reported_at descending
+            files = sorted(files, key=lambda x: x['reported_at'], reverse=True)
+            
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
