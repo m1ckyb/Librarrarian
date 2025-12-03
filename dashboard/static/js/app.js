@@ -830,6 +830,13 @@ async function updateJobQueue(page = 1) {
                         `<button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Force Remove Stuck Job">Force Remove</button>` :
                         ''
                     }
+                    ${job.is_stuck ?
+                        `<div class="btn-group btn-group-sm" role="group">
+                            <button class="btn btn-xs btn-outline-danger" onclick="deleteJob(${job.id})" title="Remove stuck job"><span class="mdi mdi-delete"></span> Remove</button>
+                            <button class="btn btn-xs btn-outline-primary" onclick="requeueJob(${job.id})" title="Re-add to queue"><span class="mdi mdi-refresh"></span> Re-add</button>
+                        </div>` :
+                        ''
+                    }
                 </td>
             </tr>
         `).join('');
@@ -1937,6 +1944,24 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (error) {
             console.error('Error deleting job:', error);
             alert('An error occurred while trying to delete the job.');
+        }
+    }
+
+    window.requeueJob = async function(jobId) {
+        if (!confirm(`Are you sure you want to re-add job ${jobId} to the queue? This will reset it to pending status.`)) {
+            return;
+        }
+        try {
+            const response = await fetch(`/api/jobs/requeue/${jobId}`, { method: 'POST' });
+            if (response.ok) {
+                updateJobQueue(jobQueueCurrentPage); // Refresh the queue
+            } else {
+                const data = await response.json();
+                alert(`Error: ${data.error || 'Failed to re-queue job'}`);
+            }
+        } catch (error) {
+            console.error('Error re-queuing job:', error);
+            alert('An error occurred while trying to re-queue the job.');
         }
     }
 
