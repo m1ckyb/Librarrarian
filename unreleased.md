@@ -3,6 +3,9 @@
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
 ### Added
+- **Jellyfin Background Scanning Thread**: Added dedicated background thread for Jellyfin library scanning that runs independently and waits for manual triggers or scheduled scans
+- **Post-Transcode Jellyfin Library Updates**: Jellyfin libraries are now automatically refreshed after transcode completion, respecting the `hide_jellyfin_updates` setting
+- **Primary Server Awareness in Scan Button**: Manual scan button now routes to the correct media server (Plex, Jellyfin, or Internal) based on the `primary_media_server` setting
 - **Jellyfin Support**: Added comprehensive support for Jellyfin media server as an alternative or complement to Plex
   - Jellyfin authentication via API key
   - Jellyfin library discovery and management
