@@ -447,7 +447,7 @@ function createNodeCard(node) {
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
-                <div class="btn-group btn-group-sm me-2" role="group" style="gap: 2px;">
+                <div class="btn-group btn-group-sm me-2" role="group" style="gap: 4px;">
                     <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
                     <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
                     <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
@@ -1689,7 +1689,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const hasToken = window.Librarrarian.settings.plexToken !== "";
 
         if (!hasToken) {
-            container.innerHTML = `<p class="text-muted">Enter your Plex Server URL and link your account to see libraries.</p>`;
+            container.innerHTML = `<p class="text-muted">Link your Plex account to see libraries.</p>`;
             return;
         }
 
@@ -1718,7 +1718,8 @@ document.addEventListener('DOMContentLoaded', () => {
             applyPlexVisibility();
         }
     }
-    if (document.getElementById('plex-libraries-container').style.display !== 'none') {
+    // Always load Plex libraries on page load (the function checks for token internally)
+    if (document.getElementById('plex-libraries-container')) {
         loadPlexLibraries();
     }
 
@@ -1736,6 +1737,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
             return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
         };
+
+        const hasApiKey = window.Librarrarian.settings.jellyfinApiKey !== "";
+
+        if (!hasApiKey) {
+            container.innerHTML = `<p class="text-muted">Link your Jellyfin server to see libraries.</p>`;
+            return;
+        }
+
         container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading libraries...';
 
         const response = await fetch('/api/jellyfin/libraries');
@@ -1766,8 +1775,9 @@ document.addEventListener('DOMContentLoaded', () => {
             applyJellyfinVisibility();
         }
     }
+    // Always load Jellyfin libraries on page load (the function checks for API key internally)
     const jellyfinLibrariesContainer = document.getElementById('jellyfin-libraries-container');
-    if (jellyfinLibrariesContainer && jellyfinLibrariesContainer.style.display !== 'none') {
+    if (jellyfinLibrariesContainer) {
         loadJellyfinLibraries();
     }
 

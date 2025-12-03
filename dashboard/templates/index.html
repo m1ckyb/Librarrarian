@@ -314,17 +314,28 @@
                                 <div class="tab-pane fade show active" id="media-servers-pane" role="tabpanel">
                                     {% set primary_media_server = settings.get('primary_media_server', {}).get('setting_value', 'plex') %}
                                     {% set enable_multi_server = settings.get('enable_multi_server', {}).get('setting_value', 'false') == 'true' %}
+                                    {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
+                                    {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
                                     
+                                    <!-- Primary Media Server Selection -->
                                     <div class="mb-3">
                                         <label class="form-label"><strong>Primary Media Server</strong></label>
-                                        <p class="form-text text-body-secondary">Select the primary source of truth for your media library.</p>
-                                        <select class="form-select" name="primary_media_server" id="primary_media_server">
-                                            <option value="plex" {{ 'selected' if primary_media_server == 'plex' }}>Plex</option>
-                                            <option value="jellyfin" {{ 'selected' if primary_media_server == 'jellyfin' }}>Jellyfin</option>
-                                        </select>
+                                        <p class="form-text text-body-secondary mb-2">Select your primary media scanner. Only one can be active at a time.</p>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="primary_media_server" id="primary_plex" value="plex" {{ 'checked' if primary_media_server == 'plex' }}>
+                                            <label class="form-check-label" for="primary_plex">Plex</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="primary_media_server" id="primary_jellyfin" value="jellyfin" {{ 'checked' if primary_media_server == 'jellyfin' }}>
+                                            <label class="form-check-label" for="primary_jellyfin">Jellyfin</label>
+                                        </div>
+                                        <div class="form-check">
+                                            <input class="form-check-input" type="radio" name="primary_media_server" id="primary_internal" value="internal" {{ 'checked' if primary_media_server == 'internal' }}>
+                                            <label class="form-check-label" for="primary_internal">Internal Media Scanner</label>
+                                        </div>
                                     </div>
 
-                                    <div class="form-check form-switch mb-3">
+                                    <div class="form-check form-switch mb-4">
                                         <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" {{ 'checked' if enable_multi_server }}>
                                         <label class="form-check-label" for="enable_multi_server"><strong>Enable Multiple Servers</strong></label>
                                         <p class="form-text text-body-secondary">Enable syncing file information to both Plex and Jellyfin after transcoding.</p>
@@ -332,60 +343,71 @@
 
                                     <hr class="my-4">
 
-                                    <!-- Plex Section -->
-                                    {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
-                                    <h6 class="mb-3"><strong>Plex</strong></h6>
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>Authentication</strong></label>
-                                        <div class="d-flex gap-2">
-                                            {% if plex_token %}
-                                                <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Plex</button>
-                                            {% else %}
-                                                <button type="button" class="btn btn-outline-warning" id="plex-login-btn" style="--bs-btn-color: #e5a00d; --bs-btn-border-color: #e5a00d; --bs-btn-hover-bg: #e5a00d; --bs-btn-hover-border-color: #e5a00d;"><span class="mdi mdi-link"></span> Link Plex</button>
-                                            {% endif %}
-                                            <div class="align-self-center">
-                                                {% if plex_token %}
-                                                    <span class="text-success">✓ Account Linked</span>
-                                                {% endif %}
+                                    <!-- Two-column layout: Auth on left, Libraries on right -->
+                                    <div class="row">
+                                        <!-- Left Column: Authentication -->
+                                        <div class="col-md-6">
+                                            <h6 class="mb-3"><strong>Authentication</strong></h6>
+                                            
+                                            <!-- Plex Auth -->
+                                            <div class="mb-3">
+                                                <label class="form-label">Plex</label>
+                                                <div class="d-flex gap-2">
+                                                    {% if plex_token %}
+                                                        <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Plex</button>
+                                                    {% else %}
+                                                        <button type="button" class="btn btn-outline-warning" id="plex-login-btn" style="--bs-btn-color: #e5a00d; --bs-btn-border-color: #e5a00d; --bs-btn-hover-bg: #e5a00d; --bs-btn-hover-border-color: #e5a00d;"><span class="mdi mdi-link"></span> Link Plex</button>
+                                                    {% endif %}
+                                                    <div class="align-self-center">
+                                                        {% if plex_token %}
+                                                            <span class="text-success">✓ Account Linked</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            <!-- Jellyfin Auth -->
+                                            <div class="mb-3">
+                                                <label class="form-label">Jellyfin</label>
+                                                <div class="d-flex gap-2">
+                                                    {% if jellyfin_api_key %}
+                                                        <button type="button" class="btn btn-outline-danger" id="jellyfin-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Jellyfin</button>
+                                                    {% else %}
+                                                        <button type="button" class="btn" id="jellyfin-login-btn" style="--bs-btn-color: #aa5cc3; --bs-btn-border-color: #aa5cc3; --bs-btn-hover-bg: #aa5cc3; --bs-btn-hover-border-color: #aa5cc3; --bs-btn-hover-color: #fff; border: 1px solid;"><span class="mdi mdi-link"></span> Link Jellyfin</button>
+                                                    {% endif %}
+                                                    <div class="align-self-center">
+                                                        {% if jellyfin_api_key %}
+                                                            <span class="text-success">✓ Server Linked</span>
+                                                        {% endif %}
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div id="plex-libraries-container" {% if not plex_token %}style="display: none;"{% endif %}>
-                                        <label class="form-label"><strong>Monitored Libraries</strong></label>
-                                        <div class="form-check form-switch float-end">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
-                                            <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
-                                        </div>
-                                        <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
-                                    </div>
 
-                                    <hr class="my-4">
+                                        <!-- Right Column: Monitored Libraries -->
+                                        <div class="col-md-6">
+                                            <h6 class="mb-3"><strong>Monitored Libraries</strong></h6>
+                                            
+                                            <!-- Plex Libraries -->
+                                            <div id="plex-libraries-container" class="mb-3">
+                                                <label class="form-label">Plex</label>
+                                                <div class="form-check form-switch float-end">
+                                                    <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
+                                                    <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
+                                                </div>
+                                                <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                            </div>
 
-                                    <!-- Jellyfin Section -->
-                                    {% set jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value') %}
-                                    <h6 class="mb-3"><strong>Jellyfin</strong></h6>
-                                    <div class="mb-3">
-                                        <label class="form-label"><strong>Authentication</strong></label>
-                                        <div class="d-flex gap-2">
-                                            {% if jellyfin_api_key %}
-                                                <button type="button" class="btn btn-outline-danger" id="jellyfin-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Jellyfin</button>
-                                            {% else %}
-                                                <button type="button" class="btn" id="jellyfin-login-btn" style="--bs-btn-color: #aa5cc3; --bs-btn-border-color: #aa5cc3; --bs-btn-hover-bg: #aa5cc3; --bs-btn-hover-border-color: #aa5cc3; --bs-btn-hover-color: #fff; border: 1px solid;"><span class="mdi mdi-link"></span> Link Jellyfin</button>
-                                            {% endif %}
-                                            <div class="align-self-center">
-                                                {% if jellyfin_api_key %}
-                                                    <span class="text-success">✓ Server Linked</span>
-                                                {% endif %}
+                                            <!-- Jellyfin Libraries -->
+                                            <div id="jellyfin-libraries-container">
+                                                <label class="form-label">Jellyfin</label>
+                                                <div class="form-check form-switch float-end">
+                                                    <input class="form-check-input" type="checkbox" role="switch" id="jellyfin-show-hidden-toggle">
+                                                    <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
+                                                </div>
+                                                <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div id="jellyfin-libraries-container" {% if not jellyfin_api_key %}style="display: none;"{% endif %}>
-                                        <label class="form-label"><strong>Monitored Libraries</strong></label>
-                                        <div class="form-check form-switch float-end">
-                                            <input class="form-check-input" type="checkbox" role="switch" id="jellyfin-show-hidden-toggle">
-                                            <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
-                                        </div>
-                                        <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
                                     </div>
                                 </div>
                                 <!-- Internal Scanner Tab -->
@@ -851,6 +873,7 @@
                 use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }},
                 plexToken: "{{ settings.get('plex_token', {}).get('setting_value', '') }}",
                 plexLibraries: "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
+                jellyfinApiKey: "{{ settings.get('jellyfin_api_key', {}).get('setting_value', '') }}",
                 internalScanPaths: "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',').filter(Boolean)
             },
             version: "{{ version }}"
