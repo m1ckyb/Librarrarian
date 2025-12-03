@@ -7,6 +7,7 @@ import base64
 import json
 import re
 from datetime import datetime, timezone, timedelta
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -232,6 +233,31 @@ def get_project_version():
             return open(version_file, 'r').read().strip()
         except FileNotFoundError:
             return "unknown"
+
+def get_local_time_string(dt_utc, format='%H:%M:%S'):
+    """
+    Converts a UTC datetime to the configured timezone and formats it as a string.
+    
+    Args:
+        dt_utc: A timezone-aware datetime object in UTC
+        format: The strftime format string (default: '%H:%M:%S')
+    
+    Returns:
+        A formatted time string in the configured timezone
+    """
+    tz_name = os.environ.get('TZ', 'UTC')
+    try:
+        local_tz = ZoneInfo(tz_name)
+        dt_local = dt_utc.astimezone(local_tz)
+        return dt_local.strftime(format)
+    except (ZoneInfoNotFoundError, ValueError) as e:
+        # Fallback to UTC if timezone conversion fails
+        logging.warning(f"Could not convert to timezone '{tz_name}': {e}. Using UTC.")
+        return dt_utc.strftime(format)
+    except Exception as e:
+        # Catch any other unexpected errors
+        logging.error(f"Unexpected error converting timezone '{tz_name}': {e}. Using UTC.")
+        return dt_utc.strftime(format)
 
 # Print a startup banner to the logs
 print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
@@ -584,9 +610,29 @@ def get_cluster_status():
                 # Remove the raw timedelta object as it's not JSON serializable
                 node.pop('uptime', None)
             
-            # Get total failure count
+            # Get total failure count (failed_files + stuck jobs)
             cur.execute("SELECT COUNT(*) as cnt FROM failed_files")
             failures = cur.fetchone()['cnt']
+            
+            # Count stuck jobs: jobs in 'encoding' status where worker is online and processing higher job IDs
+            cur.execute("""
+                SELECT COUNT(*) as cnt FROM jobs
+                WHERE status = 'encoding'
+                AND assigned_to IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM nodes
+                    WHERE nodes.hostname = jobs.assigned_to
+                    AND nodes.last_heartbeat > NOW() - INTERVAL '10 minutes'
+                )
+                AND EXISTS (
+                    SELECT 1 FROM jobs AS j2
+                    WHERE j2.assigned_to = jobs.assigned_to
+                    AND j2.status = 'encoding'
+                    AND j2.id > jobs.id
+                )
+            """)
+            stuck_count = cur.fetchone()['cnt']
+            failures += stuck_count
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
@@ -606,7 +652,7 @@ def get_cluster_status():
     return nodes, failures, db_error
 
 def get_failed_files_list():
-    """Fetches the detailed list of failed files from the database."""
+    """Fetches the detailed list of failed files from the database, including stuck jobs."""
     db = get_db()
     files = []
     db_error = None
@@ -617,9 +663,41 @@ def get_failed_files_list():
     
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            # Use 'failed_at' column (actual column name) but alias it to 'reported_at' for frontend compatibility
-            cur.execute("SELECT filename, reason, failed_at AS reported_at, log FROM failed_files ORDER BY failed_at DESC")
+            # Get regular failed files
+            cur.execute("SELECT id, filename, reason, failed_at AS reported_at, log, 'failed_file' as type FROM failed_files ORDER BY failed_at DESC")
             files = cur.fetchall()
+            
+            # Get stuck jobs (jobs in 'encoding' status where worker is online and processing higher job IDs)
+            cur.execute("""
+                SELECT 
+                    jobs.id,
+                    jobs.filepath as filename,
+                    'Stuck transcode - Worker is online but processing other jobs' as reason,
+                    jobs.updated_at as reported_at,
+                    'Job appears to have failed silently. Worker came back online and started processing higher job IDs.' as log,
+                    'stuck_job' as type
+                FROM jobs
+                WHERE jobs.status = 'encoding'
+                AND jobs.assigned_to IS NOT NULL
+                AND EXISTS (
+                    SELECT 1 FROM nodes
+                    WHERE nodes.hostname = jobs.assigned_to
+                    AND nodes.last_heartbeat > NOW() - INTERVAL '10 minutes'
+                )
+                AND EXISTS (
+                    SELECT 1 FROM jobs AS j2
+                    WHERE j2.assigned_to = jobs.assigned_to
+                    AND j2.status = 'encoding'
+                    AND j2.id > jobs.id
+                )
+                ORDER BY jobs.updated_at DESC
+            """)
+            stuck_jobs = cur.fetchall()
+            files.extend(stuck_jobs)
+            
+            # Sort all files by reported_at descending
+            files = sorted(files, key=lambda x: x['reported_at'], reverse=True)
+            
     except Exception as e:
         db_error = f"Database query failed: {e}"
 
@@ -1203,12 +1281,32 @@ def api_delete_job(job_id):
         db = get_db()
         with db.cursor() as cur:
             cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+            rowcount = cur.rowcount
         db.commit()
-        if cur.rowcount == 0:
+        if rowcount == 0:
             return jsonify(success=False, error="Job not found."), 404
         return jsonify(success=True, message=f"Job {job_id} deleted successfully.")
     except Exception as e:
         print(f"Error deleting job {job_id}: {e}")
+        return jsonify(success=False, error=str(e)), 500
+
+@app.route('/api/jobs/requeue/<int:job_id>', methods=['POST'])
+def api_requeue_job(job_id):
+    """Resets a job back to pending status, clearing its assignment and updating timestamp."""
+    try:
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute(
+                "UPDATE jobs SET status = 'pending', assigned_to = NULL, updated_at = CURRENT_TIMESTAMP WHERE id = %s",
+                (job_id,)
+            )
+            rowcount = cur.rowcount
+        db.commit()
+        if rowcount == 0:
+            return jsonify(success=False, error="Job not found."), 404
+        return jsonify(success=True, message=f"Job {job_id} re-added to queue successfully.")
+    except Exception as e:
+        print(f"Error re-queuing job {job_id}: {e}")
         return jsonify(success=False, error=str(e)), 500
 
 @app.route('/api/jobs', methods=['GET'])
@@ -1252,12 +1350,16 @@ def api_jobs():
             # This custom sort order brings 'encoding' jobs to the top, followed by 'pending'.
             # We also calculate the age of the job in minutes to detect stuck jobs.
             # For encoding jobs, we also check the worker's last_heartbeat to determine if the worker is stuck.
-            # NOTE: LEFT JOIN with nodes table could impact performance if there are many jobs.
-            # Consider adding indexes on jobs.assigned_to and nodes.hostname if performance becomes an issue.
+            # We also check if the worker is processing higher job IDs (indicating this job failed silently)
+            # NOTE: The subquery for higher_job_id_by_same_worker executes per row. For better performance
+            # with large job queues, consider using a window function (LEAD/LAG) or adding an index on
+            # (assigned_to, status, id). Current implementation is acceptable for typical queue sizes (<10k jobs).
+            # Also consider adding an index on jobs.assigned_to and nodes.hostname if needed.
             query = f"""
                 SELECT jobs.*,
                        EXTRACT(EPOCH FROM (NOW() - jobs.updated_at)) / 60 AS age_minutes,
-                       EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 AS minutes_since_heartbeat
+                       EXTRACT(EPOCH FROM (NOW() - nodes.last_heartbeat)) / 60 AS minutes_since_heartbeat,
+                       (SELECT MAX(id) FROM jobs AS j2 WHERE j2.assigned_to = jobs.assigned_to AND j2.status = 'encoding' AND j2.id > jobs.id) AS higher_job_id_by_same_worker
                 FROM jobs
                 LEFT JOIN nodes ON jobs.assigned_to = nodes.hostname
                 {where_sql}
@@ -1276,6 +1378,14 @@ def api_jobs():
             jobs = cur.fetchall()
             for job in jobs:
                 job['created_at'] = job['created_at'].strftime('%Y-%m-%d %H:%M:%S')
+                # Mark job as stuck if worker is online and processing higher job IDs
+                job['is_stuck'] = (
+                    job['status'] == 'encoding' and 
+                    job['assigned_to'] and 
+                    job['minutes_since_heartbeat'] is not None and 
+                    job['minutes_since_heartbeat'] < 10 and  # Worker is still online
+                    job['higher_job_id_by_same_worker'] is not None  # Worker is processing higher job IDs
+                )
             
             # Query for the total number of jobs to calculate total pages (respecting filters)
             # count_params should only include the filter parameters, not LIMIT and OFFSET
@@ -1337,7 +1447,7 @@ def api_status():
                 job_start = node['job_start_time']
                 
                 # Calculate elapsed time
-                elapsed = (datetime.now() - job_start).total_seconds()
+                elapsed = (datetime.now(timezone.utc) - job_start).total_seconds()
                 
                 # Calculate estimated total time based on current progress
                 if progress > 0:
@@ -1345,8 +1455,9 @@ def api_status():
                     remaining_seconds = estimated_total_time - elapsed
                     
                     if remaining_seconds > 0:
-                        eta = datetime.now() + timedelta(seconds=remaining_seconds)
-                        node['eta'] = eta.strftime('%H:%M:%S')
+                        eta_utc = datetime.now(timezone.utc) + timedelta(seconds=remaining_seconds)
+                        # Convert to configured timezone (from TZ environment variable)
+                        node['eta'] = get_local_time_string(eta_utc)
                         node['eta_seconds'] = int(remaining_seconds)
                     else:
                         node['eta'] = 'N/A'
@@ -1362,12 +1473,15 @@ def api_status():
             node['eta'] = None
             node['eta_seconds'] = 0
 
+    # Get current time in configured timezone
+    last_updated_time = get_local_time_string(datetime.now(timezone.utc))
+    
     return jsonify(
         nodes=nodes,
         fail_count=fail_count,
         db_error=db_error,
         queue_paused=settings.get('pause_job_distribution', {}).get('setting_value') == 'true',
-        last_updated=datetime.now().strftime('%H:%M:%S')
+        last_updated=last_updated_time
     )
 
 @app.route('/api/failures', methods=['GET'])
@@ -3004,7 +3118,7 @@ def update_job(job_id):
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
                     # This is a simple approach; a more robust one would map file paths to libraries
-                    print(f"[{datetime.now()}] Triggering Plex library update for all monitored libraries.")
+                    print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
             except Exception as e:
                 print(f"⚠️ Could not trigger Plex scan: {e}")
