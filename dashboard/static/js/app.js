@@ -1836,13 +1836,17 @@ document.addEventListener('DOMContentLoaded', () => {
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
 
+        const currentLibs = window.Librarrarian.settings.jellyfinLibraries || [];
+
         if (data.libraries && data.libraries.length > 0) {
             container.innerHTML = data.libraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
+                const escapedId = escapeHtml(lib.id || lib.title);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 150px;">
-                        <label class="form-check-label">${escapedTitle}</label>
+                        <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
+                        <label class="form-check-label" for="jlib-${escapedId}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
@@ -1871,19 +1875,79 @@ document.addEventListener('DOMContentLoaded', () => {
     const multiServerCheckbox = document.getElementById('enable_multi_server');
     if (multiServerCheckbox) {
         multiServerCheckbox.addEventListener('change', () => {
-            loadPlexLibraries();
-            loadJellyfinLibraries();
+            handlePrimaryServerChange();
         });
     }
 
+    // Function to handle primary server changes
+    function handlePrimaryServerChange() {
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        const multiServerCheckbox = document.getElementById('enable_multi_server');
+        const multiServerEnabled = multiServerCheckbox?.checked;
+        const mediaServersTab = document.getElementById('media-servers-tab');
+        const internalTab = document.getElementById('internal-integration-tab');
+        const plexContainer = document.getElementById('plex-libraries-container');
+        const jellyfinContainer = document.getElementById('jellyfin-libraries-container');
+        
+        if (primaryServer === 'internal') {
+            // If Internal Media Scanner is selected:
+            // - Disable sync checkbox
+            // - Disable Media Servers tab
+            // - Enable Internal Media Scanner tab
+            if (multiServerCheckbox) {
+                multiServerCheckbox.disabled = true;
+                multiServerCheckbox.checked = false;
+            }
+            if (mediaServersTab) {
+                mediaServersTab.disabled = true;
+            }
+            if (internalTab) {
+                internalTab.disabled = false;
+            }
+        } else {
+            // If Plex or Jellyfin is selected:
+            // - Enable sync checkbox
+            // - Enable Media Servers tab
+            // - Disable Internal Media Scanner tab
+            if (multiServerCheckbox) {
+                multiServerCheckbox.disabled = false;
+            }
+            if (mediaServersTab) {
+                mediaServersTab.disabled = false;
+            }
+            if (internalTab) {
+                internalTab.disabled = true;
+            }
+            
+            // Show/hide library containers based on selection and multi-server mode
+            if (multiServerEnabled) {
+                // When multi-server is enabled, show both containers
+                if (plexContainer) plexContainer.style.display = 'block';
+                if (jellyfinContainer) jellyfinContainer.style.display = 'block';
+            } else {
+                // When multi-server is disabled, show only the selected server's container
+                if (primaryServer === 'plex') {
+                    if (plexContainer) plexContainer.style.display = 'block';
+                    if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+                } else if (primaryServer === 'jellyfin') {
+                    if (plexContainer) plexContainer.style.display = 'none';
+                    if (jellyfinContainer) jellyfinContainer.style.display = 'block';
+                }
+            }
+        }
+        
+        loadPlexLibraries();
+        loadJellyfinLibraries();
+    }
+    
     // Reload libraries when primary server changes
     const primaryServerRadios = document.querySelectorAll('input[name="primary_media_server"]');
     primaryServerRadios.forEach(radio => {
-        radio.addEventListener('change', () => {
-            loadPlexLibraries();
-            loadJellyfinLibraries();
-        });
+        radio.addEventListener('change', handlePrimaryServerChange);
     });
+    
+    // Initialize on page load
+    handlePrimaryServerChange();
 
     // --- Dynamic Internal Folder Loading ---
     async function loadInternalFolders() {
