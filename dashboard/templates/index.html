@@ -355,7 +355,7 @@
                                                 <label class="form-label">Plex</label>
                                                 <div class="d-flex gap-2">
                                                     {% if plex_token %}
-                                                        <button type="button" class="btn btn-outline-danger" id="plex-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Plex</button>
+                                                        <button type="button" class="btn btn-outline-primary" id="plex-modify-btn"><span class="mdi mdi-cog"></span> Modify Configuration</button>
                                                     {% else %}
                                                         <button type="button" class="btn btn-outline-warning" id="plex-login-btn" style="--bs-btn-color: #e5a00d; --bs-btn-border-color: #e5a00d; --bs-btn-hover-bg: #e5a00d; --bs-btn-hover-border-color: #e5a00d;"><span class="mdi mdi-link"></span> Link Plex</button>
                                                     {% endif %}
@@ -372,7 +372,7 @@
                                                 <label class="form-label">Jellyfin</label>
                                                 <div class="d-flex gap-2">
                                                     {% if jellyfin_api_key %}
-                                                        <button type="button" class="btn btn-outline-danger" id="jellyfin-logout-btn"><span class="mdi mdi-link-off"></span> Unlink Jellyfin</button>
+                                                        <button type="button" class="btn btn-outline-primary" id="jellyfin-modify-btn"><span class="mdi mdi-cog"></span> Modify Configuration</button>
                                                     {% else %}
                                                         <button type="button" class="btn" id="jellyfin-login-btn" style="--bs-btn-color: #aa5cc3; --bs-btn-border-color: #aa5cc3; --bs-btn-hover-bg: #aa5cc3; --bs-btn-hover-border-color: #aa5cc3; --bs-btn-hover-color: #fff; border: 1px solid;"><span class="mdi mdi-link"></span> Link Jellyfin</button>
                                                     {% endif %}

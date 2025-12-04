@@ -1908,12 +1908,64 @@ def plex_login():
 
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
-    """Logs out of Plex by clearing the stored token."""
-    success, error = update_worker_setting('plex_token', '')
-    if success:
+    """Logs out of Plex by clearing the stored token and URL."""
+    success1, error1 = update_worker_setting('plex_token', '')
+    success2, error2 = update_worker_setting('plex_url', '')
+    if success1 and success2:
         return jsonify(success=True, message="Plex account unlinked.")
     else:
-        return jsonify(success=False, error=error), 500
+        return jsonify(success=False, error=error1 or error2), 500
+
+@app.route('/api/plex/update-url', methods=['POST'])
+def plex_update_url():
+    """Updates the Plex server URL without re-authentication."""
+    plex_url = request.json.get('plex_url')
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    # Get the current token to verify it still works with the new URL
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(success=False, error=db_error), 500
+    
+    plex_token = settings.get('plex_token', {}).get('setting_value')
+    if not plex_token:
+        return jsonify(success=False, error="No Plex token found. Please link your account first."), 400
+    
+    # Test if the server is reachable
+    try:
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Cannot reach Plex server. (Status: {response.status_code})"), 503
+        
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection to Plex server timed out."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to Plex server."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to reach Plex server: {e}"), 503
+    
+    # Verify the existing token works with the new server URL
+    try:
+        plex = PlexServer(plex_url, plex_token)
+        # If we can access the server, update the URL
+        success, error = update_worker_setting('plex_url', plex_url)
+        if success:
+            return jsonify(success=True, message="Plex server URL updated successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+    except Exception as e:
+        return jsonify(success=False, error=f"Token verification failed with new URL: {e}"), 503
 
 @app.route('/api/plex/test-connection', methods=['POST'])
 def plex_test_connection():
@@ -1985,6 +2037,41 @@ def jellyfin_logout():
         return jsonify(success=True, message="Jellyfin server unlinked.")
     else:
         return jsonify(success=False, error=error1 or error2), 500
+
+@app.route('/api/jellyfin/update-config', methods=['POST'])
+def jellyfin_update_config():
+    """Updates the Jellyfin server configuration (URL and/or API key)."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+    
+    if not jellyfin_host or not jellyfin_api_key:
+        return jsonify(success=False, error="Server URL and API key are required."), 400
+    
+    # Test if the server is reachable with the provided credentials
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key."), 401
+        elif response.status_code != 200:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+        
+        # Connection successful, update both settings
+        success1, error1 = update_worker_setting('jellyfin_host', jellyfin_host)
+        success2, error2 = update_worker_setting('jellyfin_api_key', jellyfin_api_key)
+        
+        if success1 and success2:
+            return jsonify(success=True, message="Jellyfin server configuration updated successfully!")
+        else:
+            return jsonify(success=False, error=error1 or error2), 500
+            
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
 
 @app.route('/api/jellyfin/test-connection', methods=['POST'])
 def jellyfin_test_connection():

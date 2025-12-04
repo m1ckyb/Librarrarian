@@ -17,8 +17,18 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Two-column layout for Media Servers tab: authentication controls on left, monitored libraries on right
 - Monitored Libraries now shows only the selected server's libraries when sync is disabled, or both when sync is enabled
 
+### Changed
+- Changed "Unlink Plex" button to "Modify Configuration" button when Plex is authenticated
+- Changed "Unlink Jellyfin" button to "Modify Configuration" button when Jellyfin is authenticated
+- Plex and Jellyfin modals now support both "link" and "modify" modes
+- "Unlink" button moved to modal footer for both Plex and Jellyfin
+- In modify mode, Plex modal only allows URL changes (credentials fields hidden)
+- In modify mode, Jellyfin modal allows both URL and API key changes
+
 ### Fixed
 - Fixed "Plex is not configured or authenticated" message appearing when Internal Media Scanner is selected
+- Fixed inability to modify Plex server URL after initial linking without unlinking entire account
+- Fixed inability to modify Jellyfin server configuration after initial linking without unlinking
 - Media Servers tab is now disabled when Internal Media Scanner is selected
 - Internal Media Scanner tab is now disabled when Plex or Jellyfin is selected  
 - "Sync Between Plex & Jellyfin" checkbox is now disabled and unchecked when Internal Media Scanner is selected
