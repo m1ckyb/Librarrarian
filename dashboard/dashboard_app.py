@@ -1798,19 +1798,40 @@ def plex_login():
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
 
+    # First, test if the server is reachable
+    try:
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
+        data = response.json()
+        if 'machineIdentifier' not in data:
+            return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection to Plex server timed out. Please check the URL."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to Plex server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to reach Plex server: {e}"), 503
+
+    # Now attempt to authenticate
     try:
         # Instantiate the account object with username and password to sign in.
         account = MyPlexAccount(username, password)
         token = account.authenticationToken
         if token:
-            # Save both the URL and the token
-            update_worker_setting('plex_url', plex_url)
-            update_worker_setting('plex_token', token)
-            return jsonify(success=True, message="Plex account linked successfully!")
+            # Verify the token works with the provided server
+            try:
+                plex = PlexServer(plex_url, token)
+                # If we can access the server, save the credentials
+                update_worker_setting('plex_url', plex_url)
+                update_worker_setting('plex_token', token)
+                return jsonify(success=True, message="Plex account linked successfully!")
+            except Exception as e:
+                return jsonify(success=False, error=f"Token obtained but cannot access server: {e}"), 503
         else:
             return jsonify(success=False, error="Login failed. Please check your credentials."), 401
     except Exception as e:
-        return jsonify(success=False, error=f"Plex login failed: {e}"), 401
+        return jsonify(success=False, error=f"Plex authentication failed: {e}"), 401
 
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
@@ -1820,6 +1841,37 @@ def plex_logout():
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/test-connection', methods=['POST'])
+def plex_test_connection():
+    """Tests connectivity to a Plex server without authenticating."""
+    plex_url = request.json.get('plex_url')
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    try:
+        # Try to connect to the server without authentication to test if it's reachable
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        
+        if response.status_code == 200:
+            # Try to parse the response to confirm it's a Plex server
+            try:
+                data = response.json()
+                if 'machineIdentifier' in data:
+                    return jsonify(success=True, message=f"Successfully connected to Plex server!")
+                else:
+                    return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
+            except:
+                return jsonify(success=False, error="Server responded but returned invalid data."), 503
+        else:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out. Please check the URL and try again."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
 
 @app.route('/api/jellyfin/login', methods=['POST'])
 def jellyfin_login():
@@ -1858,6 +1910,40 @@ def jellyfin_logout():
     else:
         return jsonify(success=False, error=error1 or error2), 500
 
+@app.route('/api/jellyfin/test-connection', methods=['POST'])
+def jellyfin_test_connection():
+    """Tests connectivity to a Jellyfin server without full authentication."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+    
+    if not jellyfin_host:
+        return jsonify(success=False, error="Jellyfin Server URL is required."), 400
+    
+    if not jellyfin_api_key:
+        return jsonify(success=False, error="API key is required for testing connection."), 400
+    
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key."), 401
+        elif response.status_code == 200:
+            try:
+                data = response.json()
+                server_name = data.get('ServerName', 'Unknown')
+                return jsonify(success=True, message=f"Successfully connected to Jellyfin server: {server_name}")
+            except:
+                return jsonify(success=True, message="Successfully connected to Jellyfin server!")
+        else:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out. Please check the URL and try again."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+
 @app.route('/api/jellyfin/libraries', methods=['GET'])
 def jellyfin_get_libraries():
     """Fetches a list of libraries from the configured Jellyfin server, merged with saved settings."""
@@ -1867,8 +1953,11 @@ def jellyfin_get_libraries():
     jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
     jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
 
-    if not all([jellyfin_host, jellyfin_api_key]):
-        return jsonify(libraries=[], error="Jellyfin is not configured or authenticated."), 400
+    if not jellyfin_api_key:
+        return jsonify(libraries=[], error="Link your Jellyfin server to see libraries."), 400
+    
+    if not jellyfin_host:
+        return jsonify(libraries=[], error="Jellyfin server URL is not configured."), 400
 
     try:
         # First, get the user ID (we'll use the first user for simplicity)
@@ -1940,7 +2029,7 @@ def jellyfin_get_libraries():
 
         return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Jellyfin or process libraries: {e}"), 500
+        return jsonify(libraries=[], error=f"Cannot connect to Jellyfin server. Please check your server URL and ensure Jellyfin is running. Error: {e}"), 503
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
@@ -1951,8 +2040,11 @@ def plex_get_libraries():
     plex_url = settings.get('plex_url', {}).get('setting_value')
     plex_token = settings.get('plex_token', {}).get('setting_value')
 
-    if not all([plex_url, plex_token]):
-        return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
+    if not plex_token:
+        return jsonify(libraries=[], error="Link your Plex account to see libraries."), 400
+    
+    if not plex_url:
+        return jsonify(libraries=[], error="Plex server URL is not configured."), 400
 
     try:
         plex = PlexServer(plex_url, plex_token)
@@ -1991,7 +2083,7 @@ def plex_get_libraries():
 
         return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Plex or process libraries: {e}"), 500
+        return jsonify(libraries=[], error=f"Cannot connect to Plex server. Please check your server URL and ensure Plex is running. Error: {e}"), 503
 
 @app.route('/api/internal/folders', methods=['GET'])
 def api_internal_folders():

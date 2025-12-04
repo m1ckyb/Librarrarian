@@ -1567,6 +1567,33 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    const plexTestConnectionBtn = document.getElementById('plex-test-connection-btn');
+    if (plexTestConnectionBtn) {
+        plexTestConnectionBtn.addEventListener('click', async () => {
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+            
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL first.</div>`;
+                return;
+            }
+            
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing connection...`;
+
+            const response = await fetch('/api/plex/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plex_url: urlInput.value })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            }
+        });
+    }
+
     if (plexLogoutBtn) {
         plexLogoutBtn.addEventListener('click', async () => {
             if (confirm('Are you sure you want to unlink your Plex account?')) {
@@ -1612,6 +1639,42 @@ document.addEventListener('DOMContentLoaded', () => {
                     if (loginModal) loginModal.hide();
                     window.location.href = '/#options-tab-pane';
                 }, 5000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            }
+        });
+    }
+
+    const jellyfinTestConnectionBtn = document.getElementById('jellyfin-test-connection-btn');
+    if (jellyfinTestConnectionBtn) {
+        jellyfinTestConnectionBtn.addEventListener('click', async () => {
+            const hostInput = document.getElementById('jellyfin-host');
+            const apiKeyInput = document.getElementById('jellyfin-api-key');
+            const statusDiv = document.getElementById('jellyfin-login-status');
+            
+            if (!hostInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Jellyfin Server URL first.</div>`;
+                return;
+            }
+            
+            if (!apiKeyInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter an API key first.</div>`;
+                return;
+            }
+            
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing connection...`;
+
+            const response = await fetch('/api/jellyfin/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    host: hostInput.value,
+                    api_key: apiKeyInput.value
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }

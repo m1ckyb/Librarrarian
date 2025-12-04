@@ -5,6 +5,9 @@ All upcoming features and bug fixes will be documented here until they are part 
 ### Added
 - Multi-server library linking UI: when "Sync Between Plex & Jellyfin" is enabled, an additional dropdown appears to link libraries between Plex and Jellyfin (Note: backend storage support pending)
 - Checkboxes for Jellyfin libraries to match Plex library selection behavior
+- "Test Connection" button in Plex login modal to verify server connectivity before authentication
+- "Test Connection" button in Jellyfin login modal to verify server connectivity and API key validity
+- New API endpoints `/api/plex/test-connection` and `/api/jellyfin/test-connection` for testing server connectivity
 
 ### Changed
 - Moved Primary Media Server selection (Plex/Jellyfin/Internal Media Scanner) above Integrations section as a standalone section
@@ -23,3 +26,6 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed multi-server sync mode to show a single unified "Monitored Libraries" box instead of two separate boxes
 - Changed library linking dropdown default option from "-- None --" to "-- Ignore --" for clarity
 - Library linking dropdowns now show "not linked" message when secondary server is not authenticated instead of showing "None"
+- Improved error messages for Plex/Jellyfin authentication to distinguish between "not configured" and "connection failed" states
+- Plex and Jellyfin login now test server connectivity before authentication to provide better error feedback
+- Fixed misleading "Plex is not configured or authenticated" error when Plex is linked but server is unreachable
