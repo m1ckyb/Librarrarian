@@ -883,8 +883,10 @@
             settings: {
                 use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }},
                 plexToken: "{{ settings.get('plex_token', {}).get('setting_value', '') }}",
+                plexUrl: "{{ settings.get('plex_url', {}).get('setting_value', '') }}",
                 plexLibraries: "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
                 jellyfinApiKey: "{{ settings.get('jellyfin_api_key', {}).get('setting_value', '') }}",
+                jellyfinHost: "{{ settings.get('jellyfin_host', {}).get('setting_value', '') }}",
                 jellyfinLibraries: "{{ settings.get('jellyfin_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
                 internalScanPaths: "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',').filter(Boolean)
             },
