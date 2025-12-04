@@ -9,8 +9,11 @@ import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
+from typing import Tuple, Optional
+from urllib.parse import urlparse
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
+from xml.etree import ElementTree as ET
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
@@ -770,6 +773,67 @@ def clear_failed_files():
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return db_error
+
+def validate_plex_url(url: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validates a Plex server URL for basic security and format checks.
+    Note: Plex servers are typically on local networks, so private IPs are allowed.
+    
+    Args:
+        url: The URL to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message). Error message is None if valid.
+    """
+    if not url:
+        return False, "URL is required"
+    
+    try:
+        parsed = urlparse(url)
+        # Check for valid scheme
+        if parsed.scheme not in ['http', 'https']:
+            return False, "URL must use http:// or https://"
+        # Check for hostname
+        if not parsed.netloc:
+            return False, "URL must include a hostname"
+        return True, None
+    except (ValueError, AttributeError) as e:
+        return False, f"Invalid URL format: {e}"
+
+def parse_plex_identity_response(response) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Parses and validates a Plex /identity endpoint response.
+    
+    Args:
+        response: The requests Response object
+        
+    Returns:
+        Tuple of (success, machine_id, error_message)
+    """
+    # Check Content-Length header first to prevent loading large responses
+    content_length = response.headers.get('content-length')
+    if content_length and int(content_length) > 1024 * 1024:  # 1MB limit
+        return False, None, "Server response too large."
+    
+    # Check actual content size as a fallback
+    if len(response.content) > 1024 * 1024:
+        return False, None, "Server response too large."
+    
+    # Parse the XML response to confirm it's a Plex server
+    # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
+    try:
+        root = ET.fromstring(response.content)
+        # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
+        if root.tag != 'MediaContainer':
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        machine_id = root.get('machineIdentifier')
+        if not machine_id:
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        return True, machine_id, None
+    except ET.ParseError:
+        return False, None, "Server responded but returned invalid data."
 
 def get_worker_settings():
     """Fetches all worker settings from the database."""
@@ -1797,17 +1861,24 @@ def plex_login():
     
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
 
     # First, test if the server is reachable
-    # Plex returns XML by default, so we need to request JSON format
+    # Plex returns XML by default
     try:
-        headers = {'Accept': 'application/json'}
-        response = requests.get(f"{plex_url}/identity", headers=headers, timeout=10)
+        response = requests.get(f"{plex_url}/identity", timeout=10)
         if response.status_code != 200:
             return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
-        data = response.json()
-        if 'machineIdentifier' not in data:
-            return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
+        
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+            
     except requests.exceptions.Timeout:
         return jsonify(success=False, error="Connection to Plex server timed out. Please check the URL."), 503
     except requests.exceptions.ConnectionError:
@@ -1852,22 +1923,23 @@ def plex_test_connection():
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
     
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
     try:
         # Try to connect to the server without authentication to test if it's reachable
-        # Plex returns XML by default, so we need to request JSON format
-        headers = {'Accept': 'application/json'}
-        response = requests.get(f"{plex_url}/identity", headers=headers, timeout=10)
+        # Plex returns XML by default
+        response = requests.get(f"{plex_url}/identity", timeout=10)
         
         if response.status_code == 200:
-            # Try to parse the response to confirm it's a Plex server
-            try:
-                data = response.json()
-                if 'machineIdentifier' in data:
-                    return jsonify(success=True, message=f"Successfully connected to Plex server!")
-                else:
-                    return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
-            except:
-                return jsonify(success=False, error="Server responded but returned invalid data."), 503
+            # Parse and validate the response
+            success, machine_id, error = parse_plex_identity_response(response)
+            if success:
+                return jsonify(success=True, message=f"Successfully connected to Plex server!")
+            else:
+                return jsonify(success=False, error=error), 503
         else:
             return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
     except requests.exceptions.Timeout:
