@@ -1806,7 +1806,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            if (!apiKeyInput.value) {
+            // Check if we have an API key (either entered or saved)
+            const hasApiKey = apiKeyInput.value || window.Librarrarian.settings.jellyfinApiKey;
+            if (!hasApiKey) {
                 statusDiv.innerHTML = `<div class="alert alert-warning">Please enter an API key first.</div>`;
                 return;
             }
@@ -1818,7 +1820,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     host: hostInput.value,
-                    api_key: apiKeyInput.value
+                    api_key: apiKeyInput.value  // Send empty string if not entered, backend will use saved key
                 })
             });
             const data = await response.json();
@@ -2251,6 +2253,34 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Event listeners for multi-server library linking ---
+    
+    // Function to update the sync checkbox state based on what servers are linked
+    function updateSyncCheckboxState() {
+        const multiServerCheckbox = document.getElementById('enable_multi_server');
+        if (!multiServerCheckbox) return;
+        
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        
+        // If internal scanner is selected, disable sync
+        if (primaryServer === 'internal') {
+            multiServerCheckbox.disabled = true;
+            multiServerCheckbox.checked = false;
+            return;
+        }
+        
+        // Check if both Plex and Jellyfin are linked
+        const plexLinked = window.Librarrarian.settings.plexToken && window.Librarrarian.settings.plexToken.length > 0;
+        const jellyfinLinked = window.Librarrarian.settings.jellyfinApiKey && window.Librarrarian.settings.jellyfinApiKey.length > 0;
+        
+        // Only enable sync if both servers are linked
+        if (plexLinked && jellyfinLinked) {
+            multiServerCheckbox.disabled = false;
+        } else {
+            multiServerCheckbox.disabled = true;
+            multiServerCheckbox.checked = false;
+        }
+    }
+    
     // Reload libraries when multi-server is toggled
     const multiServerCheckbox = document.getElementById('enable_multi_server');
     if (multiServerCheckbox) {
@@ -2270,16 +2300,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const jellyfinContainer = document.getElementById('jellyfin-libraries-container');
         const combinedContainer = document.getElementById('combined-libraries-container');
         
+        // Update sync checkbox state based on linked servers
+        updateSyncCheckboxState();
+        
         if (primaryServer === 'internal') {
             // If Internal Media Scanner is selected:
-            // - Disable sync checkbox
             // - Disable Media Servers tab
             // - Enable Internal Media Scanner tab
             // - Hide all library containers
-            if (multiServerCheckbox) {
-                multiServerCheckbox.disabled = true;
-                multiServerCheckbox.checked = false;
-            }
             if (mediaServersTab) {
                 mediaServersTab.disabled = true;
             }
@@ -2294,12 +2322,8 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         } else {
             // If Plex or Jellyfin is selected:
-            // - Enable sync checkbox
             // - Enable Media Servers tab
             // - Disable Internal Media Scanner tab
-            if (multiServerCheckbox) {
-                multiServerCheckbox.disabled = false;
-            }
             if (mediaServersTab) {
                 mediaServersTab.disabled = false;
             }
@@ -2340,6 +2364,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Initialize on page load
+    updateSyncCheckboxState();
     handlePrimaryServerChange();
 
     // --- Dynamic Internal Folder Loading ---

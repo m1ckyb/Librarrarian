@@ -1959,9 +1959,11 @@ def plex_login():
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
     """Logs out of Plex by clearing the stored token and URL."""
+    # Also disable multi-server sync if it's enabled, since we need both servers
     success, error = update_worker_settings_batch({
         'plex_token': '',
-        'plex_url': ''
+        'plex_url': '',
+        'enable_multi_server': 'false'
     })
     if success:
         return jsonify(success=True, message="Plex account unlinked.")
@@ -2092,9 +2094,11 @@ def jellyfin_login():
 @app.route('/api/jellyfin/logout', methods=['POST'])
 def jellyfin_logout():
     """Unlinks the Jellyfin server by clearing the stored credentials."""
+    # Also disable multi-server sync if it's enabled, since we need both servers
     success, error = update_worker_settings_batch({
         'jellyfin_api_key': '',
-        'jellyfin_host': ''
+        'jellyfin_host': '',
+        'enable_multi_server': 'false'
     })
     if success:
         return jsonify(success=True, message="Jellyfin server unlinked.")
@@ -2159,8 +2163,14 @@ def jellyfin_test_connection():
     if not jellyfin_host:
         return jsonify(success=False, error="Jellyfin Server URL is required."), 400
     
+    # If no API key provided, try to use the existing one from settings
     if not jellyfin_api_key:
-        return jsonify(success=False, error="API key is required for testing connection."), 400
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return jsonify(success=False, error=db_error), 500
+        jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+        if not jellyfin_api_key:
+            return jsonify(success=False, error="API key is required for testing connection."), 400
     
     try:
         headers = {'X-Emby-Token': jellyfin_api_key}
