@@ -898,6 +898,32 @@ def update_worker_setting(key, value):
         return False, db_error
     return True, None
 
+def update_worker_settings_batch(settings_dict):
+    """Updates multiple worker settings in a single transaction."""
+    db = get_db()
+    db_error = None
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return False, db_error
+    try:
+        with db.cursor() as cur:
+            for key, value in settings_dict.items():
+                cur.execute("""
+                    INSERT INTO worker_settings (setting_name, setting_value)
+                    VALUES (%s, %s)
+                    ON CONFLICT (setting_name) DO UPDATE
+                    SET setting_value = EXCLUDED.setting_value;
+                """, (key, value))
+        db.commit()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+        try:
+            db.rollback()
+        except:
+            pass
+        return False, db_error
+    return True, None
+
 def set_node_status(hostname, status):
     """Sets the status of a specific node (e.g., to 'running')."""
     db = get_db()
@@ -1916,8 +1942,12 @@ def plex_login():
             try:
                 plex = PlexServer(plex_url, token)
                 # If we can access the server, save the credentials
-                update_worker_setting('plex_url', plex_url)
-                update_worker_setting('plex_token', token)
+                success, error = update_worker_settings_batch({
+                    'plex_url': plex_url,
+                    'plex_token': token
+                })
+                if not success:
+                    return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
                 return jsonify(success=True, message="Plex account linked successfully!")
             except Exception as e:
                 return jsonify(success=False, error=f"Token obtained but cannot access server: {e}"), 503
@@ -1929,12 +1959,14 @@ def plex_login():
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
     """Logs out of Plex by clearing the stored token and URL."""
-    success1, error1 = update_worker_setting('plex_token', '')
-    success2, error2 = update_worker_setting('plex_url', '')
-    if success1 and success2:
+    success, error = update_worker_settings_batch({
+        'plex_token': '',
+        'plex_url': ''
+    })
+    if success:
         return jsonify(success=True, message="Plex account unlinked.")
     else:
-        return jsonify(success=False, error=error1 or error2), 500
+        return jsonify(success=False, error=error), 500
 
 @app.route('/api/plex/update-url', methods=['POST'])
 def plex_update_url():
@@ -2046,8 +2078,12 @@ def jellyfin_login():
             return jsonify(success=False, error=f"Jellyfin server returned error status: {response.status_code}"), 503
         
         # Connection successful, save the credentials
-        update_worker_setting('jellyfin_host', jellyfin_host)
-        update_worker_setting('jellyfin_api_key', jellyfin_api_key)
+        success, error = update_worker_settings_batch({
+            'jellyfin_host': jellyfin_host,
+            'jellyfin_api_key': jellyfin_api_key
+        })
+        if not success:
+            return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
         return jsonify(success=True, message="Jellyfin server linked successfully!")
         
     except requests.exceptions.RequestException as e:
@@ -2056,12 +2092,14 @@ def jellyfin_login():
 @app.route('/api/jellyfin/logout', methods=['POST'])
 def jellyfin_logout():
     """Unlinks the Jellyfin server by clearing the stored credentials."""
-    success1, error1 = update_worker_setting('jellyfin_api_key', '')
-    success2, error2 = update_worker_setting('jellyfin_host', '')
-    if success1 and success2:
+    success, error = update_worker_settings_batch({
+        'jellyfin_api_key': '',
+        'jellyfin_host': ''
+    })
+    if success:
         return jsonify(success=True, message="Jellyfin server unlinked.")
     else:
-        return jsonify(success=False, error=error1 or error2), 500
+        return jsonify(success=False, error=error), 500
 
 @app.route('/api/jellyfin/update-config', methods=['POST'])
 def jellyfin_update_config():
@@ -2095,13 +2133,15 @@ def jellyfin_update_config():
             return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
         
         # Connection successful, update both settings
-        success1, error1 = update_worker_setting('jellyfin_host', jellyfin_host)
-        success2, error2 = update_worker_setting('jellyfin_api_key', jellyfin_api_key)
+        success, error = update_worker_settings_batch({
+            'jellyfin_host': jellyfin_host,
+            'jellyfin_api_key': jellyfin_api_key
+        })
         
-        if success1 and success2:
+        if success:
             return jsonify(success=True, message="Jellyfin server configuration updated successfully!")
         else:
-            return jsonify(success=False, error=error1 or error2), 500
+            return jsonify(success=False, error=error), 500
             
     except requests.exceptions.Timeout:
         return jsonify(success=False, error="Connection timed out."), 503
