@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
+from typing import Tuple, Optional
 from urllib.parse import urlparse
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
@@ -773,7 +774,7 @@ def clear_failed_files():
         db_error = f"Database query failed: {e}"
     return db_error
 
-def validate_plex_url(url):
+def validate_plex_url(url: str) -> Tuple[bool, Optional[str]]:
     """
     Validates a Plex server URL for basic security and format checks.
     Note: Plex servers are typically on local networks, so private IPs are allowed.
@@ -782,7 +783,7 @@ def validate_plex_url(url):
         url: The URL to validate
         
     Returns:
-        tuple[bool, str | None]: (is_valid, error_message)
+        Tuple of (is_valid, error_message). Error message is None if valid.
     """
     if not url:
         return False, "URL is required"
@@ -798,6 +799,41 @@ def validate_plex_url(url):
         return True, None
     except (ValueError, AttributeError) as e:
         return False, f"Invalid URL format: {e}"
+
+def parse_plex_identity_response(response) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Parses and validates a Plex /identity endpoint response.
+    
+    Args:
+        response: The requests Response object
+        
+    Returns:
+        Tuple of (success, machine_id, error_message)
+    """
+    # Check Content-Length header first to prevent loading large responses
+    content_length = response.headers.get('content-length')
+    if content_length and int(content_length) > 1024 * 1024:  # 1MB limit
+        return False, None, "Server response too large."
+    
+    # Check actual content size as a fallback
+    if len(response.content) > 1024 * 1024:
+        return False, None, "Server response too large."
+    
+    # Parse the XML response to confirm it's a Plex server
+    # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
+    try:
+        root = ET.fromstring(response.content)
+        # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
+        if root.tag != 'MediaContainer':
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        machine_id = root.get('machineIdentifier')
+        if not machine_id:
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        return True, machine_id, None
+    except ET.ParseError:
+        return False, None, "Server responded but returned invalid data."
 
 def get_worker_settings():
     """Fetches all worker settings from the database."""
@@ -1837,23 +1873,12 @@ def plex_login():
         response = requests.get(f"{plex_url}/identity", timeout=10)
         if response.status_code != 200:
             return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
-        # Check response size to prevent memory exhaustion
-        content_length = len(response.content)
-        if content_length > 1024 * 1024:  # 1MB limit
-            return jsonify(success=False, error="Server response too large."), 503
         
-        # Parse the XML response to confirm it's a Plex server
-        # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
-        try:
-            root = ET.fromstring(response.content)
-            # Validate that it's a MediaContainer element
-            if root.tag != 'MediaContainer':
-                return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
-            machine_id = root.get('machineIdentifier')
-            if not machine_id:
-                return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
-        except ET.ParseError:
-            return jsonify(success=False, error="Server responded but returned invalid data."), 503
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+            
     except requests.exceptions.Timeout:
         return jsonify(success=False, error="Connection to Plex server timed out. Please check the URL."), 503
     except requests.exceptions.ConnectionError:
@@ -1909,25 +1934,12 @@ def plex_test_connection():
         response = requests.get(f"{plex_url}/identity", timeout=10)
         
         if response.status_code == 200:
-            # Check response size to prevent memory exhaustion
-            content_length = len(response.content)
-            if content_length > 1024 * 1024:  # 1MB limit
-                return jsonify(success=False, error="Server response too large."), 503
-            
-            # Parse the XML response to confirm it's a Plex server
-            # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
-            try:
-                root = ET.fromstring(response.content)
-                # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
-                if root.tag != 'MediaContainer':
-                    return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
-                machine_id = root.get('machineIdentifier')
-                if machine_id:
-                    return jsonify(success=True, message=f"Successfully connected to Plex server!")
-                else:
-                    return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
-            except ET.ParseError:
-                return jsonify(success=False, error="Server responded but returned invalid data."), 503
+            # Parse and validate the response
+            success, machine_id, error = parse_plex_identity_response(response)
+            if success:
+                return jsonify(success=True, message=f"Successfully connected to Plex server!")
+            else:
+                return jsonify(success=False, error=error), 503
         else:
             return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
     except requests.exceptions.Timeout:
