@@ -1598,7 +1598,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
                     if (loginModal) loginModal.hide();
-                    window.location.href = '/#options-tab-pane';
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
                 }, 2000);
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
