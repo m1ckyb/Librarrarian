@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
+from urllib.parse import urlparse
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
 from xml.etree import ElementTree as ET
@@ -771,6 +772,27 @@ def clear_failed_files():
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return db_error
+
+def validate_plex_url(url):
+    """
+    Validates a Plex server URL for basic security and format checks.
+    Note: Plex servers are typically on local networks, so private IPs are allowed.
+    Returns: (is_valid, error_message)
+    """
+    if not url:
+        return False, "URL is required"
+    
+    try:
+        parsed = urlparse(url)
+        # Check for valid scheme
+        if parsed.scheme not in ['http', 'https']:
+            return False, "URL must use http:// or https://"
+        # Check for hostname
+        if not parsed.netloc:
+            return False, "URL must include a hostname"
+        return True, None
+    except Exception as e:
+        return False, f"Invalid URL format: {e}"
 
 def get_worker_settings():
     """Fetches all worker settings from the database."""
@@ -1798,6 +1820,11 @@ def plex_login():
     
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
 
     # First, test if the server is reachable
     # Plex returns XML by default
@@ -1860,6 +1887,11 @@ def plex_test_connection():
     
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
     
     try:
         # Try to connect to the server without authentication to test if it's reachable
