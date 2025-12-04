@@ -389,7 +389,7 @@
                                         <div class="col-md-6">
                                             <h6 class="mb-3"><strong>Monitored Libraries</strong></h6>
                                             
-                                            <!-- Plex Libraries -->
+                                            <!-- Single Plex Libraries Container (used when Plex is primary and sync is disabled) -->
                                             <div id="plex-libraries-container" class="mb-3">
                                                 <label class="form-label">Plex</label>
                                                 <div class="form-check form-switch float-end">
@@ -399,7 +399,7 @@
                                                 <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
                                             </div>
 
-                                            <!-- Jellyfin Libraries -->
+                                            <!-- Single Jellyfin Libraries Container (used when Jellyfin is primary and sync is disabled) -->
                                             <div id="jellyfin-libraries-container">
                                                 <label class="form-label">Jellyfin</label>
                                                 <div class="form-check form-switch float-end">
@@ -407,6 +407,16 @@
                                                     <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
                                                 </div>
                                                 <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                            </div>
+                                            
+                                            <!-- Combined Libraries Container (used when multi-server sync is enabled) -->
+                                            <div id="combined-libraries-container" style="display: none;">
+                                                <label class="form-label">Libraries (Plex & Jellyfin)</label>
+                                                <div class="form-check form-switch float-end">
+                                                    <input class="form-check-input" type="checkbox" role="switch" id="combined-show-hidden-toggle">
+                                                    <label class="form-check-label" for="combined-show-hidden-toggle">Show Ignored</label>
+                                                </div>
+                                                <div id="combined-libraries-list" class="border rounded p-2" style="max-height: 400px; overflow-y: auto;"></div>
                                             </div>
                                         </div>
                                     </div>

@@ -20,3 +20,6 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Internal Media Scanner tab is now disabled when Plex or Jellyfin is selected  
 - "Sync Between Plex & Jellyfin" checkbox is now disabled and unchecked when Internal Media Scanner is selected
 - Library containers now properly show/hide based on primary server selection and sync mode
+- Fixed multi-server sync mode to show a single unified "Monitored Libraries" box instead of two separate boxes
+- Changed library linking dropdown default option from "-- None --" to "-- Ignore --" for clarity
+- Library linking dropdowns now show "not linked" message when secondary server is not authenticated instead of showing "None"
