@@ -1799,8 +1799,10 @@ def plex_login():
         return jsonify(success=False, error="Plex Server URL is required."), 400
 
     # First, test if the server is reachable
+    # Plex returns XML by default, so we need to request JSON format
     try:
-        response = requests.get(f"{plex_url}/identity", timeout=10)
+        headers = {'Accept': 'application/json'}
+        response = requests.get(f"{plex_url}/identity", headers=headers, timeout=10)
         if response.status_code != 200:
             return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
         data = response.json()
@@ -1852,7 +1854,9 @@ def plex_test_connection():
     
     try:
         # Try to connect to the server without authentication to test if it's reachable
-        response = requests.get(f"{plex_url}/identity", timeout=10)
+        # Plex returns XML by default, so we need to request JSON format
+        headers = {'Accept': 'application/json'}
+        response = requests.get(f"{plex_url}/identity", headers=headers, timeout=10)
         
         if response.status_code == 200:
             # Try to parse the response to confirm it's a Plex server
