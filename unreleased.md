@@ -27,8 +27,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - In modify mode, Jellyfin modal allows both URL and API key changes
 
 ### Fixed
-- **Critical**: Fixed form save button erasing Plex server URL when saving other settings (Plex URL is now managed exclusively via modal/API)
-- **Critical**: Fixed missing Jellyfin path mapping fields in the settings form causing them to be cleared on save
+- **Critical:** Fixed form save button erasing Plex server URL when saving other settings (Plex URL is now managed exclusively via modal/API)
+- **Critical:** Fixed missing Jellyfin path mapping fields in the settings form causing them to be cleared on save
 - Fixed "Plex is not configured or authenticated" message appearing when Internal Media Scanner is selected
 - Fixed inability to modify Plex server URL after initial linking without unlinking entire account
 - Fixed inability to modify Jellyfin server configuration after initial linking without unlinking
