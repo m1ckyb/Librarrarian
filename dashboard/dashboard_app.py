@@ -2042,12 +2042,21 @@ def jellyfin_logout():
 def jellyfin_update_config():
     """Updates the Jellyfin server configuration (URL and/or API key)."""
     jellyfin_host = request.json.get('host')
-    jellyfin_api_key = request.json.get('api_key')
+    jellyfin_api_key = request.json.get('api_key')  # Optional - if not provided, keeps existing
     
-    if not jellyfin_host or not jellyfin_api_key:
-        return jsonify(success=False, error="Server URL and API key are required."), 400
+    if not jellyfin_host:
+        return jsonify(success=False, error="Server URL is required."), 400
     
-    # Test if the server is reachable with the provided credentials
+    # If no API key provided, use the existing one
+    if not jellyfin_api_key:
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return jsonify(success=False, error=db_error), 500
+        jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+        if not jellyfin_api_key:
+            return jsonify(success=False, error="No existing API key found. Please provide an API key."), 400
+    
+    # Test if the server is reachable with the credentials
     try:
         headers = {'X-Emby-Token': jellyfin_api_key}
         response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)

@@ -1698,7 +1698,7 @@ document.addEventListener('DOMContentLoaded', () => {
     // Function to set Jellyfin modal to modify mode
     function setJellyfinModalModifyMode() {
         document.getElementById('jellyfinLoginModalLabel').textContent = 'Modify Jellyfin Configuration';
-        document.getElementById('jellyfin-modal-description').textContent = 'Update your Jellyfin server URL and/or API key.';
+        document.getElementById('jellyfin-modal-description').textContent = 'Update your Jellyfin server URL. To change the API key, enter a new one.';
         document.getElementById('jellyfin-api-key-group').style.display = 'block';
         document.getElementById('jellyfin-signin-btn').style.display = 'none';
         document.getElementById('jellyfin-update-btn').style.display = 'inline-block';
@@ -1706,7 +1706,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Pre-fill with current values
         document.getElementById('jellyfin-host').value = window.Librarrarian.settings.jellyfinHost || '';
         document.getElementById('jellyfin-api-key').value = ''; // Don't pre-fill API key for security
-        document.getElementById('jellyfin-api-key').placeholder = 'Enter new API key or leave unchanged';
+        document.getElementById('jellyfin-api-key').placeholder = '(Optional) Enter new API key';
         document.getElementById('jellyfin-login-status').innerHTML = '';
     }
 
@@ -1766,20 +1766,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
             
-            if (!apiKeyInput.value) {
-                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter an API key.</div>`;
-                return;
-            }
-            
             statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Updating configuration...`;
+
+            // Build request body - only include API key if provided
+            const requestBody = { host: hostInput.value };
+            if (apiKeyInput.value) {
+                requestBody.api_key = apiKeyInput.value;
+            }
 
             const response = await fetch('/api/jellyfin/update-config', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    host: hostInput.value,
-                    api_key: apiKeyInput.value
-                })
+                body: JSON.stringify(requestBody)
             });
             const data = await response.json();
             if (data.success) {
