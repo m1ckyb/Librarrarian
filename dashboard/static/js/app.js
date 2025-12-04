@@ -1820,7 +1820,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ 
                     host: hostInput.value,
-                    api_key: apiKeyInput.value  // Send empty string if not entered, backend will use saved key
+                    api_key: apiKeyInput.value  // Send input value (may be empty); backend uses saved key if empty
                 })
             });
             const data = await response.json();
