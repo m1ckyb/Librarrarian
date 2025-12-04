@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
+from xml.etree import ElementTree as ET
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
@@ -1799,15 +1800,19 @@ def plex_login():
         return jsonify(success=False, error="Plex Server URL is required."), 400
 
     # First, test if the server is reachable
-    # Plex returns XML by default, so we need to request JSON format
+    # Plex returns XML by default
     try:
-        headers = {'Accept': 'application/json'}
-        response = requests.get(f"{plex_url}/identity", headers=headers, timeout=10)
+        response = requests.get(f"{plex_url}/identity", timeout=10)
         if response.status_code != 200:
             return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
-        data = response.json()
-        if 'machineIdentifier' not in data:
-            return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
+        # Parse the XML response to confirm it's a Plex server
+        try:
+            root = ET.fromstring(response.content)
+            machine_id = root.get('machineIdentifier')
+            if not machine_id:
+                return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
+        except ET.ParseError:
+            return jsonify(success=False, error="Server responded but returned invalid data."), 503
     except requests.exceptions.Timeout:
         return jsonify(success=False, error="Connection to Plex server timed out. Please check the URL."), 503
     except requests.exceptions.ConnectionError:
@@ -1854,19 +1859,20 @@ def plex_test_connection():
     
     try:
         # Try to connect to the server without authentication to test if it's reachable
-        # Plex returns XML by default, so we need to request JSON format
-        headers = {'Accept': 'application/json'}
-        response = requests.get(f"{plex_url}/identity", headers=headers, timeout=10)
+        # Plex returns XML by default
+        response = requests.get(f"{plex_url}/identity", timeout=10)
         
         if response.status_code == 200:
-            # Try to parse the response to confirm it's a Plex server
+            # Parse the XML response to confirm it's a Plex server
             try:
-                data = response.json()
-                if 'machineIdentifier' in data:
+                root = ET.fromstring(response.content)
+                # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
+                machine_id = root.get('machineIdentifier')
+                if machine_id:
                     return jsonify(success=True, message=f"Successfully connected to Plex server!")
                 else:
                     return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
-            except:
+            except ET.ParseError:
                 return jsonify(success=False, error="Server responded but returned invalid data."), 503
         else:
             return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503

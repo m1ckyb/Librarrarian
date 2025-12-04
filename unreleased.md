@@ -29,4 +29,4 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Improved error messages for Plex/Jellyfin authentication to distinguish between "not configured" and "connection failed" states
 - Plex and Jellyfin login now test server connectivity before authentication to provide better error feedback
 - Fixed misleading "Plex is not configured or authenticated" error when Plex is linked but server is unreachable
-- Fixed Plex test connection returning "Server responded but returned invalid data" error by adding `Accept: application/json` header to `/identity` endpoint requests
+- Fixed Plex test connection and login failing with "Server responded but doesn't appear to be a Plex server" error by properly parsing XML responses from Plex `/identity` endpoint instead of expecting JSON
