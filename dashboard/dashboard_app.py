@@ -1806,8 +1806,12 @@ def plex_login():
         if response.status_code != 200:
             return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
         # Parse the XML response to confirm it's a Plex server
+        # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
         try:
             root = ET.fromstring(response.content)
+            # Validate that it's a MediaContainer element
+            if root.tag != 'MediaContainer':
+                return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
             machine_id = root.get('machineIdentifier')
             if not machine_id:
                 return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
@@ -1864,9 +1868,12 @@ def plex_test_connection():
         
         if response.status_code == 200:
             # Parse the XML response to confirm it's a Plex server
+            # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
             try:
                 root = ET.fromstring(response.content)
                 # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
+                if root.tag != 'MediaContainer':
+                    return jsonify(success=False, error="Server responded but doesn't appear to be a Plex server."), 503
                 machine_id = root.get('machineIdentifier')
                 if machine_id:
                     return jsonify(success=True, message=f"Successfully connected to Plex server!")
