@@ -530,8 +530,11 @@
                         <!-- Path Mappings -->
                         <div class="p-3 border rounded mb-4">
                             <h5>Path Mappings</h5>
-                            <div class="d-flex justify-content-between align-items-center">
                             <p class="form-text text-body-secondary">Translate paths from what the media scanner sees to what the container sees. Useful if your media is on a NAS (e.g., `/nfs/media` -> `/media`).</p>
+                            
+                            <!-- Plex Path Mapping -->
+                            <div class="d-flex justify-content-between align-items-center">
+                                <h6 class="mb-0">Plex Path Mapping</h6>
                                 <div class="form-check form-switch" id="path-mapping-toggle-container">
                                     {% set mapping_enabled = settings.get('plex_path_mapping_enabled', {}).get('setting_value', 'true') == 'true' %}
                                     <input class="form-check-input" type="checkbox" role="switch" id="plex_path_mapping_enabled" name="plex_path_mapping_enabled" value="true" {{ 'checked' if mapping_enabled }}>
@@ -541,7 +544,7 @@
                                     </label>
                                 </div>
                             </div>
-                            <div class="row">
+                            <div class="row mt-2">
                                 <div class="col-md-6 mb-3">
                                     <label for="plex_path_from" class="form-label">
                                         <strong id="path-from-label">Path in Plex</strong>
@@ -555,6 +558,37 @@
                                         <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the Librarrarian container. This should match your Docker volume mapping. e.g., /media"></span>
                                     </label>
                                     <input type="text" class="form-control" id="plex_path_to" name="plex_path_to" value="{{ settings.get('plex_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
+                                </div>
+                            </div>
+                            
+                            <!-- Jellyfin Path Mapping -->
+                            <div class="mt-3">
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <h6 class="mb-0">Jellyfin Path Mapping</h6>
+                                    <div class="form-check form-switch">
+                                        {% set jellyfin_mapping_enabled = settings.get('jellyfin_path_mapping_enabled', {}).get('setting_value', 'true') == 'true' %}
+                                        <input class="form-check-input" type="checkbox" role="switch" id="jellyfin_path_mapping_enabled" name="jellyfin_path_mapping_enabled" value="true" {{ 'checked' if jellyfin_mapping_enabled }}>
+                                        <label class="form-check-label" for="jellyfin_path_mapping_enabled">
+                                            <strong>Enable</strong>
+                                            <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="Enable to manually map paths. Disable if your Jellyfin paths are identical to your container paths."></span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div class="row mt-2">
+                                    <div class="col-md-6 mb-3">
+                                        <label for="jellyfin_path_from" class="form-label">
+                                            <strong>Path in Jellyfin</strong>
+                                            <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The absolute path to your media as seen by the Jellyfin server. e.g., /data/movies"></span>
+                                        </label>
+                                        <input type="text" class="form-control" id="jellyfin_path_from" name="jellyfin_path_from" value="{{ settings.get('jellyfin_path_from', {}).get('setting_value', '') }}" placeholder="/nfs/media/">
+                                    </div>
+                                    <div class="col-md-6 mb-3">
+                                        <label for="jellyfin_path_to" class="form-label">
+                                            <strong>Path in Container</strong>
+                                            <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="The corresponding path inside the Librarrarian container. This should match your Docker volume mapping. e.g., /media"></span>
+                                        </label>
+                                        <input type="text" class="form-control" id="jellyfin_path_to" name="jellyfin_path_to" value="{{ settings.get('jellyfin_path_to', {}).get('setting_value', '') }}" placeholder="/media/">
+                                    </div>
                                 </div>
                             </div>
                         </div>

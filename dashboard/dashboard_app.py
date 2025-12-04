@@ -1231,7 +1231,6 @@ def options():
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
         'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
-        'plex_url': request.form.get('plex_url', ''),
         'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
         'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
         'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
