@@ -774,6 +774,21 @@ def clear_failed_files():
         db_error = f"Database query failed: {e}"
     return db_error
 
+def normalize_server_url(url: str) -> str:
+    """
+    Normalizes a server URL by removing trailing slashes and extra path components.
+    
+    Args:
+        url: The URL to normalize
+        
+    Returns:
+        The normalized URL
+    """
+    url = url.rstrip('/')
+    parsed = urlparse(url)
+    # Reconstruct URL with only scheme, netloc, and port (no path, query, or fragment)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
 def validate_plex_url(url: str) -> Tuple[bool, Optional[str]]:
     """
     Validates a Plex server URL for basic security and format checks.
@@ -796,6 +811,9 @@ def validate_plex_url(url: str) -> Tuple[bool, Optional[str]]:
         # Check for hostname
         if not parsed.netloc:
             return False, "URL must include a hostname"
+        # Check for suspicious path components (Plex server URLs shouldn't have paths)
+        if parsed.path and parsed.path not in ['', '/']:
+            return False, "Plex server URL should not include a path. Use only the base URL (e.g., http://plex:32400)"
         return True, None
     except (ValueError, AttributeError) as e:
         return False, f"Invalid URL format: {e}"
@@ -1862,10 +1880,12 @@ def plex_login():
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
     
-    # Validate URL format
+    # Validate and normalize URL format
     is_valid, error_msg = validate_plex_url(plex_url)
     if not is_valid:
         return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
 
     # First, test if the server is reachable
     # Plex returns XML by default
@@ -1924,10 +1944,12 @@ def plex_update_url():
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
     
-    # Validate URL format
+    # Validate and normalize URL format
     is_valid, error_msg = validate_plex_url(plex_url)
     if not is_valid:
         return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
     
     # Get the current token to verify it still works with the new URL
     settings, db_error = get_worker_settings()
@@ -2010,6 +2032,9 @@ def jellyfin_login():
     if not jellyfin_host or not jellyfin_api_key:
         return jsonify(success=False, error="Server URL and API key are required."), 400
 
+    # Normalize the URL
+    jellyfin_host = normalize_server_url(jellyfin_host)
+
     # Validate the connection by attempting to fetch libraries
     try:
         headers = {'X-Emby-Token': jellyfin_api_key}
@@ -2046,6 +2071,9 @@ def jellyfin_update_config():
     
     if not jellyfin_host:
         return jsonify(success=False, error="Server URL is required."), 400
+    
+    # Normalize the URL
+    jellyfin_host = normalize_server_url(jellyfin_host)
     
     # If no API key provided, use the existing one
     if not jellyfin_api_key:
