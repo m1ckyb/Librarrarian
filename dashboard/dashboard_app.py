@@ -777,7 +777,12 @@ def validate_plex_url(url):
     """
     Validates a Plex server URL for basic security and format checks.
     Note: Plex servers are typically on local networks, so private IPs are allowed.
-    Returns: (is_valid, error_message)
+    
+    Args:
+        url: The URL to validate
+        
+    Returns:
+        tuple[bool, str | None]: (is_valid, error_message)
     """
     if not url:
         return False, "URL is required"
@@ -791,7 +796,7 @@ def validate_plex_url(url):
         if not parsed.netloc:
             return False, "URL must include a hostname"
         return True, None
-    except Exception as e:
+    except (ValueError, AttributeError) as e:
         return False, f"Invalid URL format: {e}"
 
 def get_worker_settings():
@@ -1832,6 +1837,11 @@ def plex_login():
         response = requests.get(f"{plex_url}/identity", timeout=10)
         if response.status_code != 200:
             return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
+        # Check response size to prevent memory exhaustion
+        content_length = len(response.content)
+        if content_length > 1024 * 1024:  # 1MB limit
+            return jsonify(success=False, error="Server response too large."), 503
+        
         # Parse the XML response to confirm it's a Plex server
         # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
         try:
@@ -1899,6 +1909,11 @@ def plex_test_connection():
         response = requests.get(f"{plex_url}/identity", timeout=10)
         
         if response.status_code == 200:
+            # Check response size to prevent memory exhaustion
+            content_length = len(response.content)
+            if content_length > 1024 * 1024:  # 1MB limit
+                return jsonify(success=False, error="Server response too large."), 503
+            
             # Parse the XML response to confirm it's a Plex server
             # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
             try:
