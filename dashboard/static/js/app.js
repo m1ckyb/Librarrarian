@@ -966,7 +966,7 @@ document.getElementById('create-cleanup-jobs-btn').addEventListener('click', asy
 // --- History & Stats Page Logic ---
 let fullHistoryData = [];
 let historyCurrentPage = 1;
-let historyItemsPerPage = 100; // Default to 100
+let historyItemsPerPage = 15; // Default to 15
 let historySortColumn = 'id';
 let historySortDirection = 'desc'; // Default to descending (newest first)
 
@@ -976,10 +976,14 @@ async function updateHistoryAndStats() {
     const historyBody = document.getElementById('history-table-body');
 
     try {
+        // Get the limit from the dropdown
+        const historyLimitSelect = document.getElementById('history-limit-select');
+        const limit = historyLimitSelect ? historyLimitSelect.value : '100';
+        
         // Fetch both stats and history in parallel
         const [statsResponse, historyResponse] = await Promise.all([
             fetch('/api/stats'),
-            fetch('/api/history')
+            fetch(`/api/history?limit=${limit}`)
         ]);
 
         // Process Stats
@@ -1133,6 +1137,12 @@ document.getElementById('history-search-input').addEventListener('input', () => 
 document.getElementById('history-per-page-select').addEventListener('change', () => {
     historyCurrentPage = 1; // Reset to first page when changing items per page
     renderHistoryTable();
+});
+
+// Event listener for the history limit select
+document.getElementById('history-limit-select').addEventListener('change', () => {
+    historyCurrentPage = 1; // Reset to first page when changing limit
+    updateHistoryAndStats(); // Re-fetch data from server with new limit
 });
 
 // Event listeners for sortable column headers

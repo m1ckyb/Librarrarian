@@ -958,8 +958,8 @@ def set_node_status(hostname, status):
 # History Functions
 # ===========================
 
-def get_history():
-    """Fetches the last 100 successfully encoded files."""
+def get_history(limit=None):
+    """Fetches successfully encoded files from history. If limit is None or 'all', fetches all records."""
     db = get_db()
     history = []
     db_error = None
@@ -968,10 +968,16 @@ def get_history():
         return history, db_error
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT *, encoded_by as hostname 
-                FROM encoded_files ORDER BY encoded_at DESC LIMIT 100
-            """)
+            if limit is None or limit == 'all':
+                cur.execute("""
+                    SELECT *, encoded_by as hostname 
+                    FROM encoded_files ORDER BY encoded_at DESC
+                """)
+            else:
+                cur.execute("""
+                    SELECT *, encoded_by as hostname 
+                    FROM encoded_files ORDER BY encoded_at DESC LIMIT %s
+                """, (limit,))
             history = cur.fetchall()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -1792,8 +1798,19 @@ def api_pause_all_nodes():
 
 @app.route('/api/history', methods=['GET'])
 def api_history():
-    """Returns the encoding history as JSON."""
-    history, db_error = get_history() # get_history is defined elsewhere
+    """Returns the encoding history as JSON. Accepts optional 'limit' query parameter."""
+    limit_param = request.args.get('limit', '100')
+    
+    # Convert limit parameter to int or 'all'
+    if limit_param == 'all':
+        limit = 'all'
+    else:
+        try:
+            limit = int(limit_param)
+        except ValueError:
+            limit = 100  # Default fallback
+    
+    history, db_error = get_history(limit=limit)
     for item in history:
         # Format datetime and sizes for display
         item['encoded_at'] = item['encoded_at'].strftime('%Y-%m-%d %H:%M:%S')
@@ -2402,6 +2419,9 @@ cleanup_scan_now_event = threading.Event()
 scan_progress_state = {
     "is_running": False, "current_step": "", "total_steps": 0, "progress": 0, "scan_source": "", "scan_type": ""
 }
+
+# --- Global flag for force scan ---
+force_scan_flag = False
 
 def arr_background_thread():
     """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
@@ -3311,12 +3331,18 @@ def run_jellyfin_scan(force_scan=False):
 def api_trigger_scan():
     """
     API endpoint to manually trigger a media server scan based on primary_media_server setting.
-    The scanner thread will use force_scan=True for manual scans to ensure a complete rescan.
+    Accepts optional 'force' parameter to force re-queue files already in history.
     """
+    global force_scan_flag
+    
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    print(f"[{datetime.now()}] Manual scan requested via API.")
+    # Read the force parameter from the request
+    data = request.get_json() or {}
+    force_scan_flag = data.get('force', False)
+    
+    print(f"[{datetime.now()}] Manual scan requested via API (force={force_scan_flag}).")
     
     # Trigger the background thread to run the scan
     scan_now_event.set() 
@@ -3936,19 +3962,22 @@ def plex_scanner_thread():
         
         if scan_triggered:
             print(f"[{datetime.now()}] Manual scan trigger received.")
+            global force_scan_flag
             with app.app_context():
                 settings, _ = get_worker_settings()
                 primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
                 
                 # Determine which scanner to use based on primary_media_server
+                # Use the force_scan_flag set by the API endpoint
                 if primary_server == 'jellyfin':
-                    run_jellyfin_scan(force_scan=True)
+                    run_jellyfin_scan(force_scan=force_scan_flag)
                 elif primary_server == 'internal':
-                    run_internal_scan(force_scan=True)
+                    run_internal_scan(force_scan=force_scan_flag)
                 else:  # default to plex
-                    run_plex_scan(force_scan=True)
+                    run_plex_scan(force_scan=force_scan_flag)
                     
             scan_now_event.clear() # Reset the event for the next time
+            force_scan_flag = False  # Reset the flag after use
         elif delay > 0:
             print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic scan.")
             with app.app_context():

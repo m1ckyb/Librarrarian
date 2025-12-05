@@ -268,12 +268,24 @@
                         <div class="d-flex align-items-center gap-2">
                             <input type="text" id="history-search-input" class="form-control history-search-input" placeholder="Search by filename or node...">
                             <select id="history-per-page-select" class="form-select history-per-page-select">
+                                <option value="15">15 per page</option>
+                                <option value="30">30 per page</option>
+                                <option value="50">50 per page</option>
                                 <option value="100">100 per page</option>
-                                <option value="200">200 per page</option>
-                                <option value="300">300 per page</option>
-                                <option value="400">400 per page</option>
-                                <option value="500">500 per page</option>
                                 <option value="all">All</option>
+                            </select>
+                            <select id="history-limit-select" class="form-select history-per-page-select" title="Limit number of history entries loaded from database">
+                                <option value="100">Last 100 entries</option>
+                                <option value="200">Last 200 entries</option>
+                                <option value="300">Last 300 entries</option>
+                                <option value="400">Last 400 entries</option>
+                                <option value="500">Last 500 entries</option>
+                                <option value="600">Last 600 entries</option>
+                                <option value="700">Last 700 entries</option>
+                                <option value="800">Last 800 entries</option>
+                                <option value="900">Last 900 entries</option>
+                                <option value="1000">Last 1000 entries</option>
+                                <option value="all">All entries</option>
                             </select>
                         </div>
                         <button class="btn btn-outline-danger" id="clear-history-btn"><span class="mdi mdi-delete-sweep"></span> Clear All History</button>
