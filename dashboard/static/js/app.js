@@ -2316,8 +2316,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (internalTab) {
                 internalTab.disabled = false;
                 // Auto-activate Internal Media Scanner tab
-                const internalTabButton = new bootstrap.Tab(internalTab);
-                internalTabButton.show();
+                try {
+                    const internalTabButton = new bootstrap.Tab(internalTab);
+                    internalTabButton.show();
+                } catch (e) {
+                    console.error('Error activating Internal Media Scanner tab:', e);
+                }
             }
             if (plexContainer) plexContainer.style.display = 'none';
             if (jellyfinContainer) jellyfinContainer.style.display = 'none';
@@ -2333,8 +2337,12 @@ document.addEventListener('DOMContentLoaded', () => {
             if (mediaServersTab) {
                 mediaServersTab.disabled = false;
                 // Auto-activate Media Servers tab
-                const mediaServersTabButton = new bootstrap.Tab(mediaServersTab);
-                mediaServersTabButton.show();
+                try {
+                    const mediaServersTabButton = new bootstrap.Tab(mediaServersTab);
+                    mediaServersTabButton.show();
+                } catch (e) {
+                    console.error('Error activating Media Servers tab:', e);
+                }
             }
             if (internalTab) {
                 internalTab.disabled = true;
