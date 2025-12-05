@@ -95,6 +95,9 @@ DB_CONFIG = {
 WORKER_SESSION_TIMEOUT_SECONDS = 300  # 5 minutes - time before a worker is considered stale
 WORKER_PROTECTED_ENDPOINTS = ['request_job', 'update_job']  # Endpoints that require session validation
 
+# Symbolic link warning message (used by media scanners)
+SYMLINK_WARNING = "This is a symbolic link. Transcoding will increase file size as it creates a real file."
+
 def setup_auth(app):
     """Initializes and configures the authentication system."""
     app.config['AUTH_ENABLED'] = os.environ.get('AUTH_ENABLED', 'false').lower() == 'true'
@@ -3000,16 +3003,28 @@ def run_internal_scan(force_scan=False):
                             continue
 
                         try:
+                            # Check if file is a symbolic link
+                            is_symlink = os.path.islink(filepath)
+                            
                             # Use ffprobe to get the video codec
                             ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
                             codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
                             
-                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'}{', Symlink' if is_symlink else ''})")
                             if codec and codec not in skip_codecs:
-                                print(f"    -> Adding file to queue (codec: {codec}).")
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                                if cur.rowcount > 0:
-                                    new_files_found += 1
+                                if is_symlink:
+                                    # Add symbolic links with 'awaiting_approval' status and metadata warning
+                                    print(f"    -> Adding symbolic link to queue with approval required (codec: {codec}).")
+                                    metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
+                                else:
+                                    # Add regular files as pending
+                                    print(f"    -> Adding file to queue (codec: {codec}).")
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
                         except (subprocess.CalledProcessError, FileNotFoundError) as e:
                             print(f"    -> Could not probe file '{filepath}'. Error: {e}")
 
@@ -3119,12 +3134,24 @@ def run_plex_scan(force_scan=False):
                     
                     scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
 
-                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'})")
+                    # Check if file is a symbolic link
+                    is_symlink = os.path.islink(filepath)
+                    
+                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'}{', Symlink' if is_symlink else ''})")
                     if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
-                        print(f"    -> Adding file to queue (codec: {codec_lower}).")
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                        if cur.rowcount > 0:
-                            new_files_found += 1
+                        if is_symlink:
+                            # Add symbolic links with 'awaiting_approval' status and metadata warning
+                            print(f"    -> Adding symbolic link to queue with approval required (codec: {codec_lower}).")
+                            metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
+                            if cur.rowcount > 0:
+                                new_files_found += 1
+                        else:
+                            # Add regular files as pending
+                            print(f"    -> Adding file to queue (codec: {codec_lower}).")
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                            if cur.rowcount > 0:
+                                new_files_found += 1
             
             # Commit all the inserts at the end of the scan
             conn.commit()
@@ -3307,12 +3334,24 @@ def run_jellyfin_scan(force_scan=False):
                             
                             scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
                             
-                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            # Check if file is a symbolic link
+                            is_symlink = os.path.islink(filepath)
+                            
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'}{', Symlink' if is_symlink else ''})")
                             if codec and codec not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
-                                print(f"    -> Adding file to queue (codec: {codec}).")
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                                if cur.rowcount > 0:
-                                    new_files_found += 1
+                                if is_symlink:
+                                    # Add symbolic links with 'awaiting_approval' status and metadata warning
+                                    print(f"    -> Adding symbolic link to queue with approval required (codec: {codec}).")
+                                    metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
+                                else:
+                                    # Add regular files as pending
+                                    print(f"    -> Adding file to queue (codec: {codec}).")
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
                     
                     except requests.exceptions.RequestException as e:
                         print(f"[{datetime.now()}] Error scanning Jellyfin library '{lib_name}': {e}")

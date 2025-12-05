@@ -912,15 +912,25 @@ async function updateJobQueue(page = 1) {
 
         // Build the entire table HTML at once and set it. This is much more efficient
         // and prevents the "ghost row" rendering bug.
-        const rowsHtml = data.jobs.map(job => `
+        const rowsHtml = data.jobs.map(job => {
+            // Check if job has symlink metadata
+            // Parse metadata if it's a string, otherwise use it directly
+            const metadata = typeof job.metadata === 'string' ? JSON.parse(job.metadata) : job.metadata;
+            const isSymlink = metadata && metadata.is_symlink;
+            const symlinkWarning = isSymlink ? escapeHtml(metadata.warning) : '';
+            
+            return `
             <tr>
                 <td>
-                    ${(job.job_type === 'cleanup' || job.job_type === 'Rename Job') && job.status === 'awaiting_approval' ? 
+                    ${(job.job_type === 'cleanup' || job.job_type === 'Rename Job' || isSymlink) && job.status === 'awaiting_approval' ? 
                         `<input type="checkbox" class="form-check-input approval-checkbox" data-job-id="${job.id}">` : 
                         job.id 
                     }
                 </td>
-                <td style="word-break: break-all;">${job.filepath}</td>
+                <td style="word-break: break-all;">
+                    ${job.filepath}
+                    ${isSymlink ? `<br><small class="text-warning"><span class="mdi mdi-alert"></span> ${symlinkWarning}</small>` : ''}
+                </td>
                 <td><span class="badge badge-outline-info">${job.job_type}</span></td>
                 <td>
                     ${job.status === 'encoding' ? 
@@ -940,7 +950,8 @@ async function updateJobQueue(page = 1) {
                 <td>${new Date(job.created_at).toLocaleString()}</td>
                 <td>${getJobActionButtons(job)}</td>
             </tr>
-        `).join('');
+            `;
+        }).join('');
         tableBody.innerHTML = rowsHtml;
 
         renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
@@ -1128,17 +1139,54 @@ function renderHistoryTable() {
     // Render pagination (only if not showing all)
     paginationContainer.innerHTML = '';
     if (totalPages > 1 && perPageValue !== 'all') {
-        for (let i = 1; i <= totalPages; i++) {
+        const pageWindow = 5; // How many pages to show around the current page
+        
+        // Helper to create a page link
+        const createPageLink = (page, text, isDisabled = false, isActive = false) => {
             const li = document.createElement('li');
-            li.className = `page-item ${i === historyCurrentPage ? 'active' : ''}`;
-            li.innerHTML = `<a class="page-link" href="#">${i}</a>`;
-            li.addEventListener('click', (e) => {
-                e.preventDefault();
-                historyCurrentPage = i;
-                renderHistoryTable();
-            });
-            paginationContainer.appendChild(li);
+            li.className = `page-item ${isDisabled ? 'disabled' : ''} ${isActive ? 'active' : ''}`;
+            const a = document.createElement('a');
+            a.className = 'page-link';
+            a.href = '#';
+            a.innerText = text;
+            if (!isDisabled) {
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    historyCurrentPage = page;
+                    renderHistoryTable();
+                });
+            }
+            li.appendChild(a);
+            return li;
+        };
+        
+        // Previous Button
+        paginationContainer.appendChild(createPageLink(historyCurrentPage - 1, 'Previous', historyCurrentPage === 1));
+        
+        // Page numbers
+        let startPage = Math.max(1, historyCurrentPage - pageWindow);
+        let endPage = Math.min(totalPages, historyCurrentPage + pageWindow);
+        
+        if (startPage > 1) {
+            paginationContainer.appendChild(createPageLink(1, '1'));
+            if (startPage > 2) {
+                paginationContainer.appendChild(createPageLink(-1, '...', true));
+            }
         }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            paginationContainer.appendChild(createPageLink(i, i.toString(), false, i === historyCurrentPage));
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                paginationContainer.appendChild(createPageLink(-1, '...', true));
+            }
+            paginationContainer.appendChild(createPageLink(totalPages, totalPages.toString()));
+        }
+        
+        // Next Button
+        paginationContainer.appendChild(createPageLink(historyCurrentPage + 1, 'Next', historyCurrentPage === totalPages));
     }
 }
 
@@ -2464,25 +2512,58 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Show/hide library containers based on selection and multi-server mode
+            // Also disable form inputs in hidden containers to prevent them from being submitted
             if (multiServerEnabled) {
                 // When multi-server is enabled, show only the combined container
-                if (plexContainer) plexContainer.style.display = 'none';
-                if (jellyfinContainer) jellyfinContainer.style.display = 'none';
-                if (combinedContainer) combinedContainer.style.display = 'block';
+                if (plexContainer) {
+                    plexContainer.style.display = 'none';
+                    // Disable all form inputs in this container
+                    plexContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                }
+                if (jellyfinContainer) {
+                    jellyfinContainer.style.display = 'none';
+                    // Disable all form inputs in this container
+                    jellyfinContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                }
+                if (combinedContainer) {
+                    combinedContainer.style.display = 'block';
+                    // Enable all form inputs in this container
+                    combinedContainer.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                }
                 
                 // Load combined libraries
                 loadCombinedLibraries();
             } else {
                 // When multi-server is disabled, hide combined and show only the selected server's container
-                if (combinedContainer) combinedContainer.style.display = 'none';
+                if (combinedContainer) {
+                    combinedContainer.style.display = 'none';
+                    // Disable all form inputs in this container
+                    combinedContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                }
                 
                 if (primaryServer === 'plex') {
-                    if (plexContainer) plexContainer.style.display = 'block';
-                    if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+                    if (plexContainer) {
+                        plexContainer.style.display = 'block';
+                        // Enable all form inputs in this container
+                        plexContainer.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                    }
+                    if (jellyfinContainer) {
+                        jellyfinContainer.style.display = 'none';
+                        // Disable all form inputs in this container
+                        jellyfinContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                    }
                     loadPlexLibraries();
                 } else if (primaryServer === 'jellyfin') {
-                    if (plexContainer) plexContainer.style.display = 'none';
-                    if (jellyfinContainer) jellyfinContainer.style.display = 'block';
+                    if (plexContainer) {
+                        plexContainer.style.display = 'none';
+                        // Disable all form inputs in this container
+                        plexContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                    }
+                    if (jellyfinContainer) {
+                        jellyfinContainer.style.display = 'block';
+                        // Enable all form inputs in this container
+                        jellyfinContainer.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                    }
                     loadJellyfinLibraries();
                 }
             }
