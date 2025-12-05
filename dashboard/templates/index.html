@@ -66,6 +66,7 @@
                     <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="light"><span class="mdi mdi-weather-sunny me-2"></span> Light</button></li>
                     <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="dark"><span class="mdi mdi-weather-night me-2"></span> Dark</button></li>
                     <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="auto"><span class="mdi mdi-desktop-classic me-2"></span> System</button></li>
+                    <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="christmas"><span class="mdi mdi-pine-tree me-2"></span> Christmas</button></li>
                 </ul>
             </div>
             <div class="btn-group me-2" role="group">
@@ -371,6 +372,13 @@
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="sonarr-integration-tab" data-bs-toggle="tab" data-bs-target="#sonarr-integration-pane" type="button">Sonarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="radarr-integration-tab" data-bs-toggle="tab" data-bs-target="#radarr-integration-pane" type="button">Radarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="lidarr-integration-tab" data-bs-toggle="tab" data-bs-target="#lidarr-integration-pane" type="button">Lidarr</button></li>
+                                {% if devmode %}
+                                <li class="nav-item ms-auto" role="presentation">
+                                    <button type="button" class="btn btn-outline-warning btn-sm" id="debug-settings-btn" data-bs-toggle="modal" data-bs-target="#debugSettingsModal">
+                                        <span class="mdi mdi-bug"></span> Debug Settings
+                                    </button>
+                                </li>
+                                {% endif %}
                             </ul>
 
                             <div class="tab-content border border-top-0 p-3" id="integrationsTabContent">
@@ -944,6 +952,9 @@
     {% include 'modals/jellyfin_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
     {% include 'modals/backup_modal.html' %}
+    {% if devmode %}
+    {% include 'modals/debug_settings_modal.html' %}
+    {% endif %}
 
     <!-- Pass server-side data to JavaScript -->
     <script>

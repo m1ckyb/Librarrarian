@@ -1,0 +1,19 @@
+<!-- Debug Settings Modal -->
+<div class="modal fade" id="debugSettingsModal" tabindex="-1" aria-labelledby="debugSettingsModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-lg">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="debugSettingsModalLabel">Debug: Database Settings</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Current database settings for debugging purposes. This shows all worker_settings table entries.</p>
+                <pre id="debug-settings-content" class="bg-body-secondary p-3 rounded" style="max-height: 400px; overflow-y: auto; font-family: monospace; font-size: 0.85rem;"></pre>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-primary" id="copy-debug-settings-btn"><span class="mdi mdi-content-copy"></span> Copy Text</button>
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><span class="mdi mdi-close"></span> Close</button>
+            </div>
+        </div>
+    </div>
+</div>

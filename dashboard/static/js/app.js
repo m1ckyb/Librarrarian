@@ -3174,6 +3174,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (theme === 'auto') {
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+        // Christmas theme and other themes pass through as-is
         return theme;
     };
 
@@ -3185,6 +3186,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update icon based on stored theme (not resolved) to show user's selection
         if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
+        else if (theme === 'christmas') themeIcon.className = 'mdi mdi-pine-tree';
         else themeIcon.className = 'mdi mdi-desktop-classic';
     };
 
@@ -3395,4 +3397,52 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
+
+// --- Debug Settings Modal (DEVMODE only) ---
+// This section handles the debug settings modal that shows database settings
+if (document.getElementById('debugSettingsModal')) {
+    const debugSettingsModal = document.getElementById('debugSettingsModal');
+    const debugSettingsContent = document.getElementById('debug-settings-content');
+    const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
+    
+    // Load settings when modal is shown
+    debugSettingsModal.addEventListener('show.bs.modal', async function() {
+        try {
+            const response = await fetch('/api/settings');
+            const data = await response.json();
+            
+            if (data.error) {
+                debugSettingsContent.textContent = `Error: ${data.error}`;
+            } else {
+                // Format the settings as pretty JSON
+                debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
+            }
+        } catch (error) {
+            debugSettingsContent.textContent = `Failed to load settings: ${error.message}`;
+        }
+    });
+    
+    // Copy to clipboard functionality
+    if (copyDebugSettingsBtn) {
+        copyDebugSettingsBtn.addEventListener('click', function() {
+            const text = debugSettingsContent.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                // Visual feedback
+                const originalText = copyDebugSettingsBtn.innerHTML;
+                copyDebugSettingsBtn.innerHTML = '<span class="mdi mdi-check"></span> Copied!';
+                copyDebugSettingsBtn.classList.remove('btn-outline-primary');
+                copyDebugSettingsBtn.classList.add('btn-outline-success');
+                
+                setTimeout(() => {
+                    copyDebugSettingsBtn.innerHTML = originalText;
+                    copyDebugSettingsBtn.classList.remove('btn-outline-success');
+                    copyDebugSettingsBtn.classList.add('btn-outline-primary');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text:', err);
+                alert('Failed to copy to clipboard');
+            });
+        });
+    }
+}
 });

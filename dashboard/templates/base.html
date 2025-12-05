@@ -44,6 +44,46 @@
             --footer-link: var(--bs-body-color);
         }
 
+        /* Christmas theme overrides */
+        [data-bs-theme="christmas"] {
+            /* Christmas color palette: deep red, forest green, gold, and white */
+            --bs-body-bg: #0d2818; /* Deep forest green background */
+            --bs-body-color: #f0f0f0; /* Light text */
+            --bs-emphasis-color: #ffffff;
+            --bs-secondary-color: #c4c4c4;
+            
+            /* Link colors */
+            --bs-link-color: #ffd700; /* Gold */
+            --bs-link-hover-color: #ffed4e;
+            
+            /* Primary colors (buttons, etc.) */
+            --bs-primary: #c41e3a; /* Christmas red */
+            --bs-primary-rgb: 196, 30, 58;
+            --bs-success: #165b33; /* Christmas green */
+            --bs-success-rgb: 22, 91, 51;
+            --bs-info: #ffd700; /* Gold */
+            --bs-info-rgb: 255, 215, 0;
+            --bs-warning: #ff6b35; /* Orange accent */
+            --bs-warning-rgb: 255, 107, 53;
+            --bs-danger: #c41e3a;
+            --bs-danger-rgb: 196, 30, 58;
+            
+            /* Border colors */
+            --bs-border-color: #2a5540;
+            --bs-border-color-translucent: rgba(42, 85, 64, 0.5);
+            
+            /* Card and surface colors */
+            --bs-body-bg-rgb: 13, 40, 24;
+            --bs-tertiary-bg: #163d29;
+            --bs-secondary-bg: #1a4730;
+            
+            /* Footer customization */
+            --footer-bg: rgba(13, 40, 24, 0.9);
+            --footer-border: rgba(42, 85, 64, 0.5);
+            --footer-text: #f0f0f0;
+            --footer-link: #ffd700;
+        }
+
         html, body {
             margin: 0;
             padding: 0;

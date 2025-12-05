@@ -9,9 +9,13 @@ All upcoming features and bug fixes will be documented here until they are part 
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
+- Modified Jellyfin Configuration Modal footer to ensure all buttons stay on one line with flexbox
 
 ### Added
 - Added symbolic link detection during media scanning
 - Symbolic links are now added to the queue with "awaiting_approval" status and require manual trigger
 - Added warning in job queue for symbolic link files explaining that transcoding will increase file size
 - Symbolic links show a warning icon and message in the job queue
+- Added DEVMODE environment variable for development mode features
+- Added Debug Settings button in Options tab (visible only when DEVMODE=true) that displays all database settings in a modal
+- Added Christmas theme to theme dropdown with festive red, green, and gold color palette
