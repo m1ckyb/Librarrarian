@@ -2209,6 +2209,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
+                        <!-- Badge always shown in combined view to label the linking dropdown -->
+                        <span class="badge badge-outline-purple">Jellyfin</span>
                         ${createJellyfinLinkDropdown(lib.title)}
                     </div>
                 </div>
@@ -2227,6 +2229,8 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
+                        <!-- Badge always shown in combined view to label the linking dropdown -->
+                        <span class="badge badge-outline-warning">Plex</span>
                         ${createPlexLinkDropdown(lib.title)}
                     </div>
                 </div>
