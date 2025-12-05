@@ -1066,7 +1066,7 @@ function renderHistoryTable() {
     });
 
     // Determine items per page
-    const effectiveItemsPerPage = perPageValue === 'all' ? filteredData.length : parseInt(perPageValue);
+    const effectiveItemsPerPage = perPageValue === 'all' ? Math.max(1, filteredData.length) : parseInt(perPageValue);
     
     // Paginate data
     const totalPages = Math.ceil(filteredData.length / effectiveItemsPerPage);

@@ -29,8 +29,6 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Monitored Libraries: Removed scrollbars from individual Plex and Jellyfin library containers when sync mode is disabled to match the combined list behavior
 - History & Stats: Default items per page changed from 15 to 100 for better data visibility
 - History & Stats: Default sort order changed to descending by ID (newest first)
-
-### Changed
 - Changed "Unlink Plex" button to "Modify Configuration" button when Plex is authenticated
 - Changed "Unlink Jellyfin" button to "Modify Configuration" button when Jellyfin is authenticated
 - Plex and Jellyfin modals now support both "link" and "modify" modes

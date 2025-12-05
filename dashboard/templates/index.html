@@ -38,6 +38,13 @@
             background-color: #1EE4A9 !important;
             color: #000 !important;
         }
+        /* History search and controls */
+        .history-search-input {
+            width: 300px;
+        }
+        .history-per-page-select {
+            width: auto;
+        }
     </style>
 {% endblock %}
 
@@ -259,8 +266,8 @@
                     <hr class="my-4">
                     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
                         <div class="d-flex align-items-center gap-2">
-                            <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node..." style="width: 300px;">
-                            <select id="history-per-page-select" class="form-select" style="width: auto;">
+                            <input type="text" id="history-search-input" class="form-control history-search-input" placeholder="Search by filename or node...">
+                            <select id="history-per-page-select" class="form-select history-per-page-select">
                                 <option value="100">100 per page</option>
                                 <option value="200">200 per page</option>
                                 <option value="300">300 per page</option>
