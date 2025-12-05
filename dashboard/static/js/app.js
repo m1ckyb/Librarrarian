@@ -914,8 +914,10 @@ async function updateJobQueue(page = 1) {
         // and prevents the "ghost row" rendering bug.
         const rowsHtml = data.jobs.map(job => {
             // Check if job has symlink metadata
-            const isSymlink = job.metadata && job.metadata.is_symlink;
-            const symlinkWarning = isSymlink ? job.metadata.warning : '';
+            // Parse metadata if it's a string, otherwise use it directly
+            const metadata = typeof job.metadata === 'string' ? JSON.parse(job.metadata) : job.metadata;
+            const isSymlink = metadata && metadata.is_symlink;
+            const symlinkWarning = isSymlink ? escapeHtml(metadata.warning) : '';
             
             return `
             <tr>
@@ -1168,7 +1170,7 @@ function renderHistoryTable() {
         if (startPage > 1) {
             paginationContainer.appendChild(createPageLink(1, '1'));
             if (startPage > 2) {
-                paginationContainer.appendChild(createPageLink(0, '...', true));
+                paginationContainer.appendChild(createPageLink(-1, '...', true));
             }
         }
         
@@ -1178,7 +1180,7 @@ function renderHistoryTable() {
         
         if (endPage < totalPages) {
             if (endPage < totalPages - 1) {
-                paginationContainer.appendChild(createPageLink(0, '...', true));
+                paginationContainer.appendChild(createPageLink(-1, '...', true));
             }
             paginationContainer.appendChild(createPageLink(totalPages, totalPages.toString()));
         }
