@@ -12,7 +12,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - "Force" checkbox next to "Clear Queue" button in Job Queue tab - when enabled, will force remove all jobs regardless of status (including encoding jobs)
 - "Clear All Errors" button in Failed Files & Stuck Jobs modal footer for easy access to clear all errors from within the modal
 - Sortable columns in History & Stats table - click any column header to sort (ID, File, Node, Codec, Size, Reduction, Date)
-- Items per page dropdown in History & Stats tab with options: Last 100, 200, 300, 400, 500, or All Items
+- Items per page dropdown in History & Stats tab with options: 100, 200, 300, 400, 500 per page, or All
 
 ### Changed
 - Moved Primary Media Server selection (Plex/Jellyfin/Internal Media Scanner) above Integrations section as a standalone section
