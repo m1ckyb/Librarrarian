@@ -2630,18 +2630,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const scanStatusDiv = document.getElementById('scan-status');
     const forceRescanCheckbox = document.getElementById('force-rescan-checkbox');
     
-    // Media scan progress elements
-    const mediaScanContainer = document.getElementById('media-scan-container');
-    const mediaScanFeedback = document.getElementById('media-scan-feedback');
-    const mediaScanProgress = document.getElementById('media-scan-progress');
-    const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
-    const mediaScanProgressText = document.getElementById('media-scan-progress-text');
-    const mediaScanTime = document.getElementById('media-scan-time');
-    
-    let mediaScanInterval = null;
-    let mediaScanStartTime = null;
+    if (manualScanBtn && scanStatusDiv) {
+        // Media scan progress elements
+        const mediaScanContainer = document.getElementById('media-scan-container');
+        const mediaScanFeedback = document.getElementById('media-scan-feedback');
+        const mediaScanProgress = document.getElementById('media-scan-progress');
+        const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
+        const mediaScanProgressText = document.getElementById('media-scan-progress-text');
+        const mediaScanTime = document.getElementById('media-scan-time');
+        
+        let mediaScanInterval = null;
+        let mediaScanStartTime = null;
 
-    function startMediaScanPolling() {
+        function startMediaScanPolling() {
         if (mediaScanInterval) clearInterval(mediaScanInterval);
         
         mediaScanStartTime = new Date();
@@ -2726,14 +2727,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // On page load, check if a media scan is already running
-    fetch('/api/scan/progress').then(r => r.json()).then(data => {
-        if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-            manualScanBtn.disabled = true;
-            manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
-            startMediaScanPolling();
-        }
-    });
+        // On page load, check if a media scan is already running
+        fetch('/api/scan/progress').then(r => r.json()).then(data => {
+            if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                manualScanBtn.disabled = true;
+                manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+                startMediaScanPolling();
+            }
+        });
+    }
 
     // --- Sonarr Options Logic ---
     const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
@@ -2786,29 +2788,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const releaseAllCleanupBtn = document.getElementById('release-all-cleanup-btn');
     const releaseAllRenameBtn = document.getElementById('release-all-rename-btn');
 
-    releaseSelectedBtn.addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
-        if (selectedIds.length === 0) {
-            alert('No jobs selected. Select jobs awaiting approval to release them.');
-            return;
-        }
-        if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
-            // Release all job types when selected
-            await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
-        }
-    });
+    if (releaseSelectedBtn) {
+        releaseSelectedBtn.addEventListener('click', async () => {
+            const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
+            if (selectedIds.length === 0) {
+                alert('No jobs selected. Select jobs awaiting approval to release them.');
+                return;
+            }
+            if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
+                // Release all job types when selected
+                await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
+            }
+        });
+    }
 
-    releaseAllCleanupBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
-            await releaseJobs({ release_all: true, job_type: 'cleanup' });
-        }
-    });
+    if (releaseAllCleanupBtn) {
+        releaseAllCleanupBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
+                await releaseJobs({ release_all: true, job_type: 'cleanup' });
+            }
+        });
+    }
 
-    releaseAllRenameBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
-            await releaseJobs({ release_all: true, job_type: 'Rename Job' });
-        }
-    });
+    if (releaseAllRenameBtn) {
+        releaseAllRenameBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
+                await releaseJobs({ release_all: true, job_type: 'Rename Job' });
+            }
+        });
+    }
 
     async function releaseJobs(payload) {
         try {
@@ -2827,30 +2835,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Clear All Jobs Logic ---
     const clearJobsBtn = document.getElementById('clear-jobs-btn');
-    clearJobsBtn.addEventListener('click', async () => {
-        const forceClearCheckbox = document.getElementById('force-clear-checkbox');
-        const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
-        
-        const confirmMessage = force 
-            ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
-            : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
-        
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-        try {
-            const response = await fetch('/api/jobs/clear', { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ force: force })
-            });
-            if (response.ok) {
-                updateJobQueue(1); // Refresh the queue to show it's empty
+    if (clearJobsBtn) {
+        clearJobsBtn.addEventListener('click', async () => {
+            const forceClearCheckbox = document.getElementById('force-clear-checkbox');
+            const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
+            
+            const confirmMessage = force 
+                ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
+                : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
+            
+            if (!confirm(confirmMessage)) {
+                return;
             }
-        } catch (error) {
-            alert('An error occurred while trying to clear the job queue.');
-        }
-    });
+            try {
+                const response = await fetch('/api/jobs/clear', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: force })
+                });
+                if (response.ok) {
+                    updateJobQueue(1); // Refresh the queue to show it's empty
+                }
+            } catch (error) {
+                alert('An error occurred while trying to clear the job queue.');
+            }
+        });
+    }
 
     // --- Delete Individual Job Logic ---
     window.deleteJob = async function(jobId) {
@@ -2888,16 +2898,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Pause Queue Button Logic ---
     const pauseQueueBtn = document.getElementById('pause-queue-btn');
-    pauseQueueBtn.addEventListener('click', async () => {
-        try {
-            const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
-            if (response.ok) {
-                mainUpdateLoop(); // Immediately refresh the UI to show the new state
+    if (pauseQueueBtn) {
+        pauseQueueBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
+                if (response.ok) {
+                    mainUpdateLoop(); // Immediately refresh the UI to show the new state
+                }
+            } catch (error) {
+                alert('An error occurred while trying to toggle the queue state.');
             }
-        } catch (error) {
-            alert('An error occurred while trying to toggle the queue state.');
-        }
-    });
+        });
+    }
 
     // --- *Arr Connection Test Logic ---
     window.testArrConnection = async function(arrType) {
