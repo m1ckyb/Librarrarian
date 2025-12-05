@@ -1,6 +1,6 @@
 # Librarrarian
 
-**Librarrarian** is a distributed video transcoding cluster that automatically converts your media library to modern, space-efficient video codecs. It uses a central web dashboard to orchestrate a fleet of worker nodes, intelligently distributing the workload across multiple machines. The system integrates deeply with Plex Media Server and the Arr suite (Sonarr, Radarr, Lidarr) to provide a complete media management solution. Everything is containerized with Docker Compose for simple deployment and scaling.
+**Librarrarian** is a distributed video transcoding cluster that automatically converts your media library to modern, space-efficient video codecs. It uses a central web dashboard to orchestrate a fleet of worker nodes, intelligently distributing the workload across multiple machines. The system integrates deeply with Plex Media Server, Jellyfin, and the Arr suite (Sonarr, Radarr, Lidarr) to provide a complete media management solution. Everything is containerized with Docker Compose for simple deployment and scaling.
 
 ## Table of Contents
 - [What It Does](#what-it-does)
@@ -35,7 +35,7 @@ Librarrarian is your automated media transcoding solution. Here's what it handle
 - Uses hardware acceleration (NVIDIA, Intel, Apple) when available for 5-10x faster transcoding
 
 **Media Discovery**
-- Integrates with Plex to automatically discover and queue your media libraries
+- Integrates with Plex and Jellyfin to automatically discover and queue your media libraries
 - Built-in media scanner as an alternative to Plex for standalone operation
 - Finds and queues files based on codec, resolution, and quality settings
 
@@ -98,6 +98,10 @@ A PostgreSQL database that stores:
     *   OAuth-based account linking via PIN code
     *   Dynamic library selection
     *   Automatic path mapping support
+*   **Jellyfin Integration**: Full support for Jellyfin as a media source
+    *   API Key based authentication
+    *   Dynamic library selection
+    *   Path mapping support
 *   **Internal Scanner**: Built-in media scanner using ffprobe
     *   Scan specific subdirectories
     *   No Plex dependency required
@@ -234,9 +238,9 @@ The worker immediately requests another job and the cycle continues until the qu
 └──────────────────┘ └──────────────────┘ └───────────────────┘
 
 External Integrations:
-┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
-│ Plex Server │  │   Sonarr    │  │   Radarr    │  │   Lidarr    │
-└─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘
+┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐
+│ Plex Server │  │ Jellyfin Server │  │   Sonarr    │  │   Radarr    │  │   Lidarr    │
+└─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘  └─────────────┘
        ▲                ▲                ▲                ▲
        └────────────────┴────────────────┴────────────────┘
                          Dashboard APIs
@@ -389,7 +393,17 @@ Once you've accessed the dashboard, complete these steps:
 7. Select which libraries to monitor
 8. Configure path mapping if needed (see [Path Mapping](#path-mapping))
 
-**Option B: Internal Scanner**
+**Option B: Jellyfin Integration**
+1. Navigate to the **Options** tab
+2. Click on the **Integrations** sub-tab
+3. Select the **Jellyfin** tab
+4. Click **"Link Server"**
+5. Enter your Jellyfin Server URL and API Key
+6. Once linked, your Jellyfin libraries will appear
+7. Select which libraries to monitor
+8. Configure path mapping if needed (see [Path Mapping](#path-mapping))
+
+**Option C: Internal Scanner**
 1. Navigate to the **Options** tab → **Integrations** → **Internal**
 2. Your `/media` subdirectories will be listed
 3. Assign a media type to each folder (TV Shows, Movies, etc.)

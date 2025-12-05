@@ -6,7 +6,7 @@
 
 The system is built on a client-server model:
 
-1.  **Dashboard (The Brain)**: A Flask-based web application that acts as the central controller. It integrates with Plex Media Server to find files, manages a job queue in a PostgreSQL database, and provides a real-time UI for monitoring and configuration.
+1.  **Dashboard (The Brain)**: A Flask-based web application that acts as the central controller. It integrates with Plex Media Server and Jellyfin to find files, manages a job queue in a PostgreSQL database, and provides a real-time UI for monitoring and configuration.
 
 2.  **Worker (The Muscle)**: A "dumb" but powerful transcoding engine. Workers connect to the dashboard, request a job, perform the transcode using FFmpeg with hardware acceleration (NVIDIA, Intel, Apple), and report the result.
 
@@ -16,7 +16,7 @@ This architecture allows for a robust, scalable, and easy-to-manage transcoding 
 
 ## Key Features
 
-*   **Automated Media Scanning**: Integrates with Plex or uses a built-in scanner to automatically find and queue media for transcoding based on user-selected libraries or folders.
+*   **Automated Media Scanning**: Integrates with Plex, Jellyfin, or uses a built-in scanner to automatically find and queue media for transcoding based on user-selected libraries or folders.
 *   **Arr Integration**: Connect to Sonarr, Radarr, and Lidarr. The dashboard can then create internal jobs to rename files via the Sonarr API or create informational jobs to flag quality mismatches for user investigation.
 *   **Centralized Job Management**: A web dashboard provides a real-time view of the job queue, worker status, and transcoding history.
 *   **Distributed Workers**: Scale transcoding capacity by adding more worker nodes, which request jobs from the central dashboard.

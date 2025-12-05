@@ -9,8 +9,11 @@ import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
+from typing import Tuple, Optional
+from urllib.parse import urlparse
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
+from xml.etree import ElementTree as ET
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
@@ -265,7 +268,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 12
+TARGET_SCHEMA_VERSION = 14
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -327,6 +330,45 @@ MIGRATIONS = {
     12: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('backup_retention_days', '7') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 13: Add setting to suppress verbose log messages (deprecated in v14, migrated to granular settings)
+    13: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('suppress_verbose_logs', 'false') ON CONFLICT (setting_name) DO NOTHING;"
+    ],
+    # Version 14: Add Jellyfin support and multi-server capabilities
+    14: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_host', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_api_key', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_libraries', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_from', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_to', '') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('jellyfin_path_mapping_enabled', 'true') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('primary_media_server', 'plex') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        # Migrate suppress_verbose_logs to new granular logging settings
+        # If suppress_verbose_logs exists, copy its value to the new settings; otherwise use 'false'
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM worker_settings WHERE setting_name = 'suppress_verbose_logs') THEN
+                INSERT INTO worker_settings (setting_name, setting_value)
+                SELECT 'hide_job_requests', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs'
+                ON CONFLICT (setting_name) DO NOTHING;
+                
+                INSERT INTO worker_settings (setting_name, setting_value)
+                SELECT 'hide_plex_updates', setting_value FROM worker_settings WHERE setting_name = 'suppress_verbose_logs'
+                ON CONFLICT (setting_name) DO NOTHING;
+            ELSE
+                INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_job_requests', 'false')
+                ON CONFLICT (setting_name) DO NOTHING;
+                
+                INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_plex_updates', 'false')
+                ON CONFLICT (setting_name) DO NOTHING;
+            END IF;
+        END $$;
+        """,
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
 }
 
@@ -506,6 +548,7 @@ def initialize_database_if_needed():
                         scanner_type VARCHAR(50) NOT NULL,
                         media_type VARCHAR(50) NOT NULL,
                         is_hidden BOOLEAN DEFAULT false,
+                        server_type VARCHAR(50) DEFAULT 'plex',
                         UNIQUE(source_name, scanner_type)
                     );
                 """)
@@ -547,7 +590,18 @@ def initialize_database_if_needed():
                         ('radarr_enabled', 'false'),
                         ('lidarr_enabled', 'false'),
                         ('sonarr_auto_rename_after_transcode', 'false'),
-                        ('radarr_auto_rename_after_transcode', 'false')
+                        ('radarr_auto_rename_after_transcode', 'false'),
+                        ('jellyfin_host', ''),
+                        ('jellyfin_api_key', ''),
+                        ('jellyfin_libraries', ''),
+                        ('jellyfin_path_from', ''),
+                        ('jellyfin_path_to', ''),
+                        ('jellyfin_path_mapping_enabled', 'true'),
+                        ('primary_media_server', 'plex'),
+                        ('enable_multi_server', 'false'),
+                        ('hide_job_requests', 'false'),
+                        ('hide_plex_updates', 'false'),
+                        ('hide_jellyfin_updates', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
 
@@ -720,6 +774,85 @@ def clear_failed_files():
         db_error = f"Database query failed: {e}"
     return db_error
 
+def normalize_server_url(url: str) -> str:
+    """
+    Normalizes a server URL by removing trailing slashes and extra path components.
+    
+    Args:
+        url: The URL to normalize
+        
+    Returns:
+        The normalized URL
+    """
+    url = url.rstrip('/')
+    parsed = urlparse(url)
+    # Reconstruct URL with only scheme, netloc, and port (no path, query, or fragment)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+def validate_plex_url(url: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validates a Plex server URL for basic security and format checks.
+    Note: Plex servers are typically on local networks, so private IPs are allowed.
+    
+    Args:
+        url: The URL to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message). Error message is None if valid.
+    """
+    if not url:
+        return False, "URL is required"
+    
+    try:
+        parsed = urlparse(url)
+        # Check for valid scheme
+        if parsed.scheme not in ['http', 'https']:
+            return False, "URL must use http:// or https://"
+        # Check for hostname
+        if not parsed.netloc:
+            return False, "URL must include a hostname"
+        # Check for suspicious path components (Plex server URLs shouldn't have paths)
+        if parsed.path and parsed.path not in ['', '/']:
+            return False, "Plex server URL should not include a path. Use only the base URL (e.g., http://plex:32400)"
+        return True, None
+    except (ValueError, AttributeError) as e:
+        return False, f"Invalid URL format: {e}"
+
+def parse_plex_identity_response(response) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Parses and validates a Plex /identity endpoint response.
+    
+    Args:
+        response: The requests Response object
+        
+    Returns:
+        Tuple of (success, machine_id, error_message)
+    """
+    # Check Content-Length header first to prevent loading large responses
+    content_length = response.headers.get('content-length')
+    if content_length and int(content_length) > 1024 * 1024:  # 1MB limit
+        return False, None, "Server response too large."
+    
+    # Check actual content size as a fallback
+    if len(response.content) > 1024 * 1024:
+        return False, None, "Server response too large."
+    
+    # Parse the XML response to confirm it's a Plex server
+    # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
+    try:
+        root = ET.fromstring(response.content)
+        # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
+        if root.tag != 'MediaContainer':
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        machine_id = root.get('machineIdentifier')
+        if not machine_id:
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        return True, machine_id, None
+    except ET.ParseError:
+        return False, None, "Server responded but returned invalid data."
+
 def get_worker_settings():
     """Fetches all worker settings from the database."""
     db = get_db()
@@ -755,6 +888,32 @@ def update_worker_setting(key, value):
                 ON CONFLICT (setting_name) DO UPDATE
                 SET setting_value = EXCLUDED.setting_value;
             """, (key, value))
+        db.commit()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+        try:
+            db.rollback()
+        except:
+            pass
+        return False, db_error
+    return True, None
+
+def update_worker_settings_batch(settings_dict):
+    """Updates multiple worker settings in a single transaction."""
+    db = get_db()
+    db_error = None
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return False, db_error
+    try:
+        with db.cursor() as cur:
+            for key, value in settings_dict.items():
+                cur.execute("""
+                    INSERT INTO worker_settings (setting_name, setting_value)
+                    VALUES (%s, %s)
+                    ON CONFLICT (setting_name) DO UPDATE
+                    SET setting_value = EXCLUDED.setting_value;
+                """, (key, value))
         db.commit()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -1058,7 +1217,8 @@ def options():
         rescan_minutes = '0'
     
     settings_to_update = {
-        'media_scanner_type': request.form.get('media_scanner_type', 'plex'),
+        'primary_media_server': request.form.get('primary_media_server', 'plex'),
+        'enable_multi_server': 'true' if 'enable_multi_server' in request.form else 'false',
         'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
         'min_length': request.form.get('min_length', '0.5'),
@@ -1071,7 +1231,6 @@ def options():
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
         'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
-        'plex_url': request.form.get('plex_url', ''),
         'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
         'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
         'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
@@ -1082,9 +1241,15 @@ def options():
         'plex_path_from': request.form.get('plex_path_from', ''),
         'plex_path_to': request.form.get('plex_path_to', ''),
         'plex_path_mapping_enabled': 'true' if 'plex_path_mapping_enabled' in request.form else 'false',
+        'jellyfin_path_from': request.form.get('jellyfin_path_from', ''),
+        'jellyfin_path_to': request.form.get('jellyfin_path_to', ''),
+        'jellyfin_path_mapping_enabled': 'true' if 'jellyfin_path_mapping_enabled' in request.form else 'false',
         'sonarr_enabled': 'true' if 'sonarr_enabled' in request.form else 'false',
         'radarr_enabled': 'true' if 'radarr_enabled' in request.form else 'false',
         'lidarr_enabled': 'true' if 'lidarr_enabled' in request.form else 'false',
+        'hide_job_requests': 'true' if 'hide_job_requests' in request.form else 'false',
+        'hide_plex_updates': 'true' if 'hide_plex_updates' in request.form else 'false',
+        'hide_jellyfin_updates': 'true' if 'hide_jellyfin_updates' in request.form else 'false',
     }
     # Add the new *Arr settings
     for arr_type in ['sonarr', 'radarr', 'lidarr']:
@@ -1099,6 +1264,8 @@ def options():
     settings_to_update['radarr_auto_rename_after_transcode'] = 'true' if 'radarr_auto_rename_after_transcode' in request.form else 'false'
     plex_libraries = request.form.getlist('plex_libraries')
     settings_to_update['plex_libraries'] = ','.join(plex_libraries)
+    jellyfin_libraries = request.form.getlist('jellyfin_libraries')
+    settings_to_update['jellyfin_libraries'] = ','.join(jellyfin_libraries)
     internal_paths = request.form.getlist('internal_scan_paths')
     settings_to_update['internal_scan_paths'] = ','.join(internal_paths)
 
@@ -1118,6 +1285,7 @@ def options():
 
             # 2. Update media type and hide status assignments
             all_plex_sources = {k.replace('type_plex_', '') for k in request.form if k.startswith('type_plex_')}
+            all_jellyfin_sources = {k.replace('type_jellyfin_', '') for k in request.form if k.startswith('type_jellyfin_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
             for source_name in all_plex_sources:
@@ -1125,8 +1293,18 @@ def options():
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
-                    VALUES (%s, 'plex', %s, %s)
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'plex', %s, %s, 'plex')
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
+                """, (source_name, media_type, is_hidden))
+
+            for source_name in all_jellyfin_sources:
+                media_type = request.form.get(f'type_jellyfin_{source_name}')
+                # Items are now hidden when media_type is set to 'none' (Ignore)
+                is_hidden = (media_type == 'none')
+                cur.execute("""
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
@@ -1135,8 +1313,8 @@ def options():
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden)
-                    VALUES (%s, 'internal', %s, %s)
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
+                    VALUES (%s, 'internal', %s, %s, 'internal')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
 
@@ -1261,15 +1439,26 @@ def api_backup_delete(filename):
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
     """
-    Clears jobs from the queue. This now clears all 'pending' transcode/cleanup jobs
-    and ALL jobs (regardless of status) that are internal-only (Rename, Quality Mismatch).
+    Clears jobs from the queue. 
+    If 'force' parameter is true, clears ALL jobs regardless of status.
+    Otherwise, clears all 'pending' transcode/cleanup jobs and ALL internal-only jobs (Rename, Quality Mismatch).
     """
     try:
+        data = request.get_json() or {}
+        force = data.get('force', False)
+        
         db = get_db()
         with db.cursor() as cur:
-            cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
+            if force:
+                # Force clear: Remove ALL jobs regardless of status
+                cur.execute("DELETE FROM jobs;")
+                message = "All jobs forcefully cleared from queue."
+            else:
+                # Normal clear: Remove pending jobs and internal jobs
+                cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
+                message = "Job queue cleared successfully."
         db.commit()
-        return jsonify(success=True, message="Job queue cleared successfully.")
+        return jsonify(success=True, message=message)
     except Exception as e:
         print(f"Error clearing job queue: {e}")
         return jsonify(success=False, error=str(e)), 500
@@ -1726,29 +1915,381 @@ def plex_login():
     
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
 
+    # First, test if the server is reachable
+    # Plex returns XML by default
+    try:
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
+        
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+            
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection to Plex server timed out. Please check the URL."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to Plex server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to reach Plex server: {e}"), 503
+
+    # Now attempt to authenticate
     try:
         # Instantiate the account object with username and password to sign in.
         account = MyPlexAccount(username, password)
         token = account.authenticationToken
         if token:
-            # Save both the URL and the token
-            update_worker_setting('plex_url', plex_url)
-            update_worker_setting('plex_token', token)
-            return jsonify(success=True, message="Plex account linked successfully!")
+            # Verify the token works with the provided server
+            try:
+                plex = PlexServer(plex_url, token)
+                # If we can access the server, save the credentials
+                success, error = update_worker_settings_batch({
+                    'plex_url': plex_url,
+                    'plex_token': token
+                })
+                if not success:
+                    return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
+                return jsonify(success=True, message="Plex account linked successfully!")
+            except Exception as e:
+                return jsonify(success=False, error=f"Token obtained but cannot access server: {e}"), 503
         else:
             return jsonify(success=False, error="Login failed. Please check your credentials."), 401
     except Exception as e:
-        return jsonify(success=False, error=f"Plex login failed: {e}"), 401
+        return jsonify(success=False, error=f"Plex authentication failed: {e}"), 401
 
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
-    """Logs out of Plex by clearing the stored token."""
-    success, error = update_worker_setting('plex_token', '')
+    """Logs out of Plex by clearing the stored token and URL."""
+    # Also disable multi-server sync if it's enabled, since we need both servers
+    success, error = update_worker_settings_batch({
+        'plex_token': '',
+        'plex_url': '',
+        'enable_multi_server': 'false'
+    })
     if success:
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/update-url', methods=['POST'])
+def plex_update_url():
+    """Updates the Plex server URL without re-authentication."""
+    plex_url = request.json.get('plex_url')
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
+    
+    # Get the current token to verify it still works with the new URL
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(success=False, error=db_error), 500
+    
+    plex_token = settings.get('plex_token', {}).get('setting_value')
+    if not plex_token:
+        return jsonify(success=False, error="No Plex token found. Please link your account first."), 400
+    
+    # Test if the server is reachable
+    try:
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Cannot reach Plex server. (Status: {response.status_code})"), 503
+        
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection to Plex server timed out."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to Plex server."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to reach Plex server: {e}"), 503
+    
+    # Verify the existing token works with the new server URL
+    try:
+        plex = PlexServer(plex_url, plex_token)
+        # If we can access the server, update the URL
+        success, error = update_worker_setting('plex_url', plex_url)
+        if success:
+            return jsonify(success=True, message="Plex server URL updated successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+    except Exception as e:
+        return jsonify(success=False, error=f"Token verification failed with new URL: {e}"), 503
+
+@app.route('/api/plex/test-connection', methods=['POST'])
+def plex_test_connection():
+    """Tests connectivity to a Plex server without authenticating."""
+    plex_url = request.json.get('plex_url')
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    try:
+        # Try to connect to the server without authentication to test if it's reachable
+        # Plex returns XML by default
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        
+        if response.status_code == 200:
+            # Parse and validate the response
+            success, machine_id, error = parse_plex_identity_response(response)
+            if success:
+                return jsonify(success=True, message=f"Successfully connected to Plex server!")
+            else:
+                return jsonify(success=False, error=error), 503
+        else:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out. Please check the URL and try again."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+
+@app.route('/api/jellyfin/login', methods=['POST'])
+def jellyfin_login():
+    """Links a Jellyfin server by saving the host URL and API key."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+
+    if not jellyfin_host or not jellyfin_api_key:
+        return jsonify(success=False, error="Server URL and API key are required."), 400
+
+    # Normalize the URL
+    jellyfin_host = normalize_server_url(jellyfin_host)
+
+    # Validate the connection by attempting to fetch libraries
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key. Please check your Jellyfin API key."), 401
+        elif response.status_code != 200:
+            return jsonify(success=False, error=f"Jellyfin server returned error status: {response.status_code}"), 503
+        
+        # Connection successful, save the credentials
+        success, error = update_worker_settings_batch({
+            'jellyfin_host': jellyfin_host,
+            'jellyfin_api_key': jellyfin_api_key
+        })
+        if not success:
+            return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
+        return jsonify(success=True, message="Jellyfin server linked successfully!")
+        
+    except requests.exceptions.RequestException as e:
+        return jsonify(success=False, error=f"Failed to connect to Jellyfin: {e}"), 503
+
+@app.route('/api/jellyfin/logout', methods=['POST'])
+def jellyfin_logout():
+    """Unlinks the Jellyfin server by clearing the stored credentials."""
+    # Also disable multi-server sync if it's enabled, since we need both servers
+    success, error = update_worker_settings_batch({
+        'jellyfin_api_key': '',
+        'jellyfin_host': '',
+        'enable_multi_server': 'false'
+    })
+    if success:
+        return jsonify(success=True, message="Jellyfin server unlinked.")
+    else:
+        return jsonify(success=False, error=error), 500
+
+@app.route('/api/jellyfin/update-config', methods=['POST'])
+def jellyfin_update_config():
+    """Updates the Jellyfin server configuration (URL and/or API key)."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')  # Optional - if not provided, keeps existing
+    
+    if not jellyfin_host:
+        return jsonify(success=False, error="Server URL is required."), 400
+    
+    # Normalize the URL
+    jellyfin_host = normalize_server_url(jellyfin_host)
+    
+    # If no API key provided, use the existing one
+    if not jellyfin_api_key:
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return jsonify(success=False, error=db_error), 500
+        jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+        if not jellyfin_api_key:
+            return jsonify(success=False, error="No existing API key found. Please provide an API key."), 400
+    
+    # Test if the server is reachable with the credentials
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key."), 401
+        elif response.status_code != 200:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+        
+        # Connection successful, update both settings
+        success, error = update_worker_settings_batch({
+            'jellyfin_host': jellyfin_host,
+            'jellyfin_api_key': jellyfin_api_key
+        })
+        
+        if success:
+            return jsonify(success=True, message="Jellyfin server configuration updated successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+            
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+
+@app.route('/api/jellyfin/test-connection', methods=['POST'])
+def jellyfin_test_connection():
+    """Tests connectivity to a Jellyfin server without full authentication."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+    
+    if not jellyfin_host:
+        return jsonify(success=False, error="Jellyfin Server URL is required."), 400
+    
+    # If no API key provided, try to use the existing one from settings
+    if not jellyfin_api_key:
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return jsonify(success=False, error=db_error), 500
+        jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+        if not jellyfin_api_key:
+            return jsonify(success=False, error="API key is required for testing connection."), 400
+    
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key."), 401
+        elif response.status_code == 200:
+            try:
+                data = response.json()
+                server_name = data.get('ServerName', 'Unknown')
+                return jsonify(success=True, message=f"Successfully connected to Jellyfin server: {server_name}")
+            except:
+                return jsonify(success=True, message="Successfully connected to Jellyfin server!")
+        else:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out. Please check the URL and try again."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+
+@app.route('/api/jellyfin/libraries', methods=['GET'])
+def jellyfin_get_libraries():
+    """Fetches a list of libraries from the configured Jellyfin server, merged with saved settings."""
+    settings, db_error = get_worker_settings()
+    if db_error: return jsonify(libraries=[], error=db_error), 500
+
+    jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+    jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+
+    if not jellyfin_api_key:
+        return jsonify(libraries=[], error="Link your Jellyfin server to see libraries."), 400
+    
+    if not jellyfin_host:
+        return jsonify(libraries=[], error="Jellyfin server URL is not configured."), 400
+
+    try:
+        # First, get the user ID (we'll use the first user for simplicity)
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        users_response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        users_response.raise_for_status()
+        users = users_response.json()
+        
+        if not users:
+            return jsonify(libraries=[], error="No users found on Jellyfin server."), 400
+        
+        user_id = users[0]['Id']
+        
+        # Fetch libraries (called "Views" in Jellyfin API)
+        views_response = requests.get(
+            f"{jellyfin_host}/Users/{user_id}/Views",
+            headers=headers,
+            timeout=10
+        )
+        views_response.raise_for_status()
+        jellyfin_libraries = views_response.json().get('Items', [])
+        
+        db = get_db()
+        
+        # 1. Fetch saved types from the database into a dictionary
+        saved_types = {}
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'jellyfin'")
+            for row in cur.fetchall():
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+
+        # 2. Fetch libraries from Jellyfin and merge with saved settings
+        result_libraries = []
+        
+        for library in jellyfin_libraries:
+            lib_name = library.get('Name')
+            lib_type = library.get('CollectionType', 'other')
+            lib_id = library.get('Id')
+            
+            # Map Jellyfin types to our types
+            type_mapping = {
+                'movies': 'movie',
+                'tvshows': 'show',
+                'music': 'music',
+                'books': 'other',
+                'photos': 'other',
+                'homevideos': 'other'
+            }
+            mapped_type = type_mapping.get(lib_type, 'other')
+            
+            saved_setting = saved_types.get(lib_name)
+            if saved_setting:
+                result_libraries.append({
+                    'title': lib_name,
+                    'type': saved_setting['type'],
+                    'is_hidden': saved_setting['is_hidden'],
+                    'jellyfin_type': lib_type,
+                    'id': lib_id
+                })
+            else:
+                # If not in our DB, use Jellyfin's info and default to not hidden
+                result_libraries.append({
+                    'title': lib_name,
+                    'type': mapped_type,
+                    'is_hidden': False,
+                    'jellyfin_type': lib_type,
+                    'id': lib_id
+                })
+
+        return jsonify(libraries=result_libraries)
+    except Exception as e:
+        return jsonify(libraries=[], error=f"Cannot connect to Jellyfin server. Please check your server URL and ensure Jellyfin is running. Error: {e}"), 503
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
@@ -1759,8 +2300,11 @@ def plex_get_libraries():
     plex_url = settings.get('plex_url', {}).get('setting_value')
     plex_token = settings.get('plex_token', {}).get('setting_value')
 
-    if not all([plex_url, plex_token]):
-        return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
+    if not plex_token:
+        return jsonify(libraries=[], error="Link your Plex account to see libraries."), 400
+    
+    if not plex_url:
+        return jsonify(libraries=[], error="Plex server URL is not configured."), 400
 
     try:
         plex = PlexServer(plex_url, plex_token)
@@ -1799,7 +2343,7 @@ def plex_get_libraries():
 
         return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Plex or process libraries: {e}"), 500
+        return jsonify(libraries=[], error=f"Cannot connect to Plex server. Please check your server URL and ensure Plex is running. Error: {e}"), 503
 
 @app.route('/api/internal/folders', methods=['GET'])
 def api_internal_folders():
@@ -2573,16 +3117,208 @@ def run_plex_scan(force_scan=False):
         scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
         scanner_lock.release()
 
+def run_jellyfin_scan(force_scan=False):
+    """
+    The core logic for scanning Jellyfin libraries. This function is designed to be
+    called ONLY by the background scanner thread.
+    It uses a lock to prevent concurrent scans.
+    """
+    if not scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Scan trigger ignored: A scan is already in progress.")
+        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+
+    try:
+        with app.app_context():
+            # Update progress state at the start
+            scan_progress_state.update({"is_running": True, "current_step": "Initializing Jellyfin scan...", "total_steps": 0, "progress": 0, "scan_source": "jellyfin", "scan_type": "media"})
+            
+            settings, db_error = get_worker_settings()
+
+            if db_error:
+                scan_progress_state.update({"current_step": "Error: Database not available."})
+                return {"success": False, "message": "Database not available."}
+
+            jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+            jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+
+            if not all([jellyfin_host, jellyfin_api_key]):
+                scan_progress_state.update({"current_step": "Error: Jellyfin not fully configured."})
+                return {"success": False, "message": "Jellyfin integration is not fully configured."}
+
+            conn = get_db()
+
+            try:
+                scan_progress_state.update({"current_step": "Connecting to Jellyfin server..."})
+                headers = {'X-Emby-Token': jellyfin_api_key}
+                
+                # Get the first user
+                users_response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+                users_response.raise_for_status()
+                users = users_response.json()
+                
+                if not users:
+                    scan_progress_state.update({"current_step": "Error: No users found on Jellyfin server."})
+                    return {"success": False, "message": "No users found on Jellyfin server."}
+                
+                user_id = users[0]['Id']
+            except requests.exceptions.RequestException as e:
+                scan_progress_state.update({"current_step": f"Error: Could not connect to Jellyfin."})
+                return {"success": False, "message": f"Could not connect to Jellyfin server: {e}"}
+
+            # Get list of libraries to scan from database
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute("""
+                    SELECT source_name, media_type 
+                    FROM media_source_types 
+                    WHERE scanner_type = 'jellyfin' AND media_type != 'none' AND NOT is_hidden
+                """)
+                library_settings = cur.fetchall()
+                
+                if not library_settings:
+                    scan_progress_state.update({"current_step": "Error: No Jellyfin libraries configured for scanning."})
+                    return {"success": False, "message": "No Jellyfin libraries configured for scanning."}
+
+                # Only check existing jobs/history if it's NOT a forced scan
+                if force_scan:
+                    existing_jobs = set()
+                    encoded_history = set()
+                else:
+                    cur.execute("SELECT filepath FROM jobs")
+                    existing_jobs = {row['filepath'] for row in cur.fetchall()}
+                    cur.execute("SELECT filename FROM encoded_files")
+                    encoded_history = {row['filename'] for row in cur.fetchall()}
+                
+                # Build list of codecs to skip based on settings
+                skip_codecs = []
+                if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.extend(['hevc', 'h265'])
+                if settings.get('allow_av1', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.append('av1')
+                if settings.get('allow_vp9', {}).get('setting_value', 'false') != 'true':
+                    skip_codecs.append('vp9')
+
+                new_files_found = 0
+                library_names = [lib['source_name'] for lib in library_settings]
+                print(f"[{datetime.now()}] Jellyfin Scanner: Starting scan of libraries: {', '.join(library_names)}")
+                
+                # Get all Jellyfin libraries
+                views_response = requests.get(f"{jellyfin_host}/Users/{user_id}/Views", headers=headers, timeout=10)
+                views_response.raise_for_status()
+                all_jellyfin_libraries = {lib['Name']: lib['Id'] for lib in views_response.json().get('Items', [])}
+                
+                # Map media types to Jellyfin item types
+                media_type_mapping = {
+                    'movie': 'Movie',
+                    'show': 'Episode',
+                    'music': 'Audio',
+                    'other': 'Movie,Episode'  # Fallback for unspecified types
+                }
+                
+                # First pass: count total items for progress tracking
+                total_items = 0
+                for lib_setting in library_settings:
+                    lib_name = lib_setting['source_name']
+                    if lib_name not in all_jellyfin_libraries:
+                        print(f"[{datetime.now()}] Warning: Library '{lib_name}' not found in Jellyfin")
+                        continue
+                    
+                    library_id = all_jellyfin_libraries[lib_name]
+                    media_type = lib_setting.get('media_type', 'other')
+                    item_types = media_type_mapping.get(media_type, 'Movie,Episode')
+                    
+                    try:
+                        count_response = requests.get(
+                            f"{jellyfin_host}/Users/{user_id}/Items",
+                            headers=headers,
+                            params={'ParentId': library_id, 'Recursive': 'true', 'IncludeItemTypes': item_types},
+                            timeout=10
+                        )
+                        count_response.raise_for_status()
+                        total_items += count_response.json().get('TotalRecordCount', 0)
+                    except requests.exceptions.RequestException:
+                        pass
+                
+                scan_progress_state.update({"total_steps": total_items})
+                items_processed = 0
+                
+                for lib_setting in library_settings:
+                    lib_name = lib_setting['source_name']
+                    if lib_name not in all_jellyfin_libraries:
+                        continue
+                        
+                    library_id = all_jellyfin_libraries[lib_name]
+                    media_type = lib_setting.get('media_type', 'other')
+                    item_types = media_type_mapping.get(media_type, 'Movie,Episode')
+                    
+                    print(f"[{datetime.now()}] Jellyfin Scanner: Scanning '{lib_name}'...")
+                    scan_progress_state.update({"current_step": f"Scanning library: {lib_name}"})
+                    
+                    try:
+                        # Get all items from this library
+                        items_response = requests.get(
+                            f"{jellyfin_host}/Users/{user_id}/Items",
+                            headers=headers,
+                            params={
+                                'ParentId': library_id,
+                                'Recursive': 'true',
+                                'IncludeItemTypes': item_types,
+                                'Fields': 'Path,MediaStreams'
+                            },
+                            timeout=30
+                        )
+                        items_response.raise_for_status()
+                        items = items_response.json().get('Items', [])
+                        
+                        for item in items:
+                            items_processed += 1
+                            filepath = item.get('Path')
+                            
+                            if not filepath:
+                                continue
+                            
+                            # Get the video codec from MediaStreams
+                            codec = None
+                            media_streams = item.get('MediaStreams', [])
+                            for stream in media_streams:
+                                if stream.get('Type') == 'Video':
+                                    codec = stream.get('Codec', '').lower()
+                                    break
+                            
+                            scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
+                            
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            if codec and codec not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
+                                print(f"    -> Adding file to queue (codec: {codec}).")
+                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                if cur.rowcount > 0:
+                                    new_files_found += 1
+                    
+                    except requests.exceptions.RequestException as e:
+                        print(f"[{datetime.now()}] Error scanning Jellyfin library '{lib_name}': {e}")
+                
+                # Commit all the inserts at the end of the scan
+                conn.commit()
+                message = f"Scan complete. Added {new_files_found} new transcode jobs." if new_files_found > 0 else "Scan complete. No new files to add."
+                scan_progress_state.update({"current_step": message})
+                return {"success": True, "message": message}
+    finally:
+        # Clear progress state after a brief delay to let UI catch the final message
+        time.sleep(2)
+        scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
+        scanner_lock.release()
+
 @app.route('/api/scan/trigger', methods=['POST'])
 def api_trigger_scan():
-    """API endpoint to manually trigger a Plex scan."""
+    """
+    API endpoint to manually trigger a media server scan based on primary_media_server setting.
+    The scanner thread will use force_scan=True for manual scans to ensure a complete rescan.
+    """
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    force = request.json.get('force', False) if request.is_json else False
-    print(f"[{datetime.now()}] Manual scan requested via API (Force: {force}).")
+    print(f"[{datetime.now()}] Manual scan requested via API.")
     
-    # Trigger the background thread to run the scan with the correct force flag
+    # Trigger the background thread to run the scan
     scan_now_event.set() 
     return jsonify({"success": True, "message": "Scan has been triggered. Check logs for progress."})
 
@@ -2951,10 +3687,13 @@ def request_job():
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
     
-    print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
-    
     # Check if the queue is paused
     settings, _ = get_worker_settings()
+    
+    # Log job request if not hidden
+    if settings.get('hide_job_requests', {}).get('setting_value') != 'true':
+        print(f"[{datetime.now()}] Job request received from worker: {worker_hostname}")
+    
     if settings.get('pause_job_distribution', {}).get('setting_value') == 'true':
         print(f"[{datetime.now()}] Job request from {worker_hostname} denied: Queue is paused.")
         return jsonify({}) # Return empty response as if no jobs are available
@@ -3110,18 +3849,36 @@ def update_job(job_id):
                 "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, %s, 'completed')",
                 (job_id, job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
             )
-            # Trigger a Plex library scan
+            
+            # Trigger media server library updates (Plex and/or Jellyfin)
             try:
                 settings, _ = get_worker_settings()
+                
+                # Trigger Plex library scan if configured
                 plex_url = settings.get('plex_url', {}).get('setting_value')
                 plex_token = settings.get('plex_token', {}).get('setting_value')
                 if plex_url and plex_token:
                     plex = PlexServer(plex_url, plex_token)
-                    # This is a simple approach; a more robust one would map file paths to libraries
-                    print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
+                    # Log Plex update if not hidden
+                    if settings.get('hide_plex_updates', {}).get('setting_value') != 'true':
+                        print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
                     plex.library.update()
+                
+                # Trigger Jellyfin library scan if configured
+                jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+                jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+                if jellyfin_host and jellyfin_api_key:
+                    try:
+                        headers = {'X-Emby-Token': jellyfin_api_key}
+                        # Log Jellyfin update if not hidden
+                        if settings.get('hide_jellyfin_updates', {}).get('setting_value') != 'true':
+                            print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
+                        response = requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
+                        response.raise_for_status()
+                    except requests.exceptions.RequestException as e:
+                        print(f"⚠️ Could not trigger Jellyfin scan: {e}")
             except Exception as e:
-                print(f"⚠️ Could not trigger Plex scan: {e}")
+                print(f"⚠️ Could not trigger media server scan: {e}")
 
             # Trigger Sonarr/Radarr rescan and auto-rename if enabled
             try:
@@ -3154,10 +3911,10 @@ def update_job(job_id):
 # --- Background Threads ---
 
 def plex_scanner_thread():
-    """Scans Plex libraries and adds non-HEVC files to the jobs table."""
+    """Main scanner thread that handles media server scans based on primary_media_server setting."""
     # This thread now waits for the db_ready_event before starting its loop.
     db_ready_event.wait()
-    print("Plex Scanner thread is now active.")
+    print("Media Scanner thread is now active.")
 
     while True:
         print(f"[{datetime.now()}] Automatic scanner is waiting for the next cycle.")
@@ -3181,16 +3938,32 @@ def plex_scanner_thread():
             print(f"[{datetime.now()}] Manual scan trigger received.")
             with app.app_context():
                 settings, _ = get_worker_settings()
-                scanner_type = settings.get('media_scanner_type', {}).get('setting_value', 'plex')
-                if scanner_type == 'internal':
+                primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
+                
+                # Determine which scanner to use based on primary_media_server
+                if primary_server == 'jellyfin':
+                    run_jellyfin_scan(force_scan=True)
+                elif primary_server == 'internal':
                     run_internal_scan(force_scan=True)
-                else:
+                else:  # default to plex
                     run_plex_scan(force_scan=True)
+                    
             scan_now_event.clear() # Reset the event for the next time
         elif delay > 0:
-            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic Plex scan.")
-            # This will need to be updated to also check scanner type
-            run_plex_scan(force_scan=False)
+            print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic scan.")
+            with app.app_context():
+                settings, _ = get_worker_settings()
+                primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
+                
+                # Trigger automatic scan based on primary server
+                if primary_server == 'jellyfin':
+                    run_jellyfin_scan(force_scan=False)
+                elif primary_server == 'internal':
+                    run_internal_scan(force_scan=False)
+                else:  # default to plex
+                    run_plex_scan(force_scan=False)
+
+
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
