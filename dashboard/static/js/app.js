@@ -1059,7 +1059,7 @@ function renderHistoryTable() {
     document.querySelectorAll('th[data-sort]').forEach(th => {
         const sortIcon = th.querySelector('.mdi');
         if (th.getAttribute('data-sort') === historySortColumn) {
-            sortIcon.className = `mdi mdi-sort-${historySortDirection === 'asc' ? 'ascending' : 'descending'}`;
+            sortIcon.className = `mdi mdi-arrow-${historySortDirection === 'asc' ? 'up' : 'down'}`;
         } else {
             sortIcon.className = 'mdi mdi-sort';
         }
