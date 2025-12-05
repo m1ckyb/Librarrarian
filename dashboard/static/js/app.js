@@ -2581,40 +2581,46 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 2000);
     }
 
-    manualScanBtn.addEventListener('click', async () => {
-        manualScanBtn.disabled = true;
-        manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
-        scanStatusDiv.innerHTML = '';
-        const isForced = forceRescanCheckbox.checked;
+    if (manualScanBtn) {
+        manualScanBtn.addEventListener('click', async () => {
+            manualScanBtn.disabled = true;
+            manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+            if (scanStatusDiv) scanStatusDiv.innerHTML = '';
+            const isForced = forceRescanCheckbox ? forceRescanCheckbox.checked : false;
 
-        try {
-            const response = await fetch('/api/scan/trigger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
-            const data = await response.json();
-            
-            if (data.success) {
-                // Start polling for progress
-                startMediaScanPolling();
-            } else {
-                const alertClass = 'alert-warning';
-                scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+            try {
+                const response = await fetch('/api/scan/trigger', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify({ force: isForced }) });
+                const data = await response.json();
+                
+                if (data.success) {
+                    // Start polling for progress
+                    startMediaScanPolling();
+                } else {
+                    const alertClass = 'alert-warning';
+                    if (scanStatusDiv) scanStatusDiv.innerHTML = `<div class="alert ${alertClass} alert-dismissible fade show" role="alert">${data.message}<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
+                    manualScanBtn.disabled = false;
+                    manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+                }
+            } catch (error) {
+                if (scanStatusDiv) scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
                 manualScanBtn.disabled = false;
                 manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
             }
-        } catch (error) {
-            scanStatusDiv.innerHTML = `<div class="alert alert-danger alert-dismissible fade show" role="alert">Error communicating with the server.<button type="button" class="btn-close" data-bs-dismiss="alert"></button></div>`;
-            manualScanBtn.disabled = false;
-            manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
-        }
-    });
-    
-    // On page load, check if a media scan is already running
-    fetch('/api/scan/progress').then(r => r.json()).then(data => {
-        if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-            manualScanBtn.disabled = true;
-            manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
-            startMediaScanPolling();
-        }
-    });
+        });
+        
+        // On page load, check if a media scan is already running
+        fetch('/api/scan/progress').then(r => r.json()).then(data => {
+            if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                if (manualScanBtn) {
+                    manualScanBtn.disabled = true;
+                    manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+                }
+                startMediaScanPolling();
+            }
+        }).catch(error => {
+            console.error('Error checking scan progress on page load:', error);
+        });
+    }
 
     // --- Sonarr Options Logic ---
     const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
@@ -2667,29 +2673,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const releaseAllCleanupBtn = document.getElementById('release-all-cleanup-btn');
     const releaseAllRenameBtn = document.getElementById('release-all-rename-btn');
 
-    releaseSelectedBtn.addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
-        if (selectedIds.length === 0) {
-            alert('No jobs selected. Select jobs awaiting approval to release them.');
-            return;
-        }
-        if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
-            // Release all job types when selected
-            await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
-        }
-    });
+    if (releaseSelectedBtn) {
+        releaseSelectedBtn.addEventListener('click', async () => {
+            const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
+            if (selectedIds.length === 0) {
+                alert('No jobs selected. Select jobs awaiting approval to release them.');
+                return;
+            }
+            if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
+                // Release all job types when selected
+                await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
+            }
+        });
+    }
 
-    releaseAllCleanupBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
-            await releaseJobs({ release_all: true, job_type: 'cleanup' });
-        }
-    });
+    if (releaseAllCleanupBtn) {
+        releaseAllCleanupBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
+                await releaseJobs({ release_all: true, job_type: 'cleanup' });
+            }
+        });
+    }
 
-    releaseAllRenameBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
-            await releaseJobs({ release_all: true, job_type: 'Rename Job' });
-        }
-    });
+    if (releaseAllRenameBtn) {
+        releaseAllRenameBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
+                await releaseJobs({ release_all: true, job_type: 'Rename Job' });
+            }
+        });
+    }
 
     async function releaseJobs(payload) {
         try {
@@ -2708,30 +2720,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Clear All Jobs Logic ---
     const clearJobsBtn = document.getElementById('clear-jobs-btn');
-    clearJobsBtn.addEventListener('click', async () => {
-        const forceClearCheckbox = document.getElementById('force-clear-checkbox');
-        const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
-        
-        const confirmMessage = force 
-            ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
-            : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
-        
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-        try {
-            const response = await fetch('/api/jobs/clear', { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ force: force })
-            });
-            if (response.ok) {
-                updateJobQueue(1); // Refresh the queue to show it's empty
+    if (clearJobsBtn) {
+        clearJobsBtn.addEventListener('click', async () => {
+            const forceClearCheckbox = document.getElementById('force-clear-checkbox');
+            const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
+            
+            const confirmMessage = force 
+                ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
+                : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
+            
+            if (!confirm(confirmMessage)) {
+                return;
             }
-        } catch (error) {
-            alert('An error occurred while trying to clear the job queue.');
-        }
-    });
+            try {
+                const response = await fetch('/api/jobs/clear', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: force })
+                });
+                if (response.ok) {
+                    updateJobQueue(1); // Refresh the queue to show it's empty
+                }
+            } catch (error) {
+                alert('An error occurred while trying to clear the job queue.');
+            }
+        });
+    }
 
     // --- Delete Individual Job Logic ---
     window.deleteJob = async function(jobId) {
@@ -2769,16 +2783,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Pause Queue Button Logic ---
     const pauseQueueBtn = document.getElementById('pause-queue-btn');
-    pauseQueueBtn.addEventListener('click', async () => {
-        try {
-            const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
-            if (response.ok) {
-                mainUpdateLoop(); // Immediately refresh the UI to show the new state
+    if (pauseQueueBtn) {
+        pauseQueueBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
+                if (response.ok) {
+                    mainUpdateLoop(); // Immediately refresh the UI to show the new state
+                }
+            } catch (error) {
+                alert('An error occurred while trying to toggle the queue state.');
             }
-        } catch (error) {
-            alert('An error occurred while trying to toggle the queue state.');
-        }
-    });
+        });
+    }
 
     // --- *Arr Connection Test Logic ---
     window.testArrConnection = async function(arrType) {
