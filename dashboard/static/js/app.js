@@ -2698,7 +2698,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (releaseAllRenameBtn) {
         releaseAllRenameBtn.addEventListener('click', async () => {
             if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
-                await releaseJobs({ release_all: true, job_type: 'Rename Job'] });
+                await releaseJobs({ release_all: true, job_type: 'Rename Job' });
             }
         });
     }
