@@ -1065,16 +1065,24 @@ function renderHistoryTable() {
         }
     });
 
-    // Determine items per page
-    const effectiveItemsPerPage = perPageValue === 'all' ? Math.max(1, filteredData.length) : parseInt(perPageValue);
+    // Determine items per page and paginate data
+    let paginatedData;
+    let totalPages;
     
-    // Paginate data
-    const totalPages = Math.ceil(filteredData.length / effectiveItemsPerPage);
-    if (historyCurrentPage > totalPages) {
-        historyCurrentPage = totalPages || 1;
+    if (perPageValue === 'all' || filteredData.length === 0) {
+        // Show all items or handle empty data
+        paginatedData = filteredData;
+        totalPages = filteredData.length > 0 ? 1 : 0;
+        historyCurrentPage = 1;
+    } else {
+        const effectiveItemsPerPage = parseInt(perPageValue);
+        totalPages = Math.ceil(filteredData.length / effectiveItemsPerPage);
+        if (historyCurrentPage > totalPages) {
+            historyCurrentPage = totalPages || 1;
+        }
+        const startIndex = (historyCurrentPage - 1) * effectiveItemsPerPage;
+        paginatedData = filteredData.slice(startIndex, startIndex + effectiveItemsPerPage);
     }
-    const startIndex = (historyCurrentPage - 1) * effectiveItemsPerPage;
-    const paginatedData = filteredData.slice(startIndex, startIndex + effectiveItemsPerPage);
 
     // Render table rows
     if (paginatedData.length > 0) {
