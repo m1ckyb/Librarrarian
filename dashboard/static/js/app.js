@@ -2643,63 +2643,63 @@ document.addEventListener('DOMContentLoaded', () => {
         let mediaScanStartTime = null;
 
         function startMediaScanPolling() {
-        if (mediaScanInterval) clearInterval(mediaScanInterval);
-        
-        mediaScanStartTime = new Date();
-        if (mediaScanContainer) mediaScanContainer.style.display = 'block';
-        if (mediaScanProgress) mediaScanProgress.style.display = 'block';
-        if (mediaScanProgressBar) {
-            mediaScanProgressBar.style.width = '0%';
-            mediaScanProgressBar.textContent = '0%';
-        }
-        if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
-        
-        mediaScanInterval = setInterval(async () => {
-            try {
-                const response = await fetch('/api/scan/progress');
-                const data = await response.json();
-                
-                const now = new Date();
-                const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
-                if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
-                
-                if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
-                    if (mediaScanProgressBar) {
-                        mediaScanProgressBar.style.width = `${progressPercent}%`;
-                        mediaScanProgressBar.textContent = `${progressPercent}%`;
-                    }
-                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
-                } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
-                    // Scan finished
-                    clearInterval(mediaScanInterval);
-                    mediaScanInterval = null;
-                    
-                    if (mediaScanProgressBar) {
-                        mediaScanProgressBar.style.width = '100%';
-                        mediaScanProgressBar.textContent = '100%';
-                    }
-                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
-                    
-                    // Re-enable the button
-                    if (manualScanBtn) {
-                        manualScanBtn.disabled = false;
-                        manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
-                    }
-                    
-                    // Refresh the job queue
-                    updateJobQueue();
-                    
-                    // Hide progress after a delay
-                    setTimeout(() => {
-                        if (mediaScanContainer) mediaScanContainer.style.display = 'none';
-                    }, 3000);
-                }
-            } catch (error) {
-                console.error('Error polling for media scan progress:', error);
+            if (mediaScanInterval) clearInterval(mediaScanInterval);
+            
+            mediaScanStartTime = new Date();
+            if (mediaScanContainer) mediaScanContainer.style.display = 'block';
+            if (mediaScanProgress) mediaScanProgress.style.display = 'block';
+            if (mediaScanProgressBar) {
+                mediaScanProgressBar.style.width = '0%';
+                mediaScanProgressBar.textContent = '0%';
             }
-        }, 2000);
-    }
+            if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
+            
+            mediaScanInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/scan/progress');
+                    const data = await response.json();
+                    
+                    const now = new Date();
+                    const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
+                    if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
+                    
+                    if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                        const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+                        if (mediaScanProgressBar) {
+                            mediaScanProgressBar.style.width = `${progressPercent}%`;
+                            mediaScanProgressBar.textContent = `${progressPercent}%`;
+                        }
+                        if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
+                    } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                        // Scan finished
+                        clearInterval(mediaScanInterval);
+                        mediaScanInterval = null;
+                        
+                        if (mediaScanProgressBar) {
+                            mediaScanProgressBar.style.width = '100%';
+                            mediaScanProgressBar.textContent = '100%';
+                        }
+                        if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
+                        
+                        // Re-enable the button
+                        if (manualScanBtn) {
+                            manualScanBtn.disabled = false;
+                            manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+                        }
+                        
+                        // Refresh the job queue
+                        updateJobQueue();
+                        
+                        // Hide progress after a delay
+                        setTimeout(() => {
+                            if (mediaScanContainer) mediaScanContainer.style.display = 'none';
+                        }, 3000);
+                    }
+                } catch (error) {
+                    console.error('Error polling for media scan progress:', error);
+                }
+            }, 2000);
+        }
 
     manualScanBtn.addEventListener('click', async () => {
         manualScanBtn.disabled = true;
