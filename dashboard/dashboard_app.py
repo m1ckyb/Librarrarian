@@ -2420,8 +2420,9 @@ scan_progress_state = {
     "is_running": False, "current_step": "", "total_steps": 0, "progress": 0, "scan_source": "", "scan_type": ""
 }
 
-# --- Global flag for force scan ---
+# --- Global flag for force scan with lock protection ---
 force_scan_flag = False
+force_scan_flag_lock = threading.Lock()
 
 def arr_background_thread():
     """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
@@ -3338,11 +3339,14 @@ def api_trigger_scan():
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    # Read the force parameter from the request
+    # Read the force parameter from the request and set it atomically
     data = request.get_json() or {}
-    force_scan_flag = data.get('force', False)
+    force_value = data.get('force', False)
     
-    print(f"[{datetime.now()}] Manual scan requested via API (force={force_scan_flag}).")
+    with force_scan_flag_lock:
+        force_scan_flag = force_value
+    
+    print(f"[{datetime.now()}] Manual scan requested via API (force={force_value}).")
     
     # Trigger the background thread to run the scan
     scan_now_event.set() 
@@ -3963,21 +3967,26 @@ def plex_scanner_thread():
         if scan_triggered:
             print(f"[{datetime.now()}] Manual scan trigger received.")
             global force_scan_flag
+            
+            # Read the force_scan_flag atomically and reset it
+            with force_scan_flag_lock:
+                use_force_scan = force_scan_flag
+                force_scan_flag = False  # Reset immediately after reading
+            
             with app.app_context():
                 settings, _ = get_worker_settings()
                 primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
                 
                 # Determine which scanner to use based on primary_media_server
-                # Use the force_scan_flag set by the API endpoint
+                # Use the force_scan value we read from the flag
                 if primary_server == 'jellyfin':
-                    run_jellyfin_scan(force_scan=force_scan_flag)
+                    run_jellyfin_scan(force_scan=use_force_scan)
                 elif primary_server == 'internal':
-                    run_internal_scan(force_scan=force_scan_flag)
+                    run_internal_scan(force_scan=use_force_scan)
                 else:  # default to plex
-                    run_plex_scan(force_scan=force_scan_flag)
+                    run_plex_scan(force_scan=use_force_scan)
                     
             scan_now_event.clear() # Reset the event for the next time
-            force_scan_flag = False  # Reset the flag after use
         elif delay > 0:
             print(f"[{datetime.now()}] Rescan delay finished. Triggering automatic scan.")
             with app.app_context():
