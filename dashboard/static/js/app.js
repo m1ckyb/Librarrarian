@@ -1525,11 +1525,51 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Plex Authentication Logic ---
     const plexLoginBtn = document.getElementById('plex-login-btn');
-    const plexLogoutBtn = document.getElementById('plex-logout-btn');
+    const plexModifyBtn = document.getElementById('plex-modify-btn');
     const plexSignInBtn = document.getElementById('plex-signin-btn');
+    const plexUpdateBtn = document.getElementById('plex-update-btn');
+    const plexModalUnlinkBtn = document.getElementById('plex-modal-unlink-btn');
+
+    // Function to set Plex modal to link mode
+    function setPlexModalLinkMode() {
+        document.getElementById('plexLoginModalLabel').textContent = 'Link Plex Account';
+        document.getElementById('plex-modal-description').textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
+        document.getElementById('plex-username-group').style.display = 'block';
+        document.getElementById('plex-password-group').style.display = 'block';
+        document.getElementById('plex-signin-btn').style.display = 'inline-block';
+        document.getElementById('plex-update-btn').style.display = 'none';
+        document.getElementById('plex-modal-unlink-btn').style.display = 'none';
+        document.getElementById('plex-modal-url').value = '';
+        document.getElementById('plex-username').value = '';
+        document.getElementById('plex-password').value = '';
+        document.getElementById('plex-login-status').innerHTML = '';
+    }
+
+    // Function to set Plex modal to modify mode
+    function setPlexModalModifyMode() {
+        document.getElementById('plexLoginModalLabel').textContent = 'Modify Plex Configuration';
+        document.getElementById('plex-modal-description').textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
+        document.getElementById('plex-username-group').style.display = 'none';
+        document.getElementById('plex-password-group').style.display = 'none';
+        document.getElementById('plex-signin-btn').style.display = 'none';
+        document.getElementById('plex-update-btn').style.display = 'inline-block';
+        document.getElementById('plex-modal-unlink-btn').style.display = 'inline-block';
+        // Pre-fill with current URL
+        document.getElementById('plex-modal-url').value = window.Librarrarian.settings.plexUrl || '';
+        document.getElementById('plex-login-status').innerHTML = '';
+    }
 
     if (plexLoginBtn) {
         plexLoginBtn.addEventListener('click', () => {
+            setPlexModalLinkMode();
+            const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
+            loginModal.show();
+        });
+    }
+
+    if (plexModifyBtn) {
+        plexModifyBtn.addEventListener('click', () => {
+            setPlexModalModifyMode();
             const loginModal = new bootstrap.Modal(document.getElementById('plexLoginModal'));
             loginModal.show();
         });
@@ -1539,7 +1579,7 @@ document.addEventListener('DOMContentLoaded', () => {
         plexSignInBtn.addEventListener('click', async () => {
             const usernameInput = document.getElementById('plex-username');
             const passwordInput = document.getElementById('plex-password');
-            const urlInput = document.getElementById('plex-modal-url'); // Get the URL from modal
+            const urlInput = document.getElementById('plex-modal-url');
             const statusDiv = document.getElementById('plex-login-status');
             statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Signing in...`;
 
@@ -1549,27 +1589,87 @@ document.addEventListener('DOMContentLoaded', () => {
                 body: JSON.stringify({ 
                     username: usernameInput.value, 
                     password: passwordInput.value,
-                    plex_url: urlInput.value // Send the URL along with credentials
+                    plex_url: urlInput.value
                 })
             });
             const data = await response.json();
             if (data.success) {
                 statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                // Auto-dismiss modal after 5 seconds and redirect
                 setTimeout(() => {
                     const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
                     if (loginModal) loginModal.hide();
-                    window.location.href = '/#options-tab-pane';
-                }, 5000);
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
+                }, 2000);
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
         });
     }
 
-    if (plexLogoutBtn) {
-        plexLogoutBtn.addEventListener('click', async () => {
-            if (confirm('Are you sure you want to unlink your Plex account?')) {
+    if (plexUpdateBtn) {
+        plexUpdateBtn.addEventListener('click', async () => {
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+            
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL.</div>`;
+                return;
+            }
+            
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Updating URL...`;
+
+            const response = await fetch('/api/plex/update-url', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plex_url: urlInput.value })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            }
+        });
+    }
+
+    const plexTestConnectionBtn = document.getElementById('plex-test-connection-btn');
+    if (plexTestConnectionBtn) {
+        plexTestConnectionBtn.addEventListener('click', async () => {
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+            
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL first.</div>`;
+                return;
+            }
+            
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing connection...`;
+
+            const response = await fetch('/api/plex/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ plex_url: urlInput.value })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            }
+        });
+    }
+
+    if (plexModalUnlinkBtn) {
+        plexModalUnlinkBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to unlink your Plex account? This will remove both the authentication token and server URL.')) {
+                const statusDiv = document.getElementById('plex-login-status');
+                statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Unlinking...`;
                 await fetch('/api/plex/logout', { method: 'POST' });
                 window.location.reload();
             }
@@ -1578,11 +1678,50 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Jellyfin Authentication Logic ---
     const jellyfinLoginBtn = document.getElementById('jellyfin-login-btn');
-    const jellyfinLogoutBtn = document.getElementById('jellyfin-logout-btn');
+    const jellyfinModifyBtn = document.getElementById('jellyfin-modify-btn');
     const jellyfinSignInBtn = document.getElementById('jellyfin-signin-btn');
+    const jellyfinUpdateBtn = document.getElementById('jellyfin-update-btn');
+    const jellyfinModalUnlinkBtn = document.getElementById('jellyfin-modal-unlink-btn');
+
+    // Function to set Jellyfin modal to link mode
+    function setJellyfinModalLinkMode() {
+        document.getElementById('jellyfinLoginModalLabel').textContent = 'Link Jellyfin Server';
+        document.getElementById('jellyfin-modal-description').textContent = 'Enter your Jellyfin server URL and API key to link your server. You can find your API key in Jellyfin\'s Dashboard under Advanced → API Keys.';
+        document.getElementById('jellyfin-api-key-group').style.display = 'block';
+        document.getElementById('jellyfin-signin-btn').style.display = 'inline-block';
+        document.getElementById('jellyfin-update-btn').style.display = 'none';
+        document.getElementById('jellyfin-modal-unlink-btn').style.display = 'none';
+        document.getElementById('jellyfin-host').value = '';
+        document.getElementById('jellyfin-api-key').value = '';
+        document.getElementById('jellyfin-login-status').innerHTML = '';
+    }
+
+    // Function to set Jellyfin modal to modify mode
+    function setJellyfinModalModifyMode() {
+        document.getElementById('jellyfinLoginModalLabel').textContent = 'Modify Jellyfin Configuration';
+        document.getElementById('jellyfin-modal-description').textContent = 'Update your Jellyfin server URL. To change the API key, enter a new one.';
+        document.getElementById('jellyfin-api-key-group').style.display = 'block';
+        document.getElementById('jellyfin-signin-btn').style.display = 'none';
+        document.getElementById('jellyfin-update-btn').style.display = 'inline-block';
+        document.getElementById('jellyfin-modal-unlink-btn').style.display = 'inline-block';
+        // Pre-fill with current values
+        document.getElementById('jellyfin-host').value = window.Librarrarian.settings.jellyfinHost || '';
+        document.getElementById('jellyfin-api-key').value = ''; // Don't pre-fill API key for security
+        document.getElementById('jellyfin-api-key').placeholder = '(Optional) Enter new API key';
+        document.getElementById('jellyfin-login-status').innerHTML = '';
+    }
 
     if (jellyfinLoginBtn) {
         jellyfinLoginBtn.addEventListener('click', () => {
+            setJellyfinModalLinkMode();
+            const loginModal = new bootstrap.Modal(document.getElementById('jellyfinLoginModal'));
+            loginModal.show();
+        });
+    }
+
+    if (jellyfinModifyBtn) {
+        jellyfinModifyBtn.addEventListener('click', () => {
+            setJellyfinModalModifyMode();
             const loginModal = new bootstrap.Modal(document.getElementById('jellyfinLoginModal'));
             loginModal.show();
         });
@@ -1606,21 +1745,99 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             if (data.success) {
                 statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
-                // Auto-dismiss modal after 5 seconds and redirect
                 setTimeout(() => {
                     const loginModal = bootstrap.Modal.getInstance(document.getElementById('jellyfinLoginModal'));
                     if (loginModal) loginModal.hide();
-                    window.location.href = '/#options-tab-pane';
-                }, 5000);
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
+                }, 2000);
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
         });
     }
 
-    if (jellyfinLogoutBtn) {
-        jellyfinLogoutBtn.addEventListener('click', async () => {
-            if (confirm('Are you sure you want to unlink your Jellyfin server?')) {
+    if (jellyfinUpdateBtn) {
+        jellyfinUpdateBtn.addEventListener('click', async () => {
+            const hostInput = document.getElementById('jellyfin-host');
+            const apiKeyInput = document.getElementById('jellyfin-api-key');
+            const statusDiv = document.getElementById('jellyfin-login-status');
+            
+            if (!hostInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Jellyfin Server URL.</div>`;
+                return;
+            }
+            
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Updating configuration...`;
+
+            // Build request body - only include API key if provided
+            const requestBody = { host: hostInput.value };
+            if (apiKeyInput.value) {
+                requestBody.api_key = apiKeyInput.value;
+            }
+
+            const response = await fetch('/api/jellyfin/update-config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(requestBody)
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('jellyfinLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            }
+        });
+    }
+
+    const jellyfinTestConnectionBtn = document.getElementById('jellyfin-test-connection-btn');
+    if (jellyfinTestConnectionBtn) {
+        jellyfinTestConnectionBtn.addEventListener('click', async () => {
+            const hostInput = document.getElementById('jellyfin-host');
+            const apiKeyInput = document.getElementById('jellyfin-api-key');
+            const statusDiv = document.getElementById('jellyfin-login-status');
+            
+            if (!hostInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Jellyfin Server URL first.</div>`;
+                return;
+            }
+            
+            // Check if we have an API key (either entered or saved)
+            const hasApiKey = apiKeyInput.value || window.Librarrarian.settings.jellyfinApiKey;
+            if (!hasApiKey) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter an API key first.</div>`;
+                return;
+            }
+            
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Testing connection...`;
+
+            const response = await fetch('/api/jellyfin/test-connection', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    host: hostInput.value,
+                    api_key: apiKeyInput.value  // Send input value (may be empty); backend uses saved key if empty
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
+            }
+        });
+    }
+
+    if (jellyfinModalUnlinkBtn) {
+        jellyfinModalUnlinkBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to unlink your Jellyfin server? This will remove both the API key and server URL.')) {
+                const statusDiv = document.getElementById('jellyfin-login-status');
+                statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Unlinking...`;
                 await fetch('/api/jellyfin/logout', { method: 'POST' });
                 window.location.reload();
             }
@@ -1678,6 +1895,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const applyPlexVisibility = setupShowIgnoredToggle('plex-show-hidden-toggle', 'plex-libraries-list');
     const applyJellyfinVisibility = setupShowIgnoredToggle('jellyfin-show-hidden-toggle', 'jellyfin-libraries-list');
     const applyInternalVisibility = setupShowIgnoredToggle('internal-show-hidden-toggle', 'internal-folders-list');
+    const applyCombinedVisibility = setupShowIgnoredToggle('combined-show-hidden-toggle', 'combined-libraries-list');
 
     // --- Dynamic Plex Library Loading ---
     async function loadPlexLibraries() {
@@ -1732,7 +1950,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // Note: Backend handling for library linking needs to be implemented
             // These form fields (link_plex_*) are not yet processed by the server
             const escapedLibName = escapeHtml(plexLibName);
-            const options = ['<option value="">-- None --</option>']
+            const hasJellyfinAuth = window.Librarrarian.settings.jellyfinApiKey !== "";
+            
+            if (!hasJellyfinAuth) {
+                return `<span class="text-muted small">Jellyfin not linked</span>`;
+            }
+            
+            const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibs.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
                     return `<option value="${escapedTitle}">${escapedTitle}</option>`;
@@ -1753,6 +1977,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
+                        ${showJellyfinLink ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
                         ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
@@ -1827,7 +2052,13 @@ document.addEventListener('DOMContentLoaded', () => {
             // Note: Backend handling for library linking needs to be implemented
             // These form fields (link_jellyfin_*) are not yet processed by the server
             const escapedLibName = escapeHtml(jellyfinLibName);
-            const options = ['<option value="">-- None --</option>']
+            const hasPlexAuth = window.Librarrarian.settings.plexToken !== "";
+            
+            if (!hasPlexAuth) {
+                return `<span class="text-muted small">Plex not linked</span>`;
+            }
+            
+            const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibs.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
                     return `<option value="${escapedTitle}">${escapedTitle}</option>`;
@@ -1850,6 +2081,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
+                        ${showPlexLink ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
                         ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
@@ -1870,7 +2102,192 @@ document.addEventListener('DOMContentLoaded', () => {
         loadJellyfinLibraries();
     }
 
+    // --- Combined Libraries Loading (for Multi-Server Sync Mode) ---
+    async function loadCombinedLibraries() {
+        const container = document.getElementById('combined-libraries-list');
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        
+        const mediaTypes = {
+            'movie': 'Movie',
+            'show': 'TV Show',
+            'music': 'Music',
+            'other': 'Other Videos',
+            'none': 'None (Ignore)'
+        };
+        
+        const createDropdown = (name, selectedType) => {
+            const options = Object.entries(mediaTypes).map(([key, value]) => `<option value="${key}" ${selectedType === key ? 'selected' : ''}>${value}</option>`).join('');
+            return `<select class="form-select form-select-sm" name="${name}" style="width: 150px;">${options}</select>`;
+        };
+        
+        container.innerHTML = '<div class="spinner-border spinner-border-sm"></div> Loading libraries...';
+        
+        // Fetch both Plex and Jellyfin libraries
+        let plexLibraries = [];
+        let jellyfinLibraries = [];
+        
+        const hasPlexAuth = window.Librarrarian.settings.plexToken !== "";
+        const hasJellyfinAuth = window.Librarrarian.settings.jellyfinApiKey !== "";
+        
+        // Fetch Plex libraries
+        let plexError = null;
+        if (hasPlexAuth) {
+            try {
+                const plexResponse = await fetch('/api/plex/libraries');
+                const plexData = await plexResponse.json();
+                if (plexData.libraries) {
+                    plexLibraries = plexData.libraries;
+                } else if (plexData.error) {
+                    plexError = plexData.error;
+                }
+            } catch (e) {
+                console.log('Could not fetch Plex libraries:', e);
+                plexError = 'Failed to communicate with server.';
+            }
+        }
+        
+        // Fetch Jellyfin libraries
+        let jellyfinError = null;
+        if (hasJellyfinAuth) {
+            try {
+                const jellyfinResponse = await fetch('/api/jellyfin/libraries');
+                const jellyfinData = await jellyfinResponse.json();
+                if (jellyfinData.libraries) {
+                    jellyfinLibraries = jellyfinData.libraries;
+                } else if (jellyfinData.error) {
+                    jellyfinError = jellyfinData.error;
+                }
+            } catch (e) {
+                console.log('Could not fetch Jellyfin libraries:', e);
+                jellyfinError = 'Failed to communicate with server.';
+            }
+        }
+        
+        // Create linking dropdown helper functions
+        const createJellyfinLinkDropdown = (plexLibName) => {
+            const escapedLibName = escapeHtml(plexLibName);
+            if (!hasJellyfinAuth) {
+                return `<span class="text-muted small">Jellyfin not linked</span>`;
+            }
+            const options = ['<option value="">-- Ignore --</option>']
+                .concat(jellyfinLibraries.map(jLib => {
+                    const escapedTitle = escapeHtml(jLib.title);
+                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                }))
+                .join('');
+            return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
+        };
+        
+        const createPlexLinkDropdown = (jellyfinLibName) => {
+            const escapedLibName = escapeHtml(jellyfinLibName);
+            if (!hasPlexAuth) {
+                return `<span class="text-muted small">Plex not linked</span>`;
+            }
+            const options = ['<option value="">-- Ignore --</option>']
+                .concat(plexLibraries.map(pLib => {
+                    const escapedTitle = escapeHtml(pLib.title);
+                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                }))
+                .join('');
+            return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
+        };
+        
+        // Build combined library list
+        let libraryItems = [];
+        
+        // Add primary server's libraries first
+        if (primaryServer === 'plex' && plexLibraries.length > 0) {
+            const currentLibs = window.Librarrarian.settings.plexLibraries;
+            libraryItems = plexLibraries.map(lib => {
+                const escapedTitle = escapeHtml(lib.title);
+                const escapedKey = escapeHtml(lib.key);
+                return `
+                <div class="d-flex align-items-center mb-2 media-source-item">
+                    <div class="form-check" style="min-width: 200px;">
+                        <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
+                        <label class="form-check-label" for="lib-${escapedKey}"><span class="badge badge-outline-warning me-1">Plex</span>${escapedTitle}</label>
+                    </div>
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
+                        <!-- Badge always shown in combined view to label the linking dropdown -->
+                        <span class="badge badge-outline-purple">Jellyfin</span>
+                        ${createJellyfinLinkDropdown(lib.title)}
+                    </div>
+                </div>
+                `;
+            });
+        } else if (primaryServer === 'jellyfin' && jellyfinLibraries.length > 0) {
+            const currentLibs = window.Librarrarian.settings.jellyfinLibraries || [];
+            libraryItems = jellyfinLibraries.map(lib => {
+                const escapedTitle = escapeHtml(lib.title);
+                const escapedId = escapeHtml(lib.id || lib.title);
+                return `
+                <div class="d-flex align-items-center mb-2 media-source-item">
+                    <div class="form-check" style="min-width: 200px;">
+                        <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
+                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-purple me-1">Jellyfin</span>${escapedTitle}</label>
+                    </div>
+                    <div class="ms-auto d-flex align-items-center gap-2">
+                        ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
+                        <!-- Badge always shown in combined view to label the linking dropdown -->
+                        <span class="badge badge-outline-warning">Plex</span>
+                        ${createPlexLinkDropdown(lib.title)}
+                    </div>
+                </div>
+                `;
+            });
+        }
+        
+        if (libraryItems.length > 0) {
+            container.innerHTML = libraryItems.join('');
+        } else {
+            const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
+            const serverError = primaryServer === 'plex' ? plexError : jellyfinError;
+            
+            if ((primaryServer === 'plex' && !hasPlexAuth) || (primaryServer === 'jellyfin' && !hasJellyfinAuth)) {
+                container.innerHTML = `<p class="text-muted">Link your ${serverName} account to see libraries.</p>`;
+            } else if (serverError) {
+                container.innerHTML = `<p class="text-muted">${serverError}</p>`;
+            } else {
+                container.innerHTML = `<p class="text-muted">No libraries found.</p>`;
+            }
+        }
+        
+        // Apply the initial visibility based on the toggle's state
+        if (typeof applyCombinedVisibility === 'function') {
+            applyCombinedVisibility();
+        }
+    }
+
     // --- Event listeners for multi-server library linking ---
+    
+    // Function to update the sync checkbox state based on what servers are linked
+    function updateSyncCheckboxState() {
+        const multiServerCheckbox = document.getElementById('enable_multi_server');
+        if (!multiServerCheckbox) return;
+        
+        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
+        
+        // If internal scanner is selected, disable sync
+        if (primaryServer === 'internal') {
+            multiServerCheckbox.disabled = true;
+            multiServerCheckbox.checked = false;
+            return;
+        }
+        
+        // Check if both Plex and Jellyfin are linked
+        const plexLinked = window.Librarrarian.settings.plexToken && window.Librarrarian.settings.plexToken.length > 0;
+        const jellyfinLinked = window.Librarrarian.settings.jellyfinApiKey && window.Librarrarian.settings.jellyfinApiKey.length > 0;
+        
+        // Only enable sync if both servers are linked
+        if (plexLinked && jellyfinLinked) {
+            multiServerCheckbox.disabled = false;
+        } else {
+            multiServerCheckbox.disabled = true;
+            multiServerCheckbox.checked = false;
+        }
+    }
+    
     // Reload libraries when multi-server is toggled
     const multiServerCheckbox = document.getElementById('enable_multi_server');
     if (multiServerCheckbox) {
@@ -1888,38 +2305,50 @@ document.addEventListener('DOMContentLoaded', () => {
         const internalTab = document.getElementById('internal-integration-tab');
         const plexContainer = document.getElementById('plex-libraries-container');
         const jellyfinContainer = document.getElementById('jellyfin-libraries-container');
+        const combinedContainer = document.getElementById('combined-libraries-container');
+        
+        // Update sync checkbox state based on linked servers
+        updateSyncCheckboxState();
         
         if (primaryServer === 'internal') {
             // If Internal Media Scanner is selected:
-            // - Disable sync checkbox
             // - Disable Media Servers tab
             // - Enable Internal Media Scanner tab
-            // - Hide library containers
-            if (multiServerCheckbox) {
-                multiServerCheckbox.disabled = true;
-                multiServerCheckbox.checked = false;
-            }
+            // - Auto-switch to Internal Media Scanner tab
+            // - Hide all library containers
             if (mediaServersTab) {
                 mediaServersTab.disabled = true;
             }
             if (internalTab) {
                 internalTab.disabled = false;
+                // Auto-activate Internal Media Scanner tab
+                try {
+                    const internalTabButton = new bootstrap.Tab(internalTab);
+                    internalTabButton.show();
+                } catch (e) {
+                    console.error('Error activating Internal Media Scanner tab:', e);
+                }
             }
             if (plexContainer) plexContainer.style.display = 'none';
             if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+            if (combinedContainer) combinedContainer.style.display = 'none';
             
             // Don't load libraries when internal is selected
             return;
         } else {
             // If Plex or Jellyfin is selected:
-            // - Enable sync checkbox
             // - Enable Media Servers tab
             // - Disable Internal Media Scanner tab
-            if (multiServerCheckbox) {
-                multiServerCheckbox.disabled = false;
-            }
+            // - Auto-switch to Media Servers tab
             if (mediaServersTab) {
                 mediaServersTab.disabled = false;
+                // Auto-activate Media Servers tab
+                try {
+                    const mediaServersTabButton = new bootstrap.Tab(mediaServersTab);
+                    mediaServersTabButton.show();
+                } catch (e) {
+                    console.error('Error activating Media Servers tab:', e);
+                }
             }
             if (internalTab) {
                 internalTab.disabled = true;
@@ -1927,23 +2356,27 @@ document.addEventListener('DOMContentLoaded', () => {
             
             // Show/hide library containers based on selection and multi-server mode
             if (multiServerEnabled) {
-                // When multi-server is enabled, show both containers
-                if (plexContainer) plexContainer.style.display = 'block';
-                if (jellyfinContainer) jellyfinContainer.style.display = 'block';
+                // When multi-server is enabled, show only the combined container
+                if (plexContainer) plexContainer.style.display = 'none';
+                if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+                if (combinedContainer) combinedContainer.style.display = 'block';
+                
+                // Load combined libraries
+                loadCombinedLibraries();
             } else {
-                // When multi-server is disabled, show only the selected server's container
+                // When multi-server is disabled, hide combined and show only the selected server's container
+                if (combinedContainer) combinedContainer.style.display = 'none';
+                
                 if (primaryServer === 'plex') {
                     if (plexContainer) plexContainer.style.display = 'block';
                     if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+                    loadPlexLibraries();
                 } else if (primaryServer === 'jellyfin') {
                     if (plexContainer) plexContainer.style.display = 'none';
                     if (jellyfinContainer) jellyfinContainer.style.display = 'block';
+                    loadJellyfinLibraries();
                 }
             }
-            
-            // Load libraries for the selected server(s)
-            loadPlexLibraries();
-            loadJellyfinLibraries();
         }
     }
     
@@ -1954,6 +2387,7 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     
     // Initialize on page load
+    updateSyncCheckboxState();
     handlePrimaryServerChange();
 
     // --- Dynamic Internal Folder Loading ---
@@ -2275,11 +2709,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Clear All Jobs Logic ---
     const clearJobsBtn = document.getElementById('clear-jobs-btn');
     clearJobsBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to permanently clear the entire job queue? This action cannot be undone.')) {
+        const forceClearCheckbox = document.getElementById('force-clear-checkbox');
+        const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
+        
+        const confirmMessage = force 
+            ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
+            : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
+        
+        if (!confirm(confirmMessage)) {
             return;
         }
         try {
-            const response = await fetch('/api/jobs/clear', { method: 'POST' });
+            const response = await fetch('/api/jobs/clear', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ force: force })
+            });
             if (response.ok) {
                 updateJobQueue(1); // Refresh the queue to show it's empty
             }

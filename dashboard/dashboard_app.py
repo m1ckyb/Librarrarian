@@ -9,8 +9,11 @@ import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
+from typing import Tuple, Optional
+from urllib.parse import urlparse
 from plexapi.myplex import MyPlexAccount, MyPlexPinLogin
 import subprocess
+from xml.etree import ElementTree as ET
 from flask import Flask, render_template, g, request, flash, redirect, url_for, jsonify, session
 
 try:
@@ -771,6 +774,85 @@ def clear_failed_files():
         db_error = f"Database query failed: {e}"
     return db_error
 
+def normalize_server_url(url: str) -> str:
+    """
+    Normalizes a server URL by removing trailing slashes and extra path components.
+    
+    Args:
+        url: The URL to normalize
+        
+    Returns:
+        The normalized URL
+    """
+    url = url.rstrip('/')
+    parsed = urlparse(url)
+    # Reconstruct URL with only scheme, netloc, and port (no path, query, or fragment)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+def validate_plex_url(url: str) -> Tuple[bool, Optional[str]]:
+    """
+    Validates a Plex server URL for basic security and format checks.
+    Note: Plex servers are typically on local networks, so private IPs are allowed.
+    
+    Args:
+        url: The URL to validate
+        
+    Returns:
+        Tuple of (is_valid, error_message). Error message is None if valid.
+    """
+    if not url:
+        return False, "URL is required"
+    
+    try:
+        parsed = urlparse(url)
+        # Check for valid scheme
+        if parsed.scheme not in ['http', 'https']:
+            return False, "URL must use http:// or https://"
+        # Check for hostname
+        if not parsed.netloc:
+            return False, "URL must include a hostname"
+        # Check for suspicious path components (Plex server URLs shouldn't have paths)
+        if parsed.path and parsed.path not in ['', '/']:
+            return False, "Plex server URL should not include a path. Use only the base URL (e.g., http://plex:32400)"
+        return True, None
+    except (ValueError, AttributeError) as e:
+        return False, f"Invalid URL format: {e}"
+
+def parse_plex_identity_response(response) -> Tuple[bool, Optional[str], Optional[str]]:
+    """
+    Parses and validates a Plex /identity endpoint response.
+    
+    Args:
+        response: The requests Response object
+        
+    Returns:
+        Tuple of (success, machine_id, error_message)
+    """
+    # Check Content-Length header first to prevent loading large responses
+    content_length = response.headers.get('content-length')
+    if content_length and int(content_length) > 1024 * 1024:  # 1MB limit
+        return False, None, "Server response too large."
+    
+    # Check actual content size as a fallback
+    if len(response.content) > 1024 * 1024:
+        return False, None, "Server response too large."
+    
+    # Parse the XML response to confirm it's a Plex server
+    # Note: Python 3.8+ ElementTree is safe by default against XXE attacks
+    try:
+        root = ET.fromstring(response.content)
+        # Plex identity endpoint returns <MediaContainer> with machineIdentifier attribute
+        if root.tag != 'MediaContainer':
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        machine_id = root.get('machineIdentifier')
+        if not machine_id:
+            return False, None, "Server responded but doesn't appear to be a Plex server."
+        
+        return True, machine_id, None
+    except ET.ParseError:
+        return False, None, "Server responded but returned invalid data."
+
 def get_worker_settings():
     """Fetches all worker settings from the database."""
     db = get_db()
@@ -806,6 +888,32 @@ def update_worker_setting(key, value):
                 ON CONFLICT (setting_name) DO UPDATE
                 SET setting_value = EXCLUDED.setting_value;
             """, (key, value))
+        db.commit()
+    except Exception as e:
+        db_error = f"Database query failed: {e}"
+        try:
+            db.rollback()
+        except:
+            pass
+        return False, db_error
+    return True, None
+
+def update_worker_settings_batch(settings_dict):
+    """Updates multiple worker settings in a single transaction."""
+    db = get_db()
+    db_error = None
+    if db is None:
+        db_error = "Cannot connect to the PostgreSQL database."
+        return False, db_error
+    try:
+        with db.cursor() as cur:
+            for key, value in settings_dict.items():
+                cur.execute("""
+                    INSERT INTO worker_settings (setting_name, setting_value)
+                    VALUES (%s, %s)
+                    ON CONFLICT (setting_name) DO UPDATE
+                    SET setting_value = EXCLUDED.setting_value;
+                """, (key, value))
         db.commit()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -1123,7 +1231,6 @@ def options():
         'allow_hevc': 'true' if 'allow_hevc' in request.form else 'false',
         'allow_av1': 'true' if 'allow_av1' in request.form else 'false',
         'allow_vp9': 'true' if 'allow_vp9' in request.form else 'false',
-        'plex_url': request.form.get('plex_url', ''),
         'nvenc_cq_hd': request.form.get('nvenc_cq_hd', '32'),
         'nvenc_cq_sd': request.form.get('nvenc_cq_sd', '28'),
         'vaapi_cq_hd': request.form.get('vaapi_cq_hd', '28'),
@@ -1332,15 +1439,26 @@ def api_backup_delete(filename):
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
     """
-    Clears jobs from the queue. This now clears all 'pending' transcode/cleanup jobs
-    and ALL jobs (regardless of status) that are internal-only (Rename, Quality Mismatch).
+    Clears jobs from the queue. 
+    If 'force' parameter is true, clears ALL jobs regardless of status.
+    Otherwise, clears all 'pending' transcode/cleanup jobs and ALL internal-only jobs (Rename, Quality Mismatch).
     """
     try:
+        data = request.get_json() or {}
+        force = data.get('force', False)
+        
         db = get_db()
         with db.cursor() as cur:
-            cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
+            if force:
+                # Force clear: Remove ALL jobs regardless of status
+                cur.execute("DELETE FROM jobs;")
+                message = "All jobs forcefully cleared from queue."
+            else:
+                # Normal clear: Remove pending jobs and internal jobs
+                cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
+                message = "Job queue cleared successfully."
         db.commit()
-        return jsonify(success=True, message="Job queue cleared successfully.")
+        return jsonify(success=True, message=message)
     except Exception as e:
         print(f"Error clearing job queue: {e}")
         return jsonify(success=False, error=str(e)), 500
@@ -1797,29 +1915,157 @@ def plex_login():
     
     if not plex_url:
         return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
 
+    # First, test if the server is reachable
+    # Plex returns XML by default
+    try:
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Cannot reach Plex server. Please check the URL. (Status: {response.status_code})"), 503
+        
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+            
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection to Plex server timed out. Please check the URL."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to Plex server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to reach Plex server: {e}"), 503
+
+    # Now attempt to authenticate
     try:
         # Instantiate the account object with username and password to sign in.
         account = MyPlexAccount(username, password)
         token = account.authenticationToken
         if token:
-            # Save both the URL and the token
-            update_worker_setting('plex_url', plex_url)
-            update_worker_setting('plex_token', token)
-            return jsonify(success=True, message="Plex account linked successfully!")
+            # Verify the token works with the provided server
+            try:
+                plex = PlexServer(plex_url, token)
+                # If we can access the server, save the credentials
+                success, error = update_worker_settings_batch({
+                    'plex_url': plex_url,
+                    'plex_token': token
+                })
+                if not success:
+                    return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
+                return jsonify(success=True, message="Plex account linked successfully!")
+            except Exception as e:
+                return jsonify(success=False, error=f"Token obtained but cannot access server: {e}"), 503
         else:
             return jsonify(success=False, error="Login failed. Please check your credentials."), 401
     except Exception as e:
-        return jsonify(success=False, error=f"Plex login failed: {e}"), 401
+        return jsonify(success=False, error=f"Plex authentication failed: {e}"), 401
 
 @app.route('/api/plex/logout', methods=['POST'])
 def plex_logout():
-    """Logs out of Plex by clearing the stored token."""
-    success, error = update_worker_setting('plex_token', '')
+    """Logs out of Plex by clearing the stored token and URL."""
+    # Also disable multi-server sync if it's enabled, since we need both servers
+    success, error = update_worker_settings_batch({
+        'plex_token': '',
+        'plex_url': '',
+        'enable_multi_server': 'false'
+    })
     if success:
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/update-url', methods=['POST'])
+def plex_update_url():
+    """Updates the Plex server URL without re-authentication."""
+    plex_url = request.json.get('plex_url')
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
+    
+    # Get the current token to verify it still works with the new URL
+    settings, db_error = get_worker_settings()
+    if db_error:
+        return jsonify(success=False, error=db_error), 500
+    
+    plex_token = settings.get('plex_token', {}).get('setting_value')
+    if not plex_token:
+        return jsonify(success=False, error="No Plex token found. Please link your account first."), 400
+    
+    # Test if the server is reachable
+    try:
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        if response.status_code != 200:
+            return jsonify(success=False, error=f"Cannot reach Plex server. (Status: {response.status_code})"), 503
+        
+        # Parse and validate the response
+        success, machine_id, error = parse_plex_identity_response(response)
+        if not success:
+            return jsonify(success=False, error=error), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection to Plex server timed out."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to Plex server."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to reach Plex server: {e}"), 503
+    
+    # Verify the existing token works with the new server URL
+    try:
+        plex = PlexServer(plex_url, plex_token)
+        # If we can access the server, update the URL
+        success, error = update_worker_setting('plex_url', plex_url)
+        if success:
+            return jsonify(success=True, message="Plex server URL updated successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+    except Exception as e:
+        return jsonify(success=False, error=f"Token verification failed with new URL: {e}"), 503
+
+@app.route('/api/plex/test-connection', methods=['POST'])
+def plex_test_connection():
+    """Tests connectivity to a Plex server without authenticating."""
+    plex_url = request.json.get('plex_url')
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    try:
+        # Try to connect to the server without authentication to test if it's reachable
+        # Plex returns XML by default
+        response = requests.get(f"{plex_url}/identity", timeout=10)
+        
+        if response.status_code == 200:
+            # Parse and validate the response
+            success, machine_id, error = parse_plex_identity_response(response)
+            if success:
+                return jsonify(success=True, message=f"Successfully connected to Plex server!")
+            else:
+                return jsonify(success=False, error=error), 503
+        else:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out. Please check the URL and try again."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
 
 @app.route('/api/jellyfin/login', methods=['POST'])
 def jellyfin_login():
@@ -1829,6 +2075,9 @@ def jellyfin_login():
 
     if not jellyfin_host or not jellyfin_api_key:
         return jsonify(success=False, error="Server URL and API key are required."), 400
+
+    # Normalize the URL
+    jellyfin_host = normalize_server_url(jellyfin_host)
 
     # Validate the connection by attempting to fetch libraries
     try:
@@ -1841,8 +2090,12 @@ def jellyfin_login():
             return jsonify(success=False, error=f"Jellyfin server returned error status: {response.status_code}"), 503
         
         # Connection successful, save the credentials
-        update_worker_setting('jellyfin_host', jellyfin_host)
-        update_worker_setting('jellyfin_api_key', jellyfin_api_key)
+        success, error = update_worker_settings_batch({
+            'jellyfin_host': jellyfin_host,
+            'jellyfin_api_key': jellyfin_api_key
+        })
+        if not success:
+            return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
         return jsonify(success=True, message="Jellyfin server linked successfully!")
         
     except requests.exceptions.RequestException as e:
@@ -1851,12 +2104,105 @@ def jellyfin_login():
 @app.route('/api/jellyfin/logout', methods=['POST'])
 def jellyfin_logout():
     """Unlinks the Jellyfin server by clearing the stored credentials."""
-    success1, error1 = update_worker_setting('jellyfin_api_key', '')
-    success2, error2 = update_worker_setting('jellyfin_host', '')
-    if success1 and success2:
+    # Also disable multi-server sync if it's enabled, since we need both servers
+    success, error = update_worker_settings_batch({
+        'jellyfin_api_key': '',
+        'jellyfin_host': '',
+        'enable_multi_server': 'false'
+    })
+    if success:
         return jsonify(success=True, message="Jellyfin server unlinked.")
     else:
-        return jsonify(success=False, error=error1 or error2), 500
+        return jsonify(success=False, error=error), 500
+
+@app.route('/api/jellyfin/update-config', methods=['POST'])
+def jellyfin_update_config():
+    """Updates the Jellyfin server configuration (URL and/or API key)."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')  # Optional - if not provided, keeps existing
+    
+    if not jellyfin_host:
+        return jsonify(success=False, error="Server URL is required."), 400
+    
+    # Normalize the URL
+    jellyfin_host = normalize_server_url(jellyfin_host)
+    
+    # If no API key provided, use the existing one
+    if not jellyfin_api_key:
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return jsonify(success=False, error=db_error), 500
+        jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+        if not jellyfin_api_key:
+            return jsonify(success=False, error="No existing API key found. Please provide an API key."), 400
+    
+    # Test if the server is reachable with the credentials
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key."), 401
+        elif response.status_code != 200:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+        
+        # Connection successful, update both settings
+        success, error = update_worker_settings_batch({
+            'jellyfin_host': jellyfin_host,
+            'jellyfin_api_key': jellyfin_api_key
+        })
+        
+        if success:
+            return jsonify(success=True, message="Jellyfin server configuration updated successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+            
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+
+@app.route('/api/jellyfin/test-connection', methods=['POST'])
+def jellyfin_test_connection():
+    """Tests connectivity to a Jellyfin server without full authentication."""
+    jellyfin_host = request.json.get('host')
+    jellyfin_api_key = request.json.get('api_key')
+    
+    if not jellyfin_host:
+        return jsonify(success=False, error="Jellyfin Server URL is required."), 400
+    
+    # If no API key provided, try to use the existing one from settings
+    if not jellyfin_api_key:
+        settings, db_error = get_worker_settings()
+        if db_error:
+            return jsonify(success=False, error=db_error), 500
+        jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+        if not jellyfin_api_key:
+            return jsonify(success=False, error="API key is required for testing connection."), 400
+    
+    try:
+        headers = {'X-Emby-Token': jellyfin_api_key}
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        
+        if response.status_code == 401:
+            return jsonify(success=False, error="Invalid API key."), 401
+        elif response.status_code == 200:
+            try:
+                data = response.json()
+                server_name = data.get('ServerName', 'Unknown')
+                return jsonify(success=True, message=f"Successfully connected to Jellyfin server: {server_name}")
+            except:
+                return jsonify(success=True, message="Successfully connected to Jellyfin server!")
+        else:
+            return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
+    except requests.exceptions.Timeout:
+        return jsonify(success=False, error="Connection timed out. Please check the URL and try again."), 503
+    except requests.exceptions.ConnectionError:
+        return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
+    except Exception as e:
+        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
 
 @app.route('/api/jellyfin/libraries', methods=['GET'])
 def jellyfin_get_libraries():
@@ -1867,8 +2213,11 @@ def jellyfin_get_libraries():
     jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
     jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
 
-    if not all([jellyfin_host, jellyfin_api_key]):
-        return jsonify(libraries=[], error="Jellyfin is not configured or authenticated."), 400
+    if not jellyfin_api_key:
+        return jsonify(libraries=[], error="Link your Jellyfin server to see libraries."), 400
+    
+    if not jellyfin_host:
+        return jsonify(libraries=[], error="Jellyfin server URL is not configured."), 400
 
     try:
         # First, get the user ID (we'll use the first user for simplicity)
@@ -1940,7 +2289,7 @@ def jellyfin_get_libraries():
 
         return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Jellyfin or process libraries: {e}"), 500
+        return jsonify(libraries=[], error=f"Cannot connect to Jellyfin server. Please check your server URL and ensure Jellyfin is running. Error: {e}"), 503
 
 @app.route('/api/plex/libraries', methods=['GET'])
 def plex_get_libraries():
@@ -1951,8 +2300,11 @@ def plex_get_libraries():
     plex_url = settings.get('plex_url', {}).get('setting_value')
     plex_token = settings.get('plex_token', {}).get('setting_value')
 
-    if not all([plex_url, plex_token]):
-        return jsonify(libraries=[], error="Plex is not configured or authenticated."), 400
+    if not plex_token:
+        return jsonify(libraries=[], error="Link your Plex account to see libraries."), 400
+    
+    if not plex_url:
+        return jsonify(libraries=[], error="Plex server URL is not configured."), 400
 
     try:
         plex = PlexServer(plex_url, plex_token)
@@ -1991,7 +2343,7 @@ def plex_get_libraries():
 
         return jsonify(libraries=result_libraries)
     except Exception as e:
-        return jsonify(libraries=[], error=f"Could not connect to Plex or process libraries: {e}"), 500
+        return jsonify(libraries=[], error=f"Cannot connect to Plex server. Please check your server URL and ensure Plex is running. Error: {e}"), 503
 
 @app.route('/api/internal/folders', methods=['GET'])
 def api_internal_folders():
