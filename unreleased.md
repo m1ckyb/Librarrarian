@@ -10,6 +10,10 @@ All upcoming features and bug fixes will be documented here until they are part 
 - New API endpoints `/api/plex/test-connection` and `/api/jellyfin/test-connection` for testing server connectivity
 - Helper tooltip for "Sync Between Plex & Jellyfin" explaining what the feature does
 - "Force" checkbox next to "Clear Queue" button in Job Queue tab - when enabled, will force remove all jobs regardless of status (including encoding jobs)
+- "Clear All Errors" button in Failed Files & Stuck Jobs modal footer for easy access to clear all errors from within the modal
+- Sortable columns in History & Stats table - click any column header to sort (ID, File, Node, Codec, Size, Reduction, Date)
+- Database history limit dropdown in History & Stats tab - control how many entries are loaded from database (100-1000 in increments of 100, or all entries)
+- `/api/history` endpoint now accepts optional `limit` query parameter to control number of records returned
 
 ### Changed
 - Moved Primary Media Server selection (Plex/Jellyfin/Internal Media Scanner) above Integrations section as a standalone section
@@ -23,8 +27,10 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Options tab: Automatically switches to Media Servers sub-tab when Plex or Jellyfin radio button is selected
 - Monitored Libraries: When "Sync Between Plex & Jellyfin" is enabled, server badges now appear between the Library Type dropdown and the linking dropdown (Jellyfin badge for Plex libraries, Plex badge for Jellyfin libraries)
 - Job Queue: "Force" checkbox for "Clear Queue" button now uses the same attached styling as the "Scan Media" Force checkbox for better visual consistency
-
-### Changed
+- Monitored Libraries: Removed scrollbars from individual Plex and Jellyfin library containers when sync mode is disabled to match the combined list behavior
+- History & Stats: Items per page options changed from 100, 200, 300, 400, 500 to 15, 30, 50, 100 per page
+- History & Stats: Default items per page changed from 100 to 15 for better initial display
+- History & Stats: Default sort order changed to descending by ID (newest first)
 - Changed "Unlink Plex" button to "Modify Configuration" button when Plex is authenticated
 - Changed "Unlink Jellyfin" button to "Modify Configuration" button when Jellyfin is authenticated
 - Plex and Jellyfin modals now support both "link" and "modify" modes
@@ -33,8 +39,11 @@ All upcoming features and bug fixes will be documented here until they are part 
 - In modify mode, Jellyfin modal allows both URL and API key changes
 
 ### Fixed
+- **Critical:** Fixed job queue buttons (Release Selected, Release All Cleanup, Release All Renames, Clear Queue, Pause Queue, Scan Media) not working - JavaScript error caused by missing null checks for Options tab elements was preventing event listeners from being registered
+- Fixed missing scrollbars in individual Plex and Jellyfin library containers when sync mode is disabled - now matches the combined list behavior with consistent max-height and overflow styling
 - **Critical:** Fixed form save button erasing Plex server URL when saving other settings (Plex URL is now managed exclusively via modal/API)
 - **Critical:** Fixed missing Jellyfin path mapping fields in the settings form causing them to be cleared on save
+- **Critical:** Fixed "Force" checkbox on Scan Media button not working - backend now properly reads and uses the force parameter from the frontend
 - Fixed "Plex is not configured or authenticated" message appearing when Internal Media Scanner is selected
 - Fixed inability to modify Plex server URL after initial linking without unlinking entire account
 - Fixed inability to modify Jellyfin server configuration after initial linking without unlinking

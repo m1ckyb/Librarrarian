@@ -38,6 +38,13 @@
             background-color: #1EE4A9 !important;
             color: #000 !important;
         }
+        /* History search and controls */
+        .history-search-input {
+            width: 300px;
+        }
+        .history-per-page-select {
+            width: auto;
+        }
     </style>
 {% endblock %}
 
@@ -257,9 +264,29 @@
                         </div>
                     </div>
                     <hr class="my-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div class="w-50">
-                            <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node...">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="text" id="history-search-input" class="form-control history-search-input" placeholder="Search by filename or node...">
+                            <select id="history-per-page-select" class="form-select history-per-page-select">
+                                <option value="15">15 per page</option>
+                                <option value="30">30 per page</option>
+                                <option value="50">50 per page</option>
+                                <option value="100">100 per page</option>
+                                <option value="all">All</option>
+                            </select>
+                            <select id="history-limit-select" class="form-select history-per-page-select" title="Limit number of history entries loaded from database">
+                                <option value="100">Last 100 entries</option>
+                                <option value="200">Last 200 entries</option>
+                                <option value="300">Last 300 entries</option>
+                                <option value="400">Last 400 entries</option>
+                                <option value="500">Last 500 entries</option>
+                                <option value="600">Last 600 entries</option>
+                                <option value="700">Last 700 entries</option>
+                                <option value="800">Last 800 entries</option>
+                                <option value="900">Last 900 entries</option>
+                                <option value="1000">Last 1000 entries</option>
+                                <option value="all">All entries</option>
+                            </select>
                         </div>
                         <button class="btn btn-outline-danger" id="clear-history-btn"><span class="mdi mdi-delete-sweep"></span> Clear All History</button>
                     </div>
@@ -267,13 +294,13 @@
                     <table class="table table-hover table-sm">
                         <thead>
                             <tr>
-                                <th>ID</th> <!-- This was previously Job ID -->
-                                <th>File</th>
-                                <th>Node</th>
-                                <th>Codec</th>
-                                <th>Size (GB)</th>
-                                <th>Reduction</th>
-                                <th>Date</th>
+                                <th style="cursor: pointer;" data-sort="id">ID <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="filename">File <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="hostname">Node <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="codec">Codec <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="original_size">Size (GB) <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="reduction_percent">Reduction <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="encoded_at">Date <span class="mdi mdi-sort"></span></th>
                                 <th></th> <!-- For delete button -->
                             </tr>
                         </thead>
@@ -403,7 +430,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
                                                     <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                                <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 400px; overflow-y: auto;"></div>
                                             </div>
 
                                             <!-- Single Jellyfin Libraries Container (used when Jellyfin is primary and sync is disabled) -->
@@ -413,7 +440,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="jellyfin-show-hidden-toggle">
                                                     <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                                <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 400px; overflow-y: auto;"></div>
                                             </div>
                                             
                                             <!-- Combined Libraries Container (used when multi-server sync is enabled) -->
