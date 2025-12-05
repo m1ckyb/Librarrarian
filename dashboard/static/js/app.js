@@ -1748,7 +1748,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 setTimeout(() => {
                     const loginModal = bootstrap.Modal.getInstance(document.getElementById('jellyfinLoginModal'));
                     if (loginModal) loginModal.hide();
-                    window.location.href = '/#options-tab-pane';
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
                 }, 2000);
             } else {
                 statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
@@ -2220,7 +2221,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-secondary me-1">Jellyfin</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-purple me-1">Jellyfin</span>${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
@@ -2307,12 +2308,16 @@ document.addEventListener('DOMContentLoaded', () => {
             // If Internal Media Scanner is selected:
             // - Disable Media Servers tab
             // - Enable Internal Media Scanner tab
+            // - Auto-switch to Internal Media Scanner tab
             // - Hide all library containers
             if (mediaServersTab) {
                 mediaServersTab.disabled = true;
             }
             if (internalTab) {
                 internalTab.disabled = false;
+                // Auto-activate Internal Media Scanner tab
+                const internalTabButton = new bootstrap.Tab(internalTab);
+                internalTabButton.show();
             }
             if (plexContainer) plexContainer.style.display = 'none';
             if (jellyfinContainer) jellyfinContainer.style.display = 'none';
@@ -2324,8 +2329,12 @@ document.addEventListener('DOMContentLoaded', () => {
             // If Plex or Jellyfin is selected:
             // - Enable Media Servers tab
             // - Disable Internal Media Scanner tab
+            // - Auto-switch to Media Servers tab
             if (mediaServersTab) {
                 mediaServersTab.disabled = false;
+                // Auto-activate Media Servers tab
+                const mediaServersTabButton = new bootstrap.Tab(mediaServersTab);
+                mediaServersTabButton.show();
             }
             if (internalTab) {
                 internalTab.disabled = true;
@@ -2686,11 +2695,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // --- Clear All Jobs Logic ---
     const clearJobsBtn = document.getElementById('clear-jobs-btn');
     clearJobsBtn.addEventListener('click', async () => {
-        if (!confirm('Are you sure you want to permanently clear the entire job queue? This action cannot be undone.')) {
+        const forceClearCheckbox = document.getElementById('force-clear-checkbox');
+        const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
+        
+        const confirmMessage = force 
+            ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
+            : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
+        
+        if (!confirm(confirmMessage)) {
             return;
         }
         try {
-            const response = await fetch('/api/jobs/clear', { method: 'POST' });
+            const response = await fetch('/api/jobs/clear', { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ force: force })
+            });
             if (response.ok) {
                 updateJobQueue(1); // Refresh the queue to show it's empty
             }

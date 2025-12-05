@@ -1439,15 +1439,26 @@ def api_backup_delete(filename):
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
     """
-    Clears jobs from the queue. This now clears all 'pending' transcode/cleanup jobs
-    and ALL jobs (regardless of status) that are internal-only (Rename, Quality Mismatch).
+    Clears jobs from the queue. 
+    If 'force' parameter is true, clears ALL jobs regardless of status.
+    Otherwise, clears all 'pending' transcode/cleanup jobs and ALL internal-only jobs (Rename, Quality Mismatch).
     """
     try:
+        data = request.get_json() or {}
+        force = data.get('force', False)
+        
         db = get_db()
         with db.cursor() as cur:
-            cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
+            if force:
+                # Force clear: Remove ALL jobs regardless of status
+                cur.execute("DELETE FROM jobs;")
+                message = "All jobs forcefully cleared from queue."
+            else:
+                # Normal clear: Remove pending jobs and internal jobs
+                cur.execute("DELETE FROM jobs WHERE status = 'pending' OR job_type IN ('Rename Job', 'Quality Mismatch');")
+                message = "Job queue cleared successfully."
         db.commit()
-        return jsonify(success=True, message="Job queue cleared successfully.")
+        return jsonify(success=True, message=message)
     except Exception as e:
         print(f"Error clearing job queue: {e}")
         return jsonify(success=False, error=str(e)), 500

@@ -190,8 +190,12 @@
                                 <button class="btn btn-outline-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
                                 <button class="btn btn-outline-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
                             </div>
-                            <div class="btn-group" role="group" aria-label="Clear controls">
+                            <div class="d-flex align-items-center gap-2" role="group" aria-label="Clear controls">
                                 <button class="btn btn-outline-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
+                                <div class="form-check">
+                                    <input class="form-check-input" type="checkbox" id="force-clear-checkbox" title="When enabled, will force remove all jobs regardless of status">
+                                    <label class="form-check-label" for="force-clear-checkbox">Force</label>
+                                </div>
                             </div>
                         </div>
                     </div>
