@@ -587,58 +587,61 @@ async function updateStatus() {
 }
 
 // Function to fetch and display failures in the modal
-document.getElementById('view-errors-btn').addEventListener('click', async () => {
-    const tableBody = document.getElementById('failures-table-body');
-    tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
-    try {
-        const response = await fetch('/api/failures');
-        const data = await response.json();
-        if (data.files && data.files.length > 0) {
-            tableBody.innerHTML = data.files.map((file, index) => {
-                let actionsHtml = '';
-                if (file.type === 'stuck_job') {
-                    // Stuck job: show re-add and clear buttons
-                    actionsHtml = `
-                        <div class="btn-group btn-group-sm" role="group">
-                            <button class="btn btn-outline-primary" onclick="requeueFailedJob(${file.id})" title="Re-add to queue">
-                                <span class="mdi mdi-refresh"></span> Re-add
+const viewErrorsBtn = document.getElementById('view-errors-btn');
+if (viewErrorsBtn) {
+    viewErrorsBtn.addEventListener('click', async () => {
+        const tableBody = document.getElementById('failures-table-body');
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
+        try {
+            const response = await fetch('/api/failures');
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                tableBody.innerHTML = data.files.map((file, index) => {
+                    let actionsHtml = '';
+                    if (file.type === 'stuck_job') {
+                        // Stuck job: show re-add and clear buttons
+                        actionsHtml = `
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-primary" onclick="requeueFailedJob(${file.id})" title="Re-add to queue">
+                                    <span class="mdi mdi-refresh"></span> Re-add
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteFailedJob(${file.id})" title="Remove stuck job">
+                                    <span class="mdi mdi-delete"></span> Clear
+                                </button>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
+                                View Details
                             </button>
-                            <button class="btn btn-outline-danger" onclick="deleteFailedJob(${file.id})" title="Remove stuck job">
-                                <span class="mdi mdi-delete"></span> Clear
+                        `;
+                    } else {
+                        // Regular failed file: show view log button
+                        actionsHtml = `
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
+                                View Log
                             </button>
-                        </div>
-                        <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
-                            View Details
-                        </button>
+                        `;
+                    }
+                    
+                    return `
+                        <tr>
+                            <td style="word-break: break-all;">${file.filename}</td>
+                            <td>${file.reason}</td>
+                            <td>${file.reported_at}</td>
+                            <td>${actionsHtml}</td>
+                        </tr>
+                        <tr class="collapse" id="collapse-log-${index}">
+                            <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
+                        </tr>
                     `;
-                } else {
-                    // Regular failed file: show view log button
-                    actionsHtml = `
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
-                            View Log
-                        </button>
-                    `;
-                }
-                
-                return `
-                    <tr>
-                        <td style="word-break: break-all;">${file.filename}</td>
-                        <td>${file.reason}</td>
-                        <td>${file.reported_at}</td>
-                        <td>${actionsHtml}</td>
-                    </tr>
-                    <tr class="collapse" id="collapse-log-${index}">
-                        <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
-                    </tr>
-                `;
-            }).join('');
-        } else {
-            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files or stuck jobs found.</td></tr>';
+                }).join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files or stuck jobs found.</td></tr>';
+            }
+        } catch (error) {
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load errors.</td></tr>';
         }
-    } catch (error) {
-        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load errors.</td></tr>';
-    }
-});
+    });
+}
 
 // Shared function to clear all failures
 async function clearAllFailures() {
@@ -660,10 +663,16 @@ async function clearAllFailures() {
 }
 
 // Function to clear all failures (header button)
-document.getElementById('clear-errors-btn').addEventListener('click', clearAllFailures);
+const clearErrorsBtn = document.getElementById('clear-errors-btn');
+if (clearErrorsBtn) {
+    clearErrorsBtn.addEventListener('click', clearAllFailures);
+}
 
 // Function to clear all failures (modal button)
-document.getElementById('modal-clear-all-errors-btn').addEventListener('click', clearAllFailures);
+const modalClearAllErrorsBtn = document.getElementById('modal-clear-all-errors-btn');
+if (modalClearAllErrorsBtn) {
+    modalClearAllErrorsBtn.addEventListener('click', clearAllFailures);
+}
 
 // Function to re-queue a stuck job from the failures modal
 window.requeueFailedJob = async function(jobId) {
@@ -803,11 +812,13 @@ var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
 });
 
 // Function to clear all history
-document.getElementById('clear-history-btn').addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to permanently clear the entire transcode history? This action cannot be undone.')) {
-        return;
-    }
-    try {
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to permanently clear the entire transcode history? This action cannot be undone.')) {
+            return;
+        }
+        try {
         const response = await fetch('/api/history/clear', { method: 'POST' });
         if (response.ok) {
             // Refresh the history table to show it's empty
@@ -816,8 +827,9 @@ document.getElementById('clear-history-btn').addEventListener('click', async () 
     } catch (error) {
         console.error('Error clearing history:', error);
         alert('An error occurred while trying to clear the history.');
-    }
-});
+        }
+    });
+}
 
 // Function to update the job queue
 let jobQueueCurrentPage = 1; // Keep track of the current page
@@ -950,18 +962,21 @@ async function updateJobQueue(page = 1) {
 }
 
 // Function to create cleanup jobs
-document.getElementById('create-cleanup-jobs-btn').addEventListener('click', async () => {
-    const statusDiv = document.getElementById('cleanup-status');
-    statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
-    const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
-    if (!response.ok) {
-        statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
-        return;
-    }
-    const result = await response.json();
-    const alertClass = result.success ? 'alert-success' : 'alert-danger';
-    statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
-});
+const createCleanupJobsBtn = document.getElementById('create-cleanup-jobs-btn');
+if (createCleanupJobsBtn) {
+    createCleanupJobsBtn.addEventListener('click', async () => {
+        const statusDiv = document.getElementById('cleanup-status');
+        statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
+        const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
+        if (!response.ok) {
+            statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
+            return;
+        }
+        const result = await response.json();
+        const alertClass = result.success ? 'alert-success' : 'alert-danger';
+        statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
+    });
+}
 
 // --- History & Stats Page Logic ---
 let fullHistoryData = [];
@@ -1128,22 +1143,31 @@ function renderHistoryTable() {
 }
 
 // Event listener for the search input
-document.getElementById('history-search-input').addEventListener('input', () => {
-    historyCurrentPage = 1; // Reset to first page on search
-    renderHistoryTable();
-});
+const historySearchInput = document.getElementById('history-search-input');
+if (historySearchInput) {
+    historySearchInput.addEventListener('input', () => {
+        historyCurrentPage = 1; // Reset to first page on search
+        renderHistoryTable();
+    });
+}
 
 // Event listener for the per-page select
-document.getElementById('history-per-page-select').addEventListener('change', () => {
-    historyCurrentPage = 1; // Reset to first page when changing items per page
-    renderHistoryTable();
-});
+const historyPerPageSelect = document.getElementById('history-per-page-select');
+if (historyPerPageSelect) {
+    historyPerPageSelect.addEventListener('change', () => {
+        historyCurrentPage = 1; // Reset to first page when changing items per page
+        renderHistoryTable();
+    });
+}
 
 // Event listener for the history limit select
-document.getElementById('history-limit-select').addEventListener('change', () => {
-    historyCurrentPage = 1; // Reset to first page when changing limit
-    updateHistoryAndStats(); // Re-fetch data from server with new limit
-});
+const historyLimitSelect = document.getElementById('history-limit-select');
+if (historyLimitSelect) {
+    historyLimitSelect.addEventListener('change', () => {
+        historyCurrentPage = 1; // Reset to first page when changing limit
+        updateHistoryAndStats(); // Re-fetch data from server with new limit
+    });
+}
 
 // Event listeners for sortable column headers
 document.querySelectorAll('th[data-sort]').forEach(th => {
@@ -2517,9 +2541,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     const internalTab = document.getElementById('internal-integration-tab');
-    internalTab.addEventListener('shown.bs.tab', () => {
-        loadInternalFolders();
-    });
+    if (internalTab) {
+        internalTab.addEventListener('shown.bs.tab', () => {
+            loadInternalFolders();
+        });
+    }
 
     // --- NEW: Integrations Tab Logic ---
     const scannerPlexRadio = document.getElementById('scanner_plex');
@@ -2532,139 +2558,148 @@ document.addEventListener('DOMContentLoaded', () => {
     const pathMappingToggle = document.getElementById('plex_path_mapping_enabled');
     const internalTabButton = document.getElementById('internal-integration-tab');
 
-    function handleScannerChange() {
-        // Both inputs should always be enabled.
-        pathFromInput.disabled = false;
+    // Only set up scanner change logic if the required elements exist
+    if (scannerPlexRadio && scannerInternalRadio && pathFromInput && pathFromLabel && 
+        pathFromTooltip && plexTabButton && pathMappingToggleContainer && 
+        pathMappingToggle && internalTabButton) {
+        
+        function handleScannerChange() {
+            // Both inputs should always be enabled.
+            pathFromInput.disabled = false;
 
-        if (scannerPlexRadio.checked) {
-            pathFromLabel.innerText = 'Path in Plex';
-            pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
-            // Enable Plex tab, disable Internal tab
-            plexTabButton.disabled = false;
-            internalTabButton.disabled = true;
-            // If the internal tab was active, switch to the plex tab
-            pathMappingToggleContainer.style.display = 'block'; // Show the toggle
-            // Disable/enable path inputs based on the toggle's state
-            const isMappingEnabled = pathMappingToggle.checked;
-            document.getElementById('plex_path_from').disabled = !isMappingEnabled;
-            document.getElementById('plex_path_to').disabled = !isMappingEnabled;
+            if (scannerPlexRadio.checked) {
+                pathFromLabel.innerText = 'Path in Plex';
+                pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
+                // Enable Plex tab, disable Internal tab
+                plexTabButton.disabled = false;
+                internalTabButton.disabled = true;
+                // If the internal tab was active, switch to the plex tab
+                pathMappingToggleContainer.style.display = 'block'; // Show the toggle
+                // Disable/enable path inputs based on the toggle's state
+                const isMappingEnabled = pathMappingToggle.checked;
+                document.getElementById('plex_path_from').disabled = !isMappingEnabled;
+                document.getElementById('plex_path_to').disabled = !isMappingEnabled;
 
-            if (internalTabButton.classList.contains('active')) {
-                new bootstrap.Tab(plexTabButton).show();
+                if (internalTabButton.classList.contains('active')) {
+                    new bootstrap.Tab(plexTabButton).show();
+                }
+            } else if (scannerInternalRadio.checked) {
+                pathFromLabel.innerText = 'Internal Worker Path';
+                pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the worker machine (e.g., /nfs/media)');
+                // Disable Plex tab, enable Internal tab
+                plexTabButton.disabled = true;
+                internalTabButton.disabled = false;
+                pathMappingToggleContainer.style.display = 'none'; // Hide the toggle
+                // Always enable path inputs for internal scanner
+                document.getElementById('plex_path_from').disabled = false;
+                document.getElementById('plex_path_to').disabled = false;
+                // If the plex tab was active, switch to the internal tab
+                if (plexTabButton.classList.contains('active')) {
+                    new bootstrap.Tab(internalTabButton).show();
+                }
             }
-        } else if (scannerInternalRadio.checked) {
-            pathFromLabel.innerText = 'Internal Worker Path';
-            pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the worker machine (e.g., /nfs/media)');
-            // Disable Plex tab, enable Internal tab
-            plexTabButton.disabled = true;
-            internalTabButton.disabled = false;
-            pathMappingToggleContainer.style.display = 'none'; // Hide the toggle
-            // Always enable path inputs for internal scanner
-            document.getElementById('plex_path_from').disabled = false;
-            document.getElementById('plex_path_to').disabled = false;
-            // If the plex tab was active, switch to the internal tab
-            if (plexTabButton.classList.contains('active')) {
-                new bootstrap.Tab(internalTabButton).show();
+
+            // Also update the manual scan button state
+            const manualScanBtn = document.getElementById('manual-scan-btn');
+            if (manualScanBtn) {
+                const hasPlexToken = window.Librarrarian.settings.plexToken !== "";
+                if (scannerPlexRadio.checked && !hasPlexToken) {
+                    manualScanBtn.disabled = true;
+                    manualScanBtn.title = "Plex account must be linked to run a scan.";
+                } else {
+                    manualScanBtn.disabled = false;
+                    manualScanBtn.title = "Trigger a manual scan of the active media integration";
+                }
             }
         }
 
-        // Also update the manual scan button state
-        const manualScanBtn = document.getElementById('manual-scan-btn');
-        const hasPlexToken = window.Librarrarian.settings.plexToken !== "";
-        if (scannerPlexRadio.checked && !hasPlexToken) {
-            manualScanBtn.disabled = true;
-            manualScanBtn.title = "Plex account must be linked to run a scan.";
-        } else {
-            manualScanBtn.disabled = false;
-            manualScanBtn.title = "Trigger a manual scan of the active media integration";
-        }
+        scannerPlexRadio.addEventListener('change', handleScannerChange);
+        scannerInternalRadio.addEventListener('change', handleScannerChange);
+        // Add listener for the new toggle
+        pathMappingToggle.addEventListener('change', () => {
+            const isEnabled = pathMappingToggle.checked;
+            document.getElementById('plex_path_from').disabled = !isEnabled;
+            document.getElementById('plex_path_to').disabled = !isEnabled;
+        });
+
+        handleScannerChange(); // Run on initial script execution to set the correct state
     }
-
-    scannerPlexRadio.addEventListener('change', handleScannerChange);
-    scannerInternalRadio.addEventListener('change', handleScannerChange);
-    // Add listener for the new toggle
-    pathMappingToggle.addEventListener('change', () => {
-        const isEnabled = pathMappingToggle.checked;
-        document.getElementById('plex_path_from').disabled = !isEnabled;
-        document.getElementById('plex_path_to').disabled = !isEnabled;
-    });
-
-    handleScannerChange(); // Run on initial script execution to set the correct state
 
     // --- Manual Media Scan Logic ---
     const manualScanBtn = document.getElementById('manual-scan-btn');
     const scanStatusDiv = document.getElementById('scan-status');
     const forceRescanCheckbox = document.getElementById('force-rescan-checkbox');
     
-    // Media scan progress elements
-    const mediaScanContainer = document.getElementById('media-scan-container');
-    const mediaScanFeedback = document.getElementById('media-scan-feedback');
-    const mediaScanProgress = document.getElementById('media-scan-progress');
-    const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
-    const mediaScanProgressText = document.getElementById('media-scan-progress-text');
-    const mediaScanTime = document.getElementById('media-scan-time');
-    
-    let mediaScanInterval = null;
-    let mediaScanStartTime = null;
+    if (manualScanBtn && scanStatusDiv) {
+        // Media scan progress elements
+        const mediaScanContainer = document.getElementById('media-scan-container');
+        const mediaScanFeedback = document.getElementById('media-scan-feedback');
+        const mediaScanProgress = document.getElementById('media-scan-progress');
+        const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
+        const mediaScanProgressText = document.getElementById('media-scan-progress-text');
+        const mediaScanTime = document.getElementById('media-scan-time');
+        
+        let mediaScanInterval = null;
+        let mediaScanStartTime = null;
 
-    function startMediaScanPolling() {
-        if (mediaScanInterval) clearInterval(mediaScanInterval);
-        
-        mediaScanStartTime = new Date();
-        if (mediaScanContainer) mediaScanContainer.style.display = 'block';
-        if (mediaScanProgress) mediaScanProgress.style.display = 'block';
-        if (mediaScanProgressBar) {
-            mediaScanProgressBar.style.width = '0%';
-            mediaScanProgressBar.textContent = '0%';
-        }
-        if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
-        
-        mediaScanInterval = setInterval(async () => {
-            try {
-                const response = await fetch('/api/scan/progress');
-                const data = await response.json();
-                
-                const now = new Date();
-                const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
-                if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
-                
-                if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
-                    if (mediaScanProgressBar) {
-                        mediaScanProgressBar.style.width = `${progressPercent}%`;
-                        mediaScanProgressBar.textContent = `${progressPercent}%`;
-                    }
-                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
-                } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
-                    // Scan finished
-                    clearInterval(mediaScanInterval);
-                    mediaScanInterval = null;
-                    
-                    if (mediaScanProgressBar) {
-                        mediaScanProgressBar.style.width = '100%';
-                        mediaScanProgressBar.textContent = '100%';
-                    }
-                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
-                    
-                    // Re-enable the button
-                    if (manualScanBtn) {
-                        manualScanBtn.disabled = false;
-                        manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
-                    }
-                    
-                    // Refresh the job queue
-                    updateJobQueue();
-                    
-                    // Hide progress after a delay
-                    setTimeout(() => {
-                        if (mediaScanContainer) mediaScanContainer.style.display = 'none';
-                    }, 3000);
-                }
-            } catch (error) {
-                console.error('Error polling for media scan progress:', error);
+        function startMediaScanPolling() {
+            if (mediaScanInterval) clearInterval(mediaScanInterval);
+            
+            mediaScanStartTime = new Date();
+            if (mediaScanContainer) mediaScanContainer.style.display = 'block';
+            if (mediaScanProgress) mediaScanProgress.style.display = 'block';
+            if (mediaScanProgressBar) {
+                mediaScanProgressBar.style.width = '0%';
+                mediaScanProgressBar.textContent = '0%';
             }
-        }, 2000);
-    }
+            if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
+            
+            mediaScanInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/scan/progress');
+                    const data = await response.json();
+                    
+                    const now = new Date();
+                    const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
+                    if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
+                    
+                    if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                        const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+                        if (mediaScanProgressBar) {
+                            mediaScanProgressBar.style.width = `${progressPercent}%`;
+                            mediaScanProgressBar.textContent = `${progressPercent}%`;
+                        }
+                        if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
+                    } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                        // Scan finished
+                        clearInterval(mediaScanInterval);
+                        mediaScanInterval = null;
+                        
+                        if (mediaScanProgressBar) {
+                            mediaScanProgressBar.style.width = '100%';
+                            mediaScanProgressBar.textContent = '100%';
+                        }
+                        if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
+                        
+                        // Re-enable the button
+                        if (manualScanBtn) {
+                            manualScanBtn.disabled = false;
+                            manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+                        }
+                        
+                        // Refresh the job queue
+                        updateJobQueue();
+                        
+                        // Hide progress after a delay
+                        setTimeout(() => {
+                            if (mediaScanContainer) mediaScanContainer.style.display = 'none';
+                        }, 3000);
+                    }
+                } catch (error) {
+                    console.error('Error polling for media scan progress:', error);
+                }
+            }, 2000);
+        }
 
     manualScanBtn.addEventListener('click', async () => {
         manualScanBtn.disabled = true;
@@ -2692,14 +2727,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // On page load, check if a media scan is already running
-    fetch('/api/scan/progress').then(r => r.json()).then(data => {
-        if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-            manualScanBtn.disabled = true;
-            manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
-            startMediaScanPolling();
-        }
-    });
+        // On page load, check if a media scan is already running
+        fetch('/api/scan/progress').then(r => r.json()).then(data => {
+            if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                manualScanBtn.disabled = true;
+                manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+                startMediaScanPolling();
+            }
+        });
+    }
 
     // --- Sonarr Options Logic ---
     const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
@@ -2752,29 +2788,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const releaseAllCleanupBtn = document.getElementById('release-all-cleanup-btn');
     const releaseAllRenameBtn = document.getElementById('release-all-rename-btn');
 
-    releaseSelectedBtn.addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
-        if (selectedIds.length === 0) {
-            alert('No jobs selected. Select jobs awaiting approval to release them.');
-            return;
-        }
-        if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
-            // Release all job types when selected
-            await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
-        }
-    });
+    if (releaseSelectedBtn) {
+        releaseSelectedBtn.addEventListener('click', async () => {
+            const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
+            if (selectedIds.length === 0) {
+                alert('No jobs selected. Select jobs awaiting approval to release them.');
+                return;
+            }
+            if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
+                // Release all job types when selected
+                await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
+            }
+        });
+    }
 
-    releaseAllCleanupBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
-            await releaseJobs({ release_all: true, job_type: 'cleanup' });
-        }
-    });
+    if (releaseAllCleanupBtn) {
+        releaseAllCleanupBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
+                await releaseJobs({ release_all: true, job_type: 'cleanup' });
+            }
+        });
+    }
 
-    releaseAllRenameBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
-            await releaseJobs({ release_all: true, job_type: 'Rename Job' });
-        }
-    });
+    if (releaseAllRenameBtn) {
+        releaseAllRenameBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
+                await releaseJobs({ release_all: true, job_type: 'Rename Job' });
+            }
+        });
+    }
 
     async function releaseJobs(payload) {
         try {
@@ -2793,30 +2835,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Clear All Jobs Logic ---
     const clearJobsBtn = document.getElementById('clear-jobs-btn');
-    clearJobsBtn.addEventListener('click', async () => {
-        const forceClearCheckbox = document.getElementById('force-clear-checkbox');
-        const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
-        
-        const confirmMessage = force 
-            ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
-            : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
-        
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-        try {
-            const response = await fetch('/api/jobs/clear', { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ force: force })
-            });
-            if (response.ok) {
-                updateJobQueue(1); // Refresh the queue to show it's empty
+    if (clearJobsBtn) {
+        clearJobsBtn.addEventListener('click', async () => {
+            const forceClearCheckbox = document.getElementById('force-clear-checkbox');
+            const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
+            
+            const confirmMessage = force 
+                ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
+                : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
+            
+            if (!confirm(confirmMessage)) {
+                return;
             }
-        } catch (error) {
-            alert('An error occurred while trying to clear the job queue.');
-        }
-    });
+            try {
+                const response = await fetch('/api/jobs/clear', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: force })
+                });
+                if (response.ok) {
+                    updateJobQueue(1); // Refresh the queue to show it's empty
+                }
+            } catch (error) {
+                alert('An error occurred while trying to clear the job queue.');
+            }
+        });
+    }
 
     // --- Delete Individual Job Logic ---
     window.deleteJob = async function(jobId) {
@@ -2854,16 +2898,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Pause Queue Button Logic ---
     const pauseQueueBtn = document.getElementById('pause-queue-btn');
-    pauseQueueBtn.addEventListener('click', async () => {
-        try {
-            const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
-            if (response.ok) {
-                mainUpdateLoop(); // Immediately refresh the UI to show the new state
+    if (pauseQueueBtn) {
+        pauseQueueBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
+                if (response.ok) {
+                    mainUpdateLoop(); // Immediately refresh the UI to show the new state
+                }
+            } catch (error) {
+                alert('An error occurred while trying to toggle the queue state.');
             }
-        } catch (error) {
-            alert('An error occurred while trying to toggle the queue state.');
-        }
-    });
+        });
+    }
 
     // --- *Arr Connection Test Logic ---
     window.testArrConnection = async function(arrType) {

@@ -39,6 +39,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - In modify mode, Jellyfin modal allows both URL and API key changes
 
 ### Fixed
+- **Critical:** Fixed job queue buttons (Release Selected, Release All Cleanup, Release All Renames, Clear Queue, Pause Queue, Scan Media) not working - JavaScript error caused by missing null checks for Options tab elements was preventing event listeners from being registered
+- Fixed missing scrollbars in individual Plex and Jellyfin library containers when sync mode is disabled - now matches the combined list behavior with consistent max-height and overflow styling
 - **Critical:** Fixed form save button erasing Plex server URL when saving other settings (Plex URL is now managed exclusively via modal/API)
 - **Critical:** Fixed missing Jellyfin path mapping fields in the settings form causing them to be cleared on save
 - **Critical:** Fixed "Force" checkbox on Scan Media button not working - backend now properly reads and uses the force parameter from the frontend
