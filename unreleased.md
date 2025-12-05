@@ -10,6 +10,9 @@ All upcoming features and bug fixes will be documented here until they are part 
 - New API endpoints `/api/plex/test-connection` and `/api/jellyfin/test-connection` for testing server connectivity
 - Helper tooltip for "Sync Between Plex & Jellyfin" explaining what the feature does
 - "Force" checkbox next to "Clear Queue" button in Job Queue tab - when enabled, will force remove all jobs regardless of status (including encoding jobs)
+- "Clear All Errors" button in Failed Files & Stuck Jobs modal footer for easy access to clear all errors from within the modal
+- Sortable columns in History & Stats table - click any column header to sort (ID, File, Node, Codec, Size, Reduction, Date)
+- Items per page dropdown in History & Stats tab with options: Last 100, 200, 300, 400, 500, or All Items
 
 ### Changed
 - Moved Primary Media Server selection (Plex/Jellyfin/Internal Media Scanner) above Integrations section as a standalone section
@@ -23,6 +26,9 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Options tab: Automatically switches to Media Servers sub-tab when Plex or Jellyfin radio button is selected
 - Monitored Libraries: When "Sync Between Plex & Jellyfin" is enabled, server badges now appear between the Library Type dropdown and the linking dropdown (Jellyfin badge for Plex libraries, Plex badge for Jellyfin libraries)
 - Job Queue: "Force" checkbox for "Clear Queue" button now uses the same attached styling as the "Scan Media" Force checkbox for better visual consistency
+- Monitored Libraries: Removed scrollbars from individual Plex and Jellyfin library containers when sync mode is disabled to match the combined list behavior
+- History & Stats: Default items per page changed from 15 to 100 for better data visibility
+- History & Stats: Default sort order changed to descending by ID (newest first)
 
 ### Changed
 - Changed "Unlink Plex" button to "Modify Configuration" button when Plex is authenticated

@@ -640,8 +640,8 @@ document.getElementById('view-errors-btn').addEventListener('click', async () =>
     }
 });
 
-// Function to clear all failures
-document.getElementById('clear-errors-btn').addEventListener('click', async () => {
+// Shared function to clear all failures
+async function clearAllFailures() {
     if (!confirm('Are you sure you want to permanently clear all failed file logs? This action cannot be undone.')) {
         return;
     }
@@ -657,7 +657,13 @@ document.getElementById('clear-errors-btn').addEventListener('click', async () =
     } catch (error) {
         alert('An error occurred while trying to clear the failures.');
     }
-});
+}
+
+// Function to clear all failures (header button)
+document.getElementById('clear-errors-btn').addEventListener('click', clearAllFailures);
+
+// Function to clear all failures (modal button)
+document.getElementById('modal-clear-all-errors-btn').addEventListener('click', clearAllFailures);
 
 // Function to re-queue a stuck job from the failures modal
 window.requeueFailedJob = async function(jobId) {
@@ -960,7 +966,9 @@ document.getElementById('create-cleanup-jobs-btn').addEventListener('click', asy
 // --- History & Stats Page Logic ---
 let fullHistoryData = [];
 let historyCurrentPage = 1;
-const historyItemsPerPage = 15;
+let historyItemsPerPage = 100; // Default to 100
+let historySortColumn = 'id';
+let historySortDirection = 'desc'; // Default to descending (newest first)
 
 // Combined function to fetch and display stats and history
 async function updateHistoryAndStats() {
@@ -1014,23 +1022,59 @@ async function updateHistoryAndStats() {
     }
 }
 
-// Function to render the history table with search and pagination
+// Function to render the history table with search, sorting, and pagination
 function renderHistoryTable() {
     const historyBody = document.getElementById('history-table-body');
     const paginationContainer = document.getElementById('history-pagination');
     const searchTerm = document.getElementById('history-search-input').value.toLowerCase();
+    const perPageValue = document.getElementById('history-per-page-select').value;
 
-    const filteredData = fullHistoryData.filter(item => 
+    // Filter data
+    let filteredData = fullHistoryData.filter(item => 
         item.filename.toLowerCase().includes(searchTerm) ||
         item.hostname.toLowerCase().includes(searchTerm)
     );
 
-    const totalPages = Math.ceil(filteredData.length / historyItemsPerPage);
+    // Sort data
+    filteredData.sort((a, b) => {
+        let aVal = a[historySortColumn];
+        let bVal = b[historySortColumn];
+        
+        // Handle numeric sorting for specific columns
+        if (historySortColumn === 'id' || historySortColumn === 'original_size' || historySortColumn === 'reduction_percent') {
+            aVal = parseFloat(aVal) || 0;
+            bVal = parseFloat(bVal) || 0;
+        } else {
+            // String comparison
+            aVal = String(aVal).toLowerCase();
+            bVal = String(bVal).toLowerCase();
+        }
+        
+        if (aVal < bVal) return historySortDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return historySortDirection === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    // Update sort indicators in table headers
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+        const sortIcon = th.querySelector('.mdi');
+        if (th.getAttribute('data-sort') === historySortColumn) {
+            sortIcon.className = `mdi mdi-sort-${historySortDirection === 'asc' ? 'ascending' : 'descending'}`;
+        } else {
+            sortIcon.className = 'mdi mdi-sort';
+        }
+    });
+
+    // Determine items per page
+    const effectiveItemsPerPage = perPageValue === 'all' ? filteredData.length : parseInt(perPageValue);
+    
+    // Paginate data
+    const totalPages = Math.ceil(filteredData.length / effectiveItemsPerPage);
     if (historyCurrentPage > totalPages) {
         historyCurrentPage = totalPages || 1;
     }
-    const startIndex = (historyCurrentPage - 1) * historyItemsPerPage;
-    const paginatedData = filteredData.slice(startIndex, startIndex + historyItemsPerPage);
+    const startIndex = (historyCurrentPage - 1) * effectiveItemsPerPage;
+    const paginatedData = filteredData.slice(startIndex, startIndex + effectiveItemsPerPage);
 
     // Render table rows
     if (paginatedData.length > 0) {
@@ -1051,12 +1095,12 @@ function renderHistoryTable() {
             </tr>
         `).join('');
     } else {
-        historyBody.innerHTML = `<tr><td colspan="7" class="text-center">${searchTerm ? 'No matching files found.' : 'No encoded files found.'}</td></tr>`;
+        historyBody.innerHTML = `<tr><td colspan="8" class="text-center">${searchTerm ? 'No matching files found.' : 'No encoded files found.'}</td></tr>`;
     }
 
-    // Render pagination
+    // Render pagination (only if not showing all)
     paginationContainer.innerHTML = '';
-    if (totalPages > 1) {
+    if (totalPages > 1 && perPageValue !== 'all') {
         for (let i = 1; i <= totalPages; i++) {
             const li = document.createElement('li');
             li.className = `page-item ${i === historyCurrentPage ? 'active' : ''}`;
@@ -1075,6 +1119,29 @@ function renderHistoryTable() {
 document.getElementById('history-search-input').addEventListener('input', () => {
     historyCurrentPage = 1; // Reset to first page on search
     renderHistoryTable();
+});
+
+// Event listener for the per-page select
+document.getElementById('history-per-page-select').addEventListener('change', () => {
+    historyCurrentPage = 1; // Reset to first page when changing items per page
+    renderHistoryTable();
+});
+
+// Event listeners for sortable column headers
+document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+        const sortColumn = th.getAttribute('data-sort');
+        if (historySortColumn === sortColumn) {
+            // Toggle sort direction if clicking the same column
+            historySortDirection = historySortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            // New column, default to descending for ID/date, ascending for others
+            historySortColumn = sortColumn;
+            historySortDirection = (sortColumn === 'id' || sortColumn === 'encoded_at') ? 'desc' : 'asc';
+        }
+        historyCurrentPage = 1; // Reset to first page when sorting
+        renderHistoryTable();
+    });
 });
 
 // --- NEW: Smart Pagination Renderer ---

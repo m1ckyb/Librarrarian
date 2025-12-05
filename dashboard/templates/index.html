@@ -257,9 +257,17 @@
                         </div>
                     </div>
                     <hr class="my-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div class="w-50">
-                            <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node...">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node..." style="width: 300px;">
+                            <select id="history-per-page-select" class="form-select" style="width: auto;">
+                                <option value="100">Last 100</option>
+                                <option value="200">Last 200</option>
+                                <option value="300">Last 300</option>
+                                <option value="400">Last 400</option>
+                                <option value="500">Last 500</option>
+                                <option value="all">All Items</option>
+                            </select>
                         </div>
                         <button class="btn btn-outline-danger" id="clear-history-btn"><span class="mdi mdi-delete-sweep"></span> Clear All History</button>
                     </div>
@@ -267,13 +275,13 @@
                     <table class="table table-hover table-sm">
                         <thead>
                             <tr>
-                                <th>ID</th> <!-- This was previously Job ID -->
-                                <th>File</th>
-                                <th>Node</th>
-                                <th>Codec</th>
-                                <th>Size (GB)</th>
-                                <th>Reduction</th>
-                                <th>Date</th>
+                                <th style="cursor: pointer;" data-sort="id">ID <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="filename">File <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="hostname">Node <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="codec">Codec <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="original_size">Size (GB) <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="reduction_percent">Reduction <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="encoded_at">Date <span class="mdi mdi-sort"></span></th>
                                 <th></th> <!-- For delete button -->
                             </tr>
                         </thead>
@@ -403,7 +411,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
                                                     <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                                <div id="plex-libraries-list" class="border rounded p-2"></div>
                                             </div>
 
                                             <!-- Single Jellyfin Libraries Container (used when Jellyfin is primary and sync is disabled) -->
@@ -413,7 +421,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="jellyfin-show-hidden-toggle">
                                                     <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                                <div id="jellyfin-libraries-list" class="border rounded p-2"></div>
                                             </div>
                                             
                                             <!-- Combined Libraries Container (used when multi-server sync is enabled) -->
