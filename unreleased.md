@@ -21,6 +21,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Monitored Libraries: Jellyfin library names now display with a purple badge (similar to Plex's orange badge) when "Sync Between Plex & Jellyfin" is enabled
 - Options tab: Automatically switches to Internal Media Scanner sub-tab when Internal Media Scanner radio button is selected
 - Options tab: Automatically switches to Media Servers sub-tab when Plex or Jellyfin radio button is selected
+- Monitored Libraries: When "Sync Between Plex & Jellyfin" is enabled, server badges now appear between the Library Type dropdown and the linking dropdown (Jellyfin badge for Plex libraries, Plex badge for Jellyfin libraries)
+- Job Queue: "Force" checkbox for "Clear Queue" button now uses the same attached styling as the "Scan Media" Force checkbox for better visual consistency
 
 ### Changed
 - Changed "Unlink Plex" button to "Modify Configuration" button when Plex is authenticated

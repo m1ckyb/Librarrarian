@@ -1977,6 +1977,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
+                        ${showJellyfinLink ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
                         ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
@@ -2080,6 +2081,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
+                        ${showPlexLink ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
                         ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
