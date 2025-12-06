@@ -2349,13 +2349,13 @@ document.addEventListener('DOMContentLoaded', () => {
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        // Build combined library list
+        // Build combined library list - show ALL libraries from BOTH servers
         let libraryItems = [];
         
-        // Add primary server's libraries first
-        if (primaryServer === 'plex' && plexLibraries.length > 0) {
+        // Always add Plex libraries if available
+        if (plexLibraries.length > 0) {
             const currentLibs = window.Librarrarian.settings.plexLibraries;
-            libraryItems = plexLibraries.map(lib => {
+            const plexItems = plexLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedKey = escapeHtml(lib.key);
                 return `
@@ -2366,16 +2366,19 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-purple">Jellyfin</span>
-                        ${createJellyfinLinkDropdown(lib.title)}
+                        ${hasJellyfinAuth ? `<span class="badge badge-outline-purple">Link to Jellyfin</span>` : ''}
+                        ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
                 `;
             });
-        } else if (primaryServer === 'jellyfin' && jellyfinLibraries.length > 0) {
+            libraryItems = libraryItems.concat(plexItems);
+        }
+        
+        // Always add Jellyfin libraries if available
+        if (jellyfinLibraries.length > 0) {
             const currentLibs = window.Librarrarian.settings.jellyfinLibraries || [];
-            libraryItems = jellyfinLibraries.map(lib => {
+            const jellyfinItems = jellyfinLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedId = escapeHtml(lib.id || lib.title);
                 return `
@@ -2386,28 +2389,42 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-warning">Plex</span>
-                        ${createPlexLinkDropdown(lib.title)}
+                        ${hasPlexAuth ? `<span class="badge badge-outline-warning">Link to Plex</span>` : ''}
+                        ${hasPlexAuth ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
                 `;
             });
+            libraryItems = libraryItems.concat(jellyfinItems);
         }
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
         } else {
-            const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
-            const serverError = primaryServer === 'plex' ? plexError : jellyfinError;
+            // Show appropriate message when no libraries are found
+            let messages = [];
             
-            if ((primaryServer === 'plex' && !hasPlexAuth) || (primaryServer === 'jellyfin' && !hasJellyfinAuth)) {
-                container.innerHTML = `<p class="text-muted">Link your ${serverName} account to see libraries.</p>`;
-            } else if (serverError) {
-                container.innerHTML = `<p class="text-muted">${serverError}</p>`;
+            if (!hasPlexAuth && !hasJellyfinAuth) {
+                messages.push('Link your Plex or Jellyfin account to see libraries.');
             } else {
-                container.innerHTML = `<p class="text-muted">No libraries found.</p>`;
+                if (!hasPlexAuth) {
+                    messages.push('Plex: Not linked.');
+                } else if (plexError) {
+                    messages.push(`Plex: ${plexError}`);
+                } else if (plexLibraries.length === 0) {
+                    messages.push('Plex: No libraries found.');
+                }
+                
+                if (!hasJellyfinAuth) {
+                    messages.push('Jellyfin: Not linked.');
+                } else if (jellyfinError) {
+                    messages.push(`Jellyfin: ${jellyfinError}`);
+                } else if (jellyfinLibraries.length === 0) {
+                    messages.push('Jellyfin: No libraries found.');
+                }
             }
+            
+            container.innerHTML = `<p class="text-muted">${messages.join('<br>')}</p>`;
         }
         
         // Apply the initial visibility based on the toggle's state
@@ -3457,14 +3474,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 debugSettingsContent.textContent = `Error: No settings object in API response.\n\nRaw API response:\n${JSON.stringify(data, null, 2)}`;
             } else if (Object.keys(data.settings).length === 0) {
                 console.warn('Debug Settings Modal: settings object is empty');
-                debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.';
+                debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.\n\nThis could indicate:\n1. Fresh installation (settings not yet initialized)\n2. Database connection issue\n3. Database migration not completed';
             } else {
                 // Format the settings as pretty JSON
                 console.log('Debug Settings Modal: Successfully loaded', Object.keys(data.settings).length, 'settings');
+                const settingsCount = Object.keys(data.settings).length;
                 debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
                 // Update timestamp
                 const now = new Date();
-                debugSettingsTimestamp.textContent = `Last loaded: ${now.toLocaleString()}`;
+                debugSettingsTimestamp.textContent = `Last loaded: ${now.toLocaleString()} (${settingsCount} settings)`;
             }
         } catch (error) {
             console.error('Debug Settings Modal: Exception caught:', error);
