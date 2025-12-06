@@ -2349,20 +2349,20 @@ document.addEventListener('DOMContentLoaded', () => {
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        // Build combined library list - show ALL libraries from BOTH servers
+        // Build combined library list - show PRIMARY server's libraries with optional linking to secondary
         let libraryItems = [];
         
-        // Always add Plex libraries if available
-        if (plexLibraries.length > 0) {
-            const currentLibs = window.Librarrarian.settings.plexLibraries;
-            const plexItems = plexLibraries.map(lib => {
+        // Show ONLY the primary server's libraries
+        if (primaryServer === 'plex' && plexLibraries.length > 0) {
+            const currentLibs = window.Librarrarian.settings.plexLibraries || [];
+            libraryItems = plexLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedKey = escapeHtml(lib.key);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="lib-${escapedKey}"><span class="badge badge-outline-warning me-1">Plex</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
@@ -2372,20 +2372,16 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 `;
             });
-            libraryItems = libraryItems.concat(plexItems);
-        }
-        
-        // Always add Jellyfin libraries if available
-        if (jellyfinLibraries.length > 0) {
+        } else if (primaryServer === 'jellyfin' && jellyfinLibraries.length > 0) {
             const currentLibs = window.Librarrarian.settings.jellyfinLibraries || [];
-            const jellyfinItems = jellyfinLibraries.map(lib => {
+            libraryItems = jellyfinLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedId = escapeHtml(lib.id || lib.title);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-purple me-1">Jellyfin</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="jlib-${escapedId}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
@@ -2395,36 +2391,22 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
                 `;
             });
-            libraryItems = libraryItems.concat(jellyfinItems);
         }
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
         } else {
-            // Show appropriate message when no libraries are found
-            let messages = [];
+            // Show appropriate message based on primary server
+            const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
+            const serverError = primaryServer === 'plex' ? plexError : jellyfinError;
             
-            if (!hasPlexAuth && !hasJellyfinAuth) {
-                messages.push('Link your Plex or Jellyfin account to see libraries.');
+            if ((primaryServer === 'plex' && !hasPlexAuth) || (primaryServer === 'jellyfin' && !hasJellyfinAuth)) {
+                container.innerHTML = `<p class="text-muted">Link your ${serverName} account to see libraries.</p>`;
+            } else if (serverError) {
+                container.innerHTML = `<p class="text-muted">${serverError}</p>`;
             } else {
-                if (!hasPlexAuth) {
-                    messages.push('Plex: Not linked.');
-                } else if (plexError) {
-                    messages.push(`Plex: ${plexError}`);
-                } else if (plexLibraries.length === 0) {
-                    messages.push('Plex: No libraries found.');
-                }
-                
-                if (!hasJellyfinAuth) {
-                    messages.push('Jellyfin: Not linked.');
-                } else if (jellyfinError) {
-                    messages.push(`Jellyfin: ${jellyfinError}`);
-                } else if (jellyfinLibraries.length === 0) {
-                    messages.push('Jellyfin: No libraries found.');
-                }
+                container.innerHTML = `<p class="text-muted">No libraries found.</p>`;
             }
-            
-            container.innerHTML = `<p class="text-muted">${messages.join('<br>')}</p>`;
         }
         
         // Apply the initial visibility based on the toggle's state
@@ -3497,7 +3479,20 @@ document.addEventListener('DOMContentLoaded', () => {
     }
     
     // Load settings when modal is shown
-    debugSettingsModal.addEventListener('show.bs.modal', loadSettings);
+    // Use Bootstrap's event listener on the modal element
+    if (debugSettingsModal) {
+        debugSettingsModal.addEventListener('show.bs.modal', () => {
+            console.log('Debug Settings Modal: show.bs.modal event fired');
+            loadSettings();
+        });
+        
+        // Also trigger load immediately if DEVMODE users open the page with the modal already visible
+        // This handles edge cases where the modal might be pre-opened via URL hash or other means
+        if (debugSettingsModal.classList.contains('show')) {
+            console.log('Debug Settings Modal: Modal already shown on page load, loading settings');
+            loadSettings();
+        }
+    }
     
     // Reload settings when reload button is clicked
     if (reloadDebugSettingsBtn) {
