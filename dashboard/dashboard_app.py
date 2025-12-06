@@ -384,6 +384,7 @@ def run_migrations():
     # This function is now called before the app starts serving requests.
     print("Checking database schema version...")
     conn = None
+    cur = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
@@ -426,8 +427,9 @@ def run_migrations():
                     print(f"  -> Executing: {statement[:80]}...")
                     cur.execute(statement)
                 
-                # Update the version - use DELETE + INSERT instead of UPDATE to avoid PK update issues
-                cur.execute("DELETE FROM schema_version;")
+                # Update the version - use TRUNCATE + INSERT to maintain atomicity within transaction
+                # TRUNCATE is transaction-safe and faster than DELETE for single-row tables
+                cur.execute("TRUNCATE TABLE schema_version;")
                 cur.execute("INSERT INTO schema_version (version) VALUES (%s);", (version,))
                 conn.commit()
                 print(f"Successfully migrated to version {version}.")
@@ -440,7 +442,9 @@ def run_migrations():
             conn.rollback()
         sys.exit(1)
     finally:
-        # Ensure connection is always closed
+        # Ensure resources are always cleaned up
+        if cur:
+            cur.close()
         if conn:
             conn.close()
 
