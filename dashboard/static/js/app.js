@@ -3188,6 +3188,15 @@ document.addEventListener('DOMContentLoaded', () => {
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
         else if (theme === 'christmas') themeIcon.className = 'mdi mdi-pine-tree';
         else themeIcon.className = 'mdi mdi-desktop-classic';
+        
+        // Enable/disable Christmas snow effect
+        if (typeof window.snowEffect !== 'undefined') {
+            if (theme === 'christmas') {
+                window.snowEffect.start();
+            } else {
+                window.snowEffect.stop();
+            }
+        }
     };
 
     // Set initial theme on page load
@@ -3409,18 +3418,29 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Load settings when modal is shown
     debugSettingsModal.addEventListener('show.bs.modal', async function() {
+        // Show loading state
+        debugSettingsContent.textContent = 'Loading settings...';
+        
         try {
             const response = await fetch('/api/settings');
+            
+            if (!response.ok) {
+                debugSettingsContent.textContent = `HTTP Error: ${response.status} ${response.statusText}`;
+                return;
+            }
+            
             const data = await response.json();
             
             if (data.error) {
                 debugSettingsContent.textContent = `Error: ${data.error}`;
+            } else if (!data.settings || Object.keys(data.settings).length === 0) {
+                debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.';
             } else {
                 // Format the settings as pretty JSON
                 debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
             }
         } catch (error) {
-            debugSettingsContent.textContent = `Failed to load settings: ${error.message}`;
+            debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nStack trace:\n${error.stack}`;
         }
     });
     

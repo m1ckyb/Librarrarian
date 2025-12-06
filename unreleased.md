@@ -6,6 +6,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed library type settings not saving when "Sync Between Plex & Jellyfin" is enabled
 - Fixed secondary server library list not saving when sync is enabled
 - Updated history tab pagination to match job queue pagination style with Previous/Next buttons and smart page window
+- Fixed Debug Settings modal not displaying worker_settings data by improving error handling and simplifying the data structure returned by `/api/settings` endpoint
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
@@ -19,3 +20,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Added DEVMODE environment variable for development mode features
 - Added Debug Settings button in Options tab (visible only when DEVMODE=true) that displays all database settings in a modal
 - Added Christmas theme to theme dropdown with festive red, green, and gold color palette
+- Added subtle JavaScript snow animation that activates automatically when Christmas theme is selected
+  - Snowflakes fall from top to bottom with natural variation in size, speed, and drift
+  - Snow effect automatically starts/stops when switching themes
+  - No impact on performance or UI interaction

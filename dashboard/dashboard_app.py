@@ -867,9 +867,10 @@ def get_worker_settings():
     try:
         # Using new settings table schema
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT setting_name, setting_value, 'description' as description FROM worker_settings")
+            cur.execute("SELECT setting_name, setting_value FROM worker_settings ORDER BY setting_name")
             for row in cur.fetchall():
-                settings[row['setting_name']] = row
+                # Store both the name and value for easier debugging
+                settings[row['setting_name']] = row['setting_value']
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return settings, db_error
