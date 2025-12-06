@@ -3406,6 +3406,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
+}); // End of main DOMContentLoaded block
 
 // --- Debug Settings Modal (DEVMODE only) ---
 // This section handles the debug settings modal that shows database settings
@@ -3531,4 +3532,3 @@ if (document.readyState === 'loading') {
     // DOM is already loaded, run immediately
     initDebugSettingsModal();
 }
-});
