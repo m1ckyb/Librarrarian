@@ -2288,7 +2288,7 @@ def jellyfin_get_libraries():
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT source_name, media_type, is_hidden, linked_library FROM media_source_types WHERE scanner_type = 'jellyfin'")
             for row in cur.fetchall():
-                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row['linked_library']}
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row.get('linked_library') or ''}
 
         # 2. Fetch libraries from Jellyfin and merge with saved settings
         result_libraries = []
@@ -2358,7 +2358,7 @@ def plex_get_libraries():
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT source_name, media_type, is_hidden, linked_library FROM media_source_types WHERE scanner_type = 'plex'")
             for row in cur.fetchall():
-                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row['linked_library']}
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row.get('linked_library') or ''}
 
         # 2. Fetch libraries from Plex and merge with saved settings
         result_libraries = []
