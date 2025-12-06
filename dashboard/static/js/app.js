@@ -3488,8 +3488,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Also trigger load immediately if DEVMODE users open the page with the modal already visible
         // This handles edge cases where the modal might be pre-opened via URL hash or other means
-        const modalInstance = bootstrap.Modal.getInstance(debugSettingsModal);
-        if (modalInstance && modalInstance._isShown) {
+        if (debugSettingsModal.classList.contains('show')) {
             console.log('Debug Settings Modal: Modal already shown on page load, loading settings');
             loadSettings();
         }
