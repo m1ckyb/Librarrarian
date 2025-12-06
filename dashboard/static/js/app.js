@@ -3454,7 +3454,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 debugSettingsContent.textContent = `Error: ${data.error}`;
             } else if (!data.settings) {
                 console.warn('Debug Settings Modal: data.settings is undefined or null');
-                debugSettingsContent.textContent = 'Error: No settings object in API response.\n\nRaw API response:\n' + JSON.stringify(data, null, 2);
+                debugSettingsContent.textContent = `Error: No settings object in API response.\n\nRaw API response:\n${JSON.stringify(data, null, 2)}`;
             } else if (Object.keys(data.settings).length === 0) {
                 console.warn('Debug Settings Modal: settings object is empty');
                 debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.';
@@ -3468,7 +3468,8 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (error) {
             console.error('Debug Settings Modal: Exception caught:', error);
-            debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nStack trace:\n${error.stack}`;
+            // Show user-friendly error message, full details only in console
+            debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nPlease check the browser console (F12) for more details.`;
         } finally {
             // Re-enable reload button after load completes (success or failure)
             if (reloadDebugSettingsBtn) {
