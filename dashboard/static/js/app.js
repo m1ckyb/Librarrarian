@@ -1691,14 +1691,23 @@ document.addEventListener('DOMContentLoaded', () => {
     function setPlexModalLinkMode() {
         document.getElementById('plexLoginModalLabel').textContent = 'Link Plex Account';
         document.getElementById('plex-modal-description').textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
-        document.getElementById('plex-username-group').style.display = 'block';
-        document.getElementById('plex-password-group').style.display = 'block';
+        
+        // Reset to credentials mode by default
+        const credentialsRadio = document.getElementById('plex-auth-credentials');
+        if (credentialsRadio) {
+            credentialsRadio.checked = true;
+            document.getElementById('plex-credentials-group').style.display = 'block';
+            document.getElementById('plex-token-group').style.display = 'none';
+        }
+        
         document.getElementById('plex-signin-btn').style.display = 'inline-block';
+        document.getElementById('plex-save-token-btn').style.display = 'none';
         document.getElementById('plex-update-btn').style.display = 'none';
         document.getElementById('plex-modal-unlink-btn').style.display = 'none';
         document.getElementById('plex-modal-url').value = '';
         document.getElementById('plex-username').value = '';
         document.getElementById('plex-password').value = '';
+        document.getElementById('plex-token-input').value = '';
         document.getElementById('plex-login-status').innerHTML = '';
     }
 
@@ -1706,11 +1715,16 @@ document.addEventListener('DOMContentLoaded', () => {
     function setPlexModalModifyMode() {
         document.getElementById('plexLoginModalLabel').textContent = 'Modify Plex Configuration';
         document.getElementById('plex-modal-description').textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
-        document.getElementById('plex-username-group').style.display = 'none';
-        document.getElementById('plex-password-group').style.display = 'none';
+        
+        // Hide authentication method toggle and all auth groups in modify mode
+        document.getElementById('plex-credentials-group').style.display = 'none';
+        document.getElementById('plex-token-group').style.display = 'none';
+        
         document.getElementById('plex-signin-btn').style.display = 'none';
+        document.getElementById('plex-save-token-btn').style.display = 'none';
         document.getElementById('plex-update-btn').style.display = 'inline-block';
         document.getElementById('plex-modal-unlink-btn').style.display = 'inline-block';
+        
         // Pre-fill with current URL
         document.getElementById('plex-modal-url').value = window.Librarrarian.settings.plexUrl || '';
         document.getElementById('plex-login-status').innerHTML = '';
@@ -1829,6 +1843,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Unlinking...`;
                 await fetch('/api/plex/logout', { method: 'POST' });
                 window.location.reload();
+            }
+        });
+    }
+
+    // Handle Plex authentication method toggle
+    const plexAuthCredentialsRadio = document.getElementById('plex-auth-credentials');
+    const plexAuthTokenRadio = document.getElementById('plex-auth-token');
+    const plexCredentialsGroup = document.getElementById('plex-credentials-group');
+    const plexTokenGroup = document.getElementById('plex-token-group');
+    const plexSaveTokenBtn = document.getElementById('plex-save-token-btn');
+
+    if (plexAuthCredentialsRadio && plexAuthTokenRadio) {
+        plexAuthCredentialsRadio.addEventListener('change', () => {
+            if (plexAuthCredentialsRadio.checked) {
+                plexCredentialsGroup.style.display = 'block';
+                plexTokenGroup.style.display = 'none';
+                plexSignInBtn.style.display = 'inline-block';
+                plexSaveTokenBtn.style.display = 'none';
+            }
+        });
+
+        plexAuthTokenRadio.addEventListener('change', () => {
+            if (plexAuthTokenRadio.checked) {
+                plexCredentialsGroup.style.display = 'none';
+                plexTokenGroup.style.display = 'block';
+                plexSignInBtn.style.display = 'none';
+                plexSaveTokenBtn.style.display = 'inline-block';
+            }
+        });
+    }
+
+    // Handle Save Token button
+    if (plexSaveTokenBtn) {
+        plexSaveTokenBtn.addEventListener('click', async () => {
+            const tokenInput = document.getElementById('plex-token-input');
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+
+            if (!tokenInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex token.</div>`;
+                return;
+            }
+
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL.</div>`;
+                return;
+            }
+
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Saving token...`;
+
+            const response = await fetch('/api/plex/save-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    token: tokenInput.value,
+                    plex_url: urlInput.value
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
         });
     }

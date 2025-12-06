@@ -2047,6 +2047,45 @@ def plex_logout():
     else:
         return jsonify(success=False, error=error), 500
 
+@app.route('/api/plex/save-token', methods=['POST'])
+def plex_save_token():
+    """Saves a manually provided Plex token without requiring username/password login."""
+    token = request.json.get('token', '').strip()
+    plex_url = request.json.get('plex_url', '').strip()
+    
+    if not token:
+        return jsonify(success=False, error="Plex token is required."), 400
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
+    
+    # Verify the token works with the provided server
+    try:
+        plex = PlexServer(plex_url, token)
+        # Try to access the library to verify the token is valid
+        _ = plex.library.sections()
+        
+        # Token is valid, save it
+        success, error = update_worker_settings_batch({
+            'plex_token': token,
+            'plex_url': plex_url
+        })
+        
+        if success:
+            return jsonify(success=True, message="Plex token saved successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+            
+    except Exception as e:
+        return jsonify(success=False, error=f"Failed to verify Plex token: {e}"), 400
+
 @app.route('/api/plex/update-url', methods=['POST'])
 def plex_update_url():
     """Updates the Plex server URL without re-authentication."""
