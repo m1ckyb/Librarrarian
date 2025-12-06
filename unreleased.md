@@ -3,6 +3,7 @@
 All upcoming features and bug fixes will be documented here until they are part of an official release.
 
 ### Fixed
+- Fixed dashboard crash on root URL (`/`) due to incorrect settings dictionary structure in `get_worker_settings()` function
 - Fixed library type settings not saving when "Sync Between Plex & Jellyfin" is enabled
 - Fixed secondary server library list not saving when sync is enabled
 - Updated history tab pagination to match job queue pagination style with Previous/Next buttons and smart page window
