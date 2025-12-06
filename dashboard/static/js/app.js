@@ -3235,7 +3235,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const response = await fetch(mainVersionUrl);
-            const latestStableVersion = await response.text().trim();
+            const latestStableVersion = (await response.text()).trim();
 
             // Use localeCompare with numeric option for proper version comparison (e.g., "0.10.7b" > "0.10.7")
             const comparison = internalVersion.localeCompare(latestStableVersion, undefined, { numeric: true });
