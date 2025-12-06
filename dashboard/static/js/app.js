@@ -2332,7 +2332,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return `<option value="${escapedTitle}">${escapedTitle}</option>`;
                 }))
                 .join('');
-            return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
+            return `<span class="badge badge-outline-secondary me-1">Link to Jellyfin:</span><select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
         const createPlexLinkDropdown = (jellyfinLibName) => {
@@ -2346,7 +2346,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return `<option value="${escapedTitle}">${escapedTitle}</option>`;
                 }))
                 .join('');
-            return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
+            return `<span class="badge badge-outline-secondary me-1">Link to Plex:</span><select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
         // Build combined library list - show PRIMARY server's libraries with optional linking to secondary
@@ -2366,7 +2366,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        ${hasJellyfinAuth ? `<span class="badge badge-outline-purple">Link to Jellyfin</span>` : ''}
+                        <span class="badge badge-outline-primary">Primary Library</span>
                         ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
@@ -2385,7 +2385,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        ${hasPlexAuth ? `<span class="badge badge-outline-warning">Link to Plex</span>` : ''}
+                        <span class="badge badge-outline-primary">Primary Library</span>
                         ${hasPlexAuth ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
@@ -3406,10 +3406,12 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
+}); // End of main DOMContentLoaded block
 
 // --- Debug Settings Modal (DEVMODE only) ---
 // This section handles the debug settings modal that shows database settings
-document.addEventListener('DOMContentLoaded', () => {
+// Use a function that works whether DOM is already loaded or not
+function initDebugSettingsModal() {
     const debugSettingsModal = document.getElementById('debugSettingsModal');
     if (!debugSettingsModal) {
         console.log('Debug Settings Modal: Element not found, DEVMODE likely disabled');
@@ -3521,5 +3523,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         });
     }
-});
-});
+}
+
+// Initialize the debug modal - works whether DOM is already loaded or not
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDebugSettingsModal);
+} else {
+    // DOM is already loaded, run immediately
+    initDebugSettingsModal();
+}
