@@ -3400,8 +3400,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- Debug Settings Modal (DEVMODE only) ---
 // This section handles the debug settings modal that shows database settings
-if (document.getElementById('debugSettingsModal')) {
+document.addEventListener('DOMContentLoaded', () => {
     const debugSettingsModal = document.getElementById('debugSettingsModal');
+    if (!debugSettingsModal) return; // Exit if modal doesn't exist (DEVMODE disabled)
+    
     const debugSettingsContent = document.getElementById('debug-settings-content');
     const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
     
@@ -3444,5 +3446,5 @@ if (document.getElementById('debugSettingsModal')) {
             });
         });
     }
-}
+});
 });
