@@ -2366,7 +2366,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        ${hasJellyfinAuth ? `<span class="badge badge-outline-purple">Link to</span>` : ''}
+                        ${hasJellyfinAuth ? `<span class="badge badge-outline-purple">Link to Jellyfin</span>` : ''}
                         ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
@@ -2389,7 +2389,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        ${hasPlexAuth ? `<span class="badge badge-outline-warning">Link to</span>` : ''}
+                        ${hasPlexAuth ? `<span class="badge badge-outline-warning">Link to Plex</span>` : ''}
                         ${hasPlexAuth ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
