@@ -9,6 +9,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Updated history tab pagination to match job queue pagination style with Previous/Next buttons and smart page window
 - Fixed Debug Settings modal not displaying worker_settings data by flattening the nested dictionary structure in the `/api/settings` endpoint
 - Enhanced Debug Settings modal with comprehensive error handling, console logging, and reload functionality for better diagnostics
+- Fixed JavaScript console error "Uncaught ReferenceError: $ is not defined" by removing orphaned jQuery code that referenced non-existent DOM elements
+- Fixed JavaScript console error "TypeError: response.text().trim is not a function" in update checker by correcting async/await syntax to `(await response.text()).trim()`
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
