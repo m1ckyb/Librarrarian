@@ -2354,7 +2354,7 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Show ONLY the primary server's libraries
         if (primaryServer === 'plex' && plexLibraries.length > 0) {
-            const currentLibs = window.Librarrarian.settings.plexLibraries;
+            const currentLibs = window.Librarrarian.settings.plexLibraries || [];
             libraryItems = plexLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedKey = escapeHtml(lib.key);
