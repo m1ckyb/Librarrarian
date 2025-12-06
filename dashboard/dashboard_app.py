@@ -271,7 +271,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 14
+TARGET_SCHEMA_VERSION = 15
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -372,6 +372,10 @@ MIGRATIONS = {
         """,
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
+    ],
+    # Version 15: Add library linking support for multi-server sync mode
+    15: [
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS linked_library VARCHAR(255);"
     ],
 }
 
@@ -1302,21 +1306,25 @@ def options():
                 media_type = request.form.get(f'type_plex_{source_name}')
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
+                # Get the linked library from the form (for multi-server sync mode)
+                linked_library = request.form.get(f'link_plex_{source_name}', '')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
-                    VALUES (%s, 'plex', %s, %s, 'plex')
-                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
-                """, (source_name, media_type, is_hidden))
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type, linked_library)
+                    VALUES (%s, 'plex', %s, %s, 'plex', %s)
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden, linked_library = EXCLUDED.linked_library;
+                """, (source_name, media_type, is_hidden, linked_library))
 
             for source_name in all_jellyfin_sources:
                 media_type = request.form.get(f'type_jellyfin_{source_name}')
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
+                # Get the linked library from the form (for multi-server sync mode)
+                linked_library = request.form.get(f'link_jellyfin_{source_name}', '')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
-                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin')
-                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
-                """, (source_name, media_type, is_hidden))
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type, linked_library)
+                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin', %s)
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden, linked_library = EXCLUDED.linked_library;
+                """, (source_name, media_type, is_hidden, linked_library))
 
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
@@ -2278,9 +2286,9 @@ def jellyfin_get_libraries():
         # 1. Fetch saved types from the database into a dictionary
         saved_types = {}
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'jellyfin'")
+            cur.execute("SELECT source_name, media_type, is_hidden, linked_library FROM media_source_types WHERE scanner_type = 'jellyfin'")
             for row in cur.fetchall():
-                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row['linked_library']}
 
         # 2. Fetch libraries from Jellyfin and merge with saved settings
         result_libraries = []
@@ -2307,6 +2315,7 @@ def jellyfin_get_libraries():
                     'title': lib_name,
                     'type': saved_setting['type'],
                     'is_hidden': saved_setting['is_hidden'],
+                    'linked_library': saved_setting.get('linked_library', ''),
                     'jellyfin_type': lib_type,
                     'id': lib_id
                 })
@@ -2316,6 +2325,7 @@ def jellyfin_get_libraries():
                     'title': lib_name,
                     'type': mapped_type,
                     'is_hidden': False,
+                    'linked_library': '',
                     'jellyfin_type': lib_type,
                     'id': lib_id
                 })
@@ -2346,9 +2356,9 @@ def plex_get_libraries():
         # 1. Fetch saved types from the database into a dictionary
         saved_types = {}
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
+            cur.execute("SELECT source_name, media_type, is_hidden, linked_library FROM media_source_types WHERE scanner_type = 'plex'")
             for row in cur.fetchall():
-                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row['linked_library']}
 
         # 2. Fetch libraries from Plex and merge with saved settings
         result_libraries = []
@@ -2369,6 +2379,7 @@ def plex_get_libraries():
                     'title': section.title,
                     'type': saved_setting['type'],
                     'is_hidden': saved_setting['is_hidden'],
+                    'linked_library': saved_setting.get('linked_library', ''),
                     'plex_type': section.type,
                     'key': section.key
                 })
@@ -2379,6 +2390,7 @@ def plex_get_libraries():
                     'title': section.title,
                     'type': internal_type,
                     'is_hidden': False,
+                    'linked_library': '',
                     'plex_type': section.type,
                     'key': section.key
                 })

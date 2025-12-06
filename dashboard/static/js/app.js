@@ -2321,7 +2321,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Create linking dropdown helper functions
-        const createJellyfinLinkDropdown = (plexLibName) => {
+        const createJellyfinLinkDropdown = (plexLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(plexLibName);
             if (!hasJellyfinAuth) {
                 return `<span class="text-muted small">Jellyfin not linked</span>`;
@@ -2329,13 +2329,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibraries.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = jLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
-            return `<span class="badge badge-outline-secondary me-1">Link to Jellyfin:</span><select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
+            return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        const createPlexLinkDropdown = (jellyfinLibName) => {
+        const createPlexLinkDropdown = (jellyfinLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(jellyfinLibName);
             if (!hasPlexAuth) {
                 return `<span class="text-muted small">Plex not linked</span>`;
@@ -2343,10 +2344,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibraries.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = pLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
-            return `<span class="badge badge-outline-secondary me-1">Link to Plex:</span><select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
+            return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
         // Build combined library list - show PRIMARY server's libraries with optional linking to secondary
@@ -2360,14 +2362,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const escapedKey = escapeHtml(lib.key);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
+                    <span class="badge badge-outline-warning me-2">Plex</span>
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                         <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        <span class="badge badge-outline-primary">Primary Library</span>
-                        ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title) : ''}
+                        ${hasJellyfinAuth ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
+                        ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
                 `;
@@ -2379,14 +2382,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const escapedId = escapeHtml(lib.id || lib.title);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
+                    <span class="badge badge-outline-purple me-2">Jellyfin</span>
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
                         <label class="form-check-label" for="jlib-${escapedId}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        <span class="badge badge-outline-primary">Primary Library</span>
-                        ${hasPlexAuth ? createPlexLinkDropdown(lib.title) : ''}
+                        ${hasPlexAuth ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
+                        ${hasPlexAuth ? createPlexLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
                 `;
