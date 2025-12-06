@@ -383,29 +383,39 @@ def run_migrations():
     """Checks the current DB schema version and applies any necessary migrations."""
     # This function is now called before the app starts serving requests.
     print("Checking database schema version...")
+    conn = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         # Check if the schema_version table exists. If not, this is a pre-migration database.
         cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
-        if not cur.fetchone()[0]:
-            print("Schema version table not found. Assuming version 1.")
+        schema_table_exists = cur.fetchone()[0]
+        
+        if not schema_table_exists:
+            print("Schema version table not found. Creating it with version 1.")
             current_version = 1
             cur.execute("CREATE TABLE schema_version (version INT PRIMARY KEY);")
             cur.execute("INSERT INTO schema_version (version) VALUES (1);")
             conn.commit()
+            print(f"Created schema_version table with initial version {current_version}.")
         else:
-            cur.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+            # Get the current version - there should only be one row
+            cur.execute("SELECT version FROM schema_version LIMIT 1")
             res = cur.fetchone()
-            current_version = res[0] if res else 1
+            if res:
+                current_version = res[0]
+            else:
+                # Table exists but has no rows - this shouldn't happen, but handle it
+                print("WARNING: schema_version table exists but is empty. Setting to version 1.")
+                current_version = 1
+                cur.execute("INSERT INTO schema_version (version) VALUES (1);")
+                conn.commit()
 
         print(f"Current schema version: {current_version}. Target version: {TARGET_SCHEMA_VERSION}.")
 
         if current_version >= TARGET_SCHEMA_VERSION:
             print("Database schema is up to date.")
-            cur.close()
-            conn.close()
             return
 
         # Apply migrations in order
@@ -415,16 +425,24 @@ def run_migrations():
                 for statement in MIGRATIONS[version]:
                     print(f"  -> Executing: {statement[:80]}...")
                     cur.execute(statement)
-                cur.execute("UPDATE schema_version SET version = %s", (version,))
+                
+                # Update the version - use DELETE + INSERT instead of UPDATE to avoid PK update issues
+                cur.execute("DELETE FROM schema_version;")
+                cur.execute("INSERT INTO schema_version (version) VALUES (%s);", (version,))
                 conn.commit()
                 print(f"Successfully migrated to version {version}.")
 
-        cur.close()
-        conn.close()
+        print("All migrations completed successfully.")
     except Exception as e:
         print(f"❌ CRITICAL: Database migration failed: {e}")
         print("   The application cannot start. Please resolve the database issue and restart the container.")
+        if conn:
+            conn.rollback()
         sys.exit(1)
+    finally:
+        # Ensure connection is always closed
+        if conn:
+            conn.close()
 
 # ===========================
 # Database Layer

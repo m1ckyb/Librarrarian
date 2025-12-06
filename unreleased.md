@@ -21,6 +21,9 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed library type and linked library dropdowns not pre-selecting saved values in non-sync mode (when multi-server is disabled)
 - Fixed horizontal scrollbar appearing in monitored libraries boxes by adding `overflow-x: hidden` to all library list containers
 - Fixed database connection leak in `initialize_database_if_needed()` function - connection now properly closed in finally block
+- Improved database migration logic to use DELETE + INSERT pattern instead of UPDATE for schema_version to avoid potential primary key update issues
+- Added better error handling and logging to migration system
+- Fixed potential issue where schema_version table could exist but be empty
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
