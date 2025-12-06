@@ -13,6 +13,10 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed Debug Settings modal showing "Waiting for modal to open..." forever by changing initial message to "Loading settings..." and ensuring Bootstrap modal event handler is properly registered
 - Fixed JavaScript console error "Uncaught ReferenceError: $ is not defined" by removing orphaned jQuery code that referenced non-existent DOM elements
 - Fixed JavaScript console error "TypeError: response.text().trim is not a function" in update checker by correcting async/await syntax to `(await response.text()).trim()`
+- Fixed Debug Settings modal not loading due to app.js being loaded with `defer` attribute causing DOMContentLoaded event to fire before event listeners were registered - now uses conditional initialization based on `document.readyState`
+- Fixed critical JavaScript syntax error where main DOMContentLoaded block was missing closing `});` which prevented entire app.js from executing properly
+- Fixed library type dropdowns not showing correct selection for Plex music and photo libraries by adding type mapping ('artist' -> 'music', 'photo' -> 'other')
+- Improved library sync display badges: primary libraries now show "Primary Library" badge instead of confusing "Link to Jellyfin/Plex" text, and link dropdowns now have clearer "Link to [Server]:" labels
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
