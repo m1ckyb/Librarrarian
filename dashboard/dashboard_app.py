@@ -630,6 +630,10 @@ def initialize_database_if_needed():
     except Exception as e:
         print(f"❌ CRITICAL: Could not connect to or initialize the database: {e}")
         sys.exit(1)
+    finally:
+        # Ensure connection is always closed
+        if conn:
+            conn.close()
 
 def get_cluster_status():
     """Fetches node and failure data from the database."""

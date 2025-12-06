@@ -2103,9 +2103,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const createJellyfinLinkDropdown = (plexLibName) => {
-            // Note: Backend handling for library linking needs to be implemented
-            // These form fields (link_plex_*) are not yet processed by the server
+        const createJellyfinLinkDropdown = (plexLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(plexLibName);
             const hasJellyfinAuth = window.Librarrarian.settings.jellyfinApiKey !== "";
             
@@ -2116,7 +2114,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibs.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = jLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -2135,7 +2134,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
                         ${showJellyfinLink ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
-                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
+                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
             `;
@@ -2205,9 +2204,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const createPlexLinkDropdown = (jellyfinLibName) => {
-            // Note: Backend handling for library linking needs to be implemented
-            // These form fields (link_jellyfin_*) are not yet processed by the server
+        const createPlexLinkDropdown = (jellyfinLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(jellyfinLibName);
             const hasPlexAuth = window.Librarrarian.settings.plexToken !== "";
             
@@ -2218,7 +2215,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibs.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = pLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -2239,7 +2237,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
                         ${showPlexLink ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
-                        ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
+                        ${showPlexLink ? createPlexLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
             `;
