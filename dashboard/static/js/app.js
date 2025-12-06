@@ -3412,38 +3412,64 @@ document.addEventListener('DOMContentLoaded', () => {
 // This section handles the debug settings modal that shows database settings
 document.addEventListener('DOMContentLoaded', () => {
     const debugSettingsModal = document.getElementById('debugSettingsModal');
-    if (!debugSettingsModal) return; // Exit if modal doesn't exist (DEVMODE disabled)
+    if (!debugSettingsModal) {
+        console.log('Debug Settings Modal: Element not found, DEVMODE likely disabled');
+        return; // Exit if modal doesn't exist (DEVMODE disabled)
+    }
     
+    console.log('Debug Settings Modal: Initializing');
     const debugSettingsContent = document.getElementById('debug-settings-content');
     const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
+    const reloadDebugSettingsBtn = document.getElementById('reload-debug-settings-btn');
     
-    // Load settings when modal is shown
-    debugSettingsModal.addEventListener('show.bs.modal', async function() {
+    // Function to load settings from the API
+    async function loadSettings() {
+        console.log('Debug Settings Modal: Loading settings...');
         // Show loading state
         debugSettingsContent.textContent = 'Loading settings...';
         
         try {
+            console.log('Debug Settings Modal: Fetching /api/settings');
             const response = await fetch('/api/settings');
+            console.log('Debug Settings Modal: Received response', response.status, response.statusText);
             
             if (!response.ok) {
-                debugSettingsContent.textContent = `HTTP Error: ${response.status} ${response.statusText}`;
+                const errorText = `HTTP Error: ${response.status} ${response.statusText}`;
+                console.error('Debug Settings Modal:', errorText);
+                debugSettingsContent.textContent = errorText;
                 return;
             }
             
             const data = await response.json();
+            console.log('Debug Settings Modal: Parsed JSON data', data);
             
             if (data.error) {
+                console.error('Debug Settings Modal: API returned error:', data.error);
                 debugSettingsContent.textContent = `Error: ${data.error}`;
-            } else if (!data.settings || Object.keys(data.settings).length === 0) {
+            } else if (!data.settings) {
+                console.warn('Debug Settings Modal: data.settings is undefined or null');
+                debugSettingsContent.textContent = 'Error: No settings object in API response.\n\nRaw API response:\n' + JSON.stringify(data, null, 2);
+            } else if (Object.keys(data.settings).length === 0) {
+                console.warn('Debug Settings Modal: settings object is empty');
                 debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.';
             } else {
                 // Format the settings as pretty JSON
+                console.log('Debug Settings Modal: Successfully loaded', Object.keys(data.settings).length, 'settings');
                 debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
             }
         } catch (error) {
+            console.error('Debug Settings Modal: Exception caught:', error);
             debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nStack trace:\n${error.stack}`;
         }
-    });
+    }
+    
+    // Load settings when modal is shown
+    debugSettingsModal.addEventListener('show.bs.modal', loadSettings);
+    
+    // Reload settings when reload button is clicked
+    if (reloadDebugSettingsBtn) {
+        reloadDebugSettingsBtn.addEventListener('click', loadSettings);
+    }
     
     // Copy to clipboard functionality
     if (copyDebugSettingsBtn) {
