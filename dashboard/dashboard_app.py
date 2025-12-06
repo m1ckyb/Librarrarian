@@ -2354,6 +2354,14 @@ def plex_get_libraries():
         result_libraries = []
         plex_sections = [s for s in plex.library.sections() if s.type in ['movie', 'show', 'artist', 'photo']]
         
+        # Map Plex types to our internal types
+        plex_type_mapping = {
+            'movie': 'movie',
+            'show': 'show',
+            'artist': 'music',
+            'photo': 'other'
+        }
+        
         for section in plex_sections:
             saved_setting = saved_types.get(section.title)
             if saved_setting:
@@ -2365,10 +2373,11 @@ def plex_get_libraries():
                     'key': section.key
                 })
             else:
-                # If not in our DB, use Plex's info and default to not hidden
+                # If not in our DB, map Plex's type to our internal type
+                internal_type = plex_type_mapping.get(section.type, 'other')
                 result_libraries.append({
                     'title': section.title,
-                    'type': section.type, # Default to the type from Plex
+                    'type': internal_type,
                     'is_hidden': False,
                     'plex_type': section.type,
                     'key': section.key
