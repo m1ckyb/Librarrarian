@@ -2332,7 +2332,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return `<option value="${escapedTitle}">${escapedTitle}</option>`;
                 }))
                 .join('');
-            return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
+            return `<span class="badge badge-outline-secondary me-1">Link to Jellyfin:</span><select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
         const createPlexLinkDropdown = (jellyfinLibName) => {
@@ -2346,15 +2346,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     return `<option value="${escapedTitle}">${escapedTitle}</option>`;
                 }))
                 .join('');
-            return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
+            return `<span class="badge badge-outline-secondary me-1">Link to Plex:</span><select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        // Build combined library list
+        // Build combined library list - show PRIMARY server's libraries with optional linking to secondary
         let libraryItems = [];
         
-        // Add primary server's libraries first
+        // Show ONLY the primary server's libraries
         if (primaryServer === 'plex' && plexLibraries.length > 0) {
-            const currentLibs = window.Librarrarian.settings.plexLibraries;
+            const currentLibs = window.Librarrarian.settings.plexLibraries || [];
             libraryItems = plexLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedKey = escapeHtml(lib.key);
@@ -2362,13 +2362,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="lib-${escapedKey}"><span class="badge badge-outline-warning me-1">Plex</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-purple">Jellyfin</span>
-                        ${createJellyfinLinkDropdown(lib.title)}
+                        <span class="badge badge-outline-primary">Primary Library</span>
+                        ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
                 `;
@@ -2382,13 +2381,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-purple me-1">Jellyfin</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="jlib-${escapedId}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-warning">Plex</span>
-                        ${createPlexLinkDropdown(lib.title)}
+                        <span class="badge badge-outline-primary">Primary Library</span>
+                        ${hasPlexAuth ? createPlexLinkDropdown(lib.title) : ''}
                     </div>
                 </div>
                 `;
@@ -2398,6 +2396,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
         } else {
+            // Show appropriate message based on primary server
             const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
             const serverError = primaryServer === 'plex' ? plexError : jellyfinError;
             
@@ -3174,6 +3173,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (theme === 'auto') {
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+        // Christmas theme and other themes pass through as-is
         return theme;
     };
 
@@ -3185,7 +3185,18 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update icon based on stored theme (not resolved) to show user's selection
         if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
+        else if (theme === 'christmas') themeIcon.className = 'mdi mdi-pine-tree';
+        else if (theme === 'summer-christmas') themeIcon.className = 'mdi mdi-white-balance-sunny';
         else themeIcon.className = 'mdi mdi-desktop-classic';
+        
+        // Enable/disable Christmas snow effect for both Christmas themes
+        if (typeof window.snowEffect !== 'undefined') {
+            if (theme === 'christmas' || theme === 'summer-christmas') {
+                window.snowEffect.start();
+            } else {
+                window.snowEffect.stop();
+            }
+        }
     };
 
     // Set initial theme on page load
@@ -3223,7 +3234,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const response = await fetch(mainVersionUrl);
-            const latestStableVersion = await response.text().trim();
+            const latestStableVersion = (await response.text()).trim();
 
             // Use localeCompare with numeric option for proper version comparison (e.g., "0.10.7b" > "0.10.7")
             const comparison = internalVersion.localeCompare(latestStableVersion, undefined, { numeric: true });
@@ -3395,4 +3406,129 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
-});
+}); // End of main DOMContentLoaded block
+
+// --- Debug Settings Modal (DEVMODE only) ---
+// This section handles the debug settings modal that shows database settings
+// Use a function that works whether DOM is already loaded or not
+function initDebugSettingsModal() {
+    const debugSettingsModal = document.getElementById('debugSettingsModal');
+    if (!debugSettingsModal) {
+        console.log('Debug Settings Modal: Element not found, DEVMODE likely disabled');
+        return; // Exit if modal doesn't exist (DEVMODE disabled)
+    }
+    
+    console.log('Debug Settings Modal: Initializing');
+    const debugSettingsContent = document.getElementById('debug-settings-content');
+    const debugSettingsTimestamp = document.getElementById('debug-settings-timestamp');
+    const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
+    const reloadDebugSettingsBtn = document.getElementById('reload-debug-settings-btn');
+    
+    // Function to load settings from the API
+    async function loadSettings() {
+        console.log('Debug Settings Modal: Loading settings...');
+        // Show loading state
+        debugSettingsContent.textContent = 'Loading settings...';
+        
+        // Disable reload button during load
+        if (reloadDebugSettingsBtn) {
+            reloadDebugSettingsBtn.disabled = true;
+        }
+        
+        try {
+            console.log('Debug Settings Modal: Fetching /api/settings');
+            const response = await fetch('/api/settings');
+            console.log('Debug Settings Modal: Received response', response.status, response.statusText);
+            
+            if (!response.ok) {
+                const errorText = `HTTP Error: ${response.status} ${response.statusText}`;
+                console.error('Debug Settings Modal:', errorText);
+                debugSettingsContent.textContent = errorText;
+                return;
+            }
+            
+            const data = await response.json();
+            console.log('Debug Settings Modal: Parsed JSON data', data);
+            
+            if (data.error) {
+                console.error('Debug Settings Modal: API returned error:', data.error);
+                debugSettingsContent.textContent = `Error: ${data.error}`;
+            } else if (!data.settings) {
+                console.warn('Debug Settings Modal: data.settings is undefined or null');
+                debugSettingsContent.textContent = `Error: No settings object in API response.\n\nRaw API response:\n${JSON.stringify(data, null, 2)}`;
+            } else if (Object.keys(data.settings).length === 0) {
+                console.warn('Debug Settings Modal: settings object is empty');
+                debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.\n\nThis could indicate:\n1. Fresh installation (settings not yet initialized)\n2. Database connection issue\n3. Database migration not completed';
+            } else {
+                // Format the settings as pretty JSON
+                console.log('Debug Settings Modal: Successfully loaded', Object.keys(data.settings).length, 'settings');
+                const settingsCount = Object.keys(data.settings).length;
+                debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
+                // Update timestamp
+                const now = new Date();
+                debugSettingsTimestamp.textContent = `Last loaded: ${now.toLocaleString()} (${settingsCount} settings)`;
+            }
+        } catch (error) {
+            console.error('Debug Settings Modal: Exception caught:', error);
+            // Show user-friendly error message, full details only in console
+            debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nPlease check the browser console (F12) for more details.`;
+        } finally {
+            // Re-enable reload button after load completes (success or failure)
+            if (reloadDebugSettingsBtn) {
+                reloadDebugSettingsBtn.disabled = false;
+            }
+        }
+    }
+    
+    // Load settings when modal is shown
+    // Use Bootstrap's event listener on the modal element
+    if (debugSettingsModal) {
+        debugSettingsModal.addEventListener('show.bs.modal', () => {
+            console.log('Debug Settings Modal: show.bs.modal event fired');
+            loadSettings();
+        });
+        
+        // Also trigger load immediately if DEVMODE users open the page with the modal already visible
+        // This handles edge cases where the modal might be pre-opened via URL hash or other means
+        if (debugSettingsModal.classList.contains('show')) {
+            console.log('Debug Settings Modal: Modal already shown on page load, loading settings');
+            loadSettings();
+        }
+    }
+    
+    // Reload settings when reload button is clicked
+    if (reloadDebugSettingsBtn) {
+        reloadDebugSettingsBtn.addEventListener('click', loadSettings);
+    }
+    
+    // Copy to clipboard functionality
+    if (copyDebugSettingsBtn) {
+        copyDebugSettingsBtn.addEventListener('click', function() {
+            const text = debugSettingsContent.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                // Visual feedback
+                const originalText = copyDebugSettingsBtn.innerHTML;
+                copyDebugSettingsBtn.innerHTML = '<span class="mdi mdi-check"></span> Copied!';
+                copyDebugSettingsBtn.classList.remove('btn-outline-primary');
+                copyDebugSettingsBtn.classList.add('btn-outline-success');
+                
+                setTimeout(() => {
+                    copyDebugSettingsBtn.innerHTML = originalText;
+                    copyDebugSettingsBtn.classList.remove('btn-outline-success');
+                    copyDebugSettingsBtn.classList.add('btn-outline-primary');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text:', err);
+                alert('Failed to copy to clipboard');
+            });
+        });
+    }
+}
+
+// Initialize the debug modal - works whether DOM is already loaded or not
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDebugSettingsModal);
+} else {
+    // DOM is already loaded, run immediately
+    initDebugSettingsModal();
+}

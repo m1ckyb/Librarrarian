@@ -867,9 +867,10 @@ def get_worker_settings():
     try:
         # Using new settings table schema
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT setting_name, setting_value, 'description' as description FROM worker_settings")
+            cur.execute("SELECT setting_name, setting_value FROM worker_settings ORDER BY setting_name")
             for row in cur.fetchall():
-                settings[row['setting_name']] = row
+                # Store as nested dict to match template expectations
+                settings[row['setting_name']] = {'setting_value': row['setting_value']}
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return settings, db_error
@@ -1342,7 +1343,19 @@ def api_settings():
     settings, db_error = get_worker_settings()
     if db_error:
         return jsonify(settings={}, error=db_error), 500
-    return jsonify(settings=settings, dashboard_version=get_project_version())
+    
+    # Flatten the nested structure for the debug modal
+    # get_worker_settings returns {setting_name: {'setting_value': value}}
+    # but we want {setting_name: value} for display
+    flat_settings = {}
+    for key, value_dict in settings.items():
+        if isinstance(value_dict, dict) and 'setting_value' in value_dict:
+            flat_settings[key] = value_dict['setting_value']
+        else:
+            # Fallback if structure is different
+            flat_settings[key] = value_dict
+    
+    return jsonify(settings=flat_settings, dashboard_version=get_project_version())
 
 @app.route('/api/backup/now', methods=['POST'])
 def api_backup_now():
@@ -2341,6 +2354,14 @@ def plex_get_libraries():
         result_libraries = []
         plex_sections = [s for s in plex.library.sections() if s.type in ['movie', 'show', 'artist', 'photo']]
         
+        # Map Plex types to our internal types
+        plex_type_mapping = {
+            'movie': 'movie',
+            'show': 'show',
+            'artist': 'music',
+            'photo': 'other'
+        }
+        
         for section in plex_sections:
             saved_setting = saved_types.get(section.title)
             if saved_setting:
@@ -2352,10 +2373,11 @@ def plex_get_libraries():
                     'key': section.key
                 })
             else:
-                # If not in our DB, use Plex's info and default to not hidden
+                # If not in our DB, map Plex's type to our internal type
+                internal_type = plex_type_mapping.get(section.type, 'other')
                 result_libraries.append({
                     'title': section.title,
-                    'type': section.type, # Default to the type from Plex
+                    'type': internal_type,
                     'is_hidden': False,
                     'plex_type': section.type,
                     'key': section.key
