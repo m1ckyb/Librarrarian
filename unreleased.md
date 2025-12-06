@@ -6,7 +6,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed dashboard crash on root URL (`/`) due to incorrect settings dictionary structure in `get_worker_settings()` function
 - Fixed library type settings not saving when "Sync Between Plex & Jellyfin" is enabled
 - Fixed secondary server library list not saving when sync is enabled
-- **REVERTED PR #106 CHANGES**: Fixed monitored libraries display in sync mode - now correctly shows ONLY primary server's libraries with optional linking dropdown to secondary server, instead of showing both servers' libraries as separate lists (which was ugly and unprofessional)
+- Fixed monitored libraries display in sync mode - now correctly shows ONLY primary server's libraries with optional linking dropdown to secondary server, instead of showing both servers' libraries as separate lists
 - Updated history tab pagination to match job queue pagination style with Previous/Next buttons and smart page window
 - Fixed Debug Settings modal not displaying worker_settings data by flattening the nested dictionary structure in the `/api/settings` endpoint
 - Enhanced Debug Settings modal with comprehensive error handling, console logging, and reload functionality for better diagnostics
@@ -16,7 +16,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed Debug Settings modal not loading due to app.js being loaded with `defer` attribute causing DOMContentLoaded event to fire before event listeners were registered - now uses conditional initialization based on `document.readyState`
 - Fixed critical JavaScript syntax error where main DOMContentLoaded block was missing closing `});` which prevented entire app.js from executing properly
 - Fixed library type dropdowns not showing correct selection for Plex music and photo libraries by adding type mapping ('artist' -> 'music', 'photo' -> 'other')
-- Improved library sync display badges: primary libraries now show "Primary Library" badge instead of confusing "Link to Jellyfin/Plex" text, and link dropdowns now have clearer "Link to [Server]:" labels
+- Fixed monitored libraries badge display in sync mode: Now shows Plex/Jellyfin badges BEFORE library names (matching PR #98 style) instead of "Primary Library" badge after them
+- Fixed library linking dropdowns not saving - added database migration v15 to add linked_library column and backend support for link_plex_* and link_jellyfin_* form fields
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
