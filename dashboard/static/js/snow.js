@@ -1,14 +1,15 @@
 /**
  * Christmas Snow Animation
- * Adds subtle falling snowflakes to the page when the Christmas theme is active.
+ * Adds subtle falling snowflakes to the page when either Christmas theme is active.
  * Snowflakes are created dynamically and fall from top to bottom with varying speeds and sizes.
+ * Works with both Winter Christmas and Summer Christmas themes.
  */
 
 class SnowEffect {
     constructor() {
         this.snowflakes = [];
         this.container = null;
-        this.maxSnowflakes = 50; // Maximum number of snowflakes on screen
+        this.maxSnowflakes = 75; // Maximum number of snowflakes on screen (increased from 50)
         this.animationFrame = null;
         this.isActive = false;
     }
@@ -124,7 +125,7 @@ class SnowEffect {
             this.snowflakes.push(snowflake);
         }
         
-        console.log('❄ Christmas snow effect started');
+        console.log('❄ Snow effect started');
     }
 
     /**
@@ -149,7 +150,7 @@ class SnowEffect {
             this.container = null;
         }
         
-        console.log('❄ Christmas snow effect stopped');
+        console.log('❄ Snow effect stopped');
     }
 }
 
@@ -162,7 +163,7 @@ window.snowEffect = snowEffect;
 // Auto-start snow effect if Christmas theme is active on page load
 document.addEventListener('DOMContentLoaded', () => {
     const currentTheme = document.documentElement.getAttribute('data-bs-theme');
-    if (currentTheme === 'christmas') {
+    if (currentTheme === 'christmas' || currentTheme === 'summer-christmas') {
         snowEffect.start();
     }
 });

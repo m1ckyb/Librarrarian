@@ -1343,7 +1343,19 @@ def api_settings():
     settings, db_error = get_worker_settings()
     if db_error:
         return jsonify(settings={}, error=db_error), 500
-    return jsonify(settings=settings, dashboard_version=get_project_version())
+    
+    # Flatten the nested structure for the debug modal
+    # get_worker_settings returns {setting_name: {'setting_value': value}}
+    # but we want {setting_name: value} for display
+    flat_settings = {}
+    for key, value_dict in settings.items():
+        if isinstance(value_dict, dict) and 'setting_value' in value_dict:
+            flat_settings[key] = value_dict['setting_value']
+        else:
+            # Fallback if structure is different
+            flat_settings[key] = value_dict
+    
+    return jsonify(settings=flat_settings, dashboard_version=get_project_version())
 
 @app.route('/api/backup/now', methods=['POST'])
 def api_backup_now():

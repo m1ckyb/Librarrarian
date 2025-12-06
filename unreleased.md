@@ -7,11 +7,13 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed library type settings not saving when "Sync Between Plex & Jellyfin" is enabled
 - Fixed secondary server library list not saving when sync is enabled
 - Updated history tab pagination to match job queue pagination style with Previous/Next buttons and smart page window
-- Fixed Debug Settings modal not displaying worker_settings data by improving error handling and simplifying the data structure returned by `/api/settings` endpoint
+- Fixed Debug Settings modal not displaying worker_settings data by flattening the nested dictionary structure in the `/api/settings` endpoint
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
 - Modified Jellyfin Configuration Modal footer to ensure all buttons stay on one line with flexbox
+- Renamed "Christmas" theme to "Winter Christmas" for clarity
+- Increased snow animation from 50 to 75 snowflakes for a more festive effect
 
 ### Added
 - Added symbolic link detection during media scanning
@@ -20,8 +22,10 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Symbolic links show a warning icon and message in the job queue
 - Added DEVMODE environment variable for development mode features
 - Added Debug Settings button in Options tab (visible only when DEVMODE=true) that displays all database settings in a modal
-- Added Christmas theme to theme dropdown with festive red, green, and gold color palette
-- Added subtle JavaScript snow animation that activates automatically when Christmas theme is selected
+- Added Winter Christmas theme (formerly "Christmas") to theme dropdown with festive red, green, and gold color palette
+- Added Summer Christmas theme with bright, beachy colors (sky blue, tropical green, sunshine orange, coral)
+- Added subtle JavaScript snow animation that activates automatically when either Christmas theme is selected
   - Snowflakes fall from top to bottom with natural variation in size, speed, and drift
   - Snow effect automatically starts/stops when switching themes
+  - Snow effect works with both Winter Christmas and Summer Christmas themes
   - No impact on performance or UI interaction
