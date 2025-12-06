@@ -3187,11 +3187,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
         else if (theme === 'christmas') themeIcon.className = 'mdi mdi-pine-tree';
+        else if (theme === 'summer-christmas') themeIcon.className = 'mdi mdi-white-balance-sunny';
         else themeIcon.className = 'mdi mdi-desktop-classic';
         
-        // Enable/disable Christmas snow effect
+        // Enable/disable Christmas snow effect for both Christmas themes
         if (typeof window.snowEffect !== 'undefined') {
-            if (theme === 'christmas') {
+            if (theme === 'christmas' || theme === 'summer-christmas') {
                 window.snowEffect.start();
             } else {
                 window.snowEffect.stop();
