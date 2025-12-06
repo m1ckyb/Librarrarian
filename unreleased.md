@@ -18,6 +18,12 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed library type dropdowns not showing correct selection for Plex music and photo libraries by adding type mapping ('artist' -> 'music', 'photo' -> 'other')
 - Fixed monitored libraries badge display in sync mode: Now shows Plex/Jellyfin badges BEFORE library names (matching PR #98 style) instead of "Primary Library" badge after them
 - Fixed library linking dropdowns not saving - added database migration v15 to add linked_library column and backend support for link_plex_* and link_jellyfin_* form fields
+- Fixed library type and linked library dropdowns not pre-selecting saved values in non-sync mode (when multi-server is disabled)
+- Fixed horizontal scrollbar appearing in monitored libraries boxes by adding `overflow-x: hidden` to all library list containers
+- Fixed database connection leak in `initialize_database_if_needed()` function - connection now properly closed in finally block
+- Improved database migration logic to use TRUNCATE + INSERT pattern instead of UPDATE for schema_version to avoid potential primary key update issues and maintain atomicity
+- Added better error handling and logging to migration system with explicit cursor cleanup
+- Fixed potential issue where schema_version table could exist but be empty
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
