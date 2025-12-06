@@ -3419,6 +3419,7 @@ document.addEventListener('DOMContentLoaded', () => {
     
     console.log('Debug Settings Modal: Initializing');
     const debugSettingsContent = document.getElementById('debug-settings-content');
+    const debugSettingsTimestamp = document.getElementById('debug-settings-timestamp');
     const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
     const reloadDebugSettingsBtn = document.getElementById('reload-debug-settings-btn');
     
@@ -3427,6 +3428,11 @@ document.addEventListener('DOMContentLoaded', () => {
         console.log('Debug Settings Modal: Loading settings...');
         // Show loading state
         debugSettingsContent.textContent = 'Loading settings...';
+        
+        // Disable reload button during load
+        if (reloadDebugSettingsBtn) {
+            reloadDebugSettingsBtn.disabled = true;
+        }
         
         try {
             console.log('Debug Settings Modal: Fetching /api/settings');
@@ -3456,10 +3462,18 @@ document.addEventListener('DOMContentLoaded', () => {
                 // Format the settings as pretty JSON
                 console.log('Debug Settings Modal: Successfully loaded', Object.keys(data.settings).length, 'settings');
                 debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
+                // Update timestamp
+                const now = new Date();
+                debugSettingsTimestamp.textContent = `Last loaded: ${now.toLocaleString()}`;
             }
         } catch (error) {
             console.error('Debug Settings Modal: Exception caught:', error);
             debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nStack trace:\n${error.stack}`;
+        } finally {
+            // Re-enable reload button after load completes (success or failure)
+            if (reloadDebugSettingsBtn) {
+                reloadDebugSettingsBtn.disabled = false;
+            }
         }
     }
     
