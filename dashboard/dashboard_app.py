@@ -1328,6 +1328,21 @@ def options():
             all_jellyfin_sources = {k.replace('type_jellyfin_', '') for k in request.form if k.startswith('type_jellyfin_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
+            # DEBUG: Log what form fields were received
+            print(f"[Sync Mode Debug] Form submission received:")
+            print(f"  enable_multi_server: {settings_to_update.get('enable_multi_server')}")
+            print(f"  primary_media_server: {settings_to_update.get('primary_media_server')}")
+            print(f"  Plex sources found: {list(all_plex_sources)}")
+            print(f"  Jellyfin sources found: {list(all_jellyfin_sources)}")
+            print(f"  Internal sources found: {list(all_internal_sources)}")
+            
+            # Log all form fields starting with type_ or link_
+            type_and_link_fields = {k: v for k, v in request.form.items() if k.startswith('type_') or k.startswith('link_')}
+            if type_and_link_fields:
+                print(f"  Type and link fields in form:")
+                for k, v in sorted(type_and_link_fields.items()):
+                    print(f"    {k} = {v}")
+
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
                 # Items are now hidden when media_type is set to 'none' (Ignore)

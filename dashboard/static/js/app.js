@@ -2480,6 +2480,24 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
+            
+            // DEBUG: Log created form fields for sync mode debugging
+            console.log('[Sync Mode Debug] Combined libraries loaded. Form fields created:');
+            const typeDropdowns = container.querySelectorAll('select[name^="type_"]');
+            const linkDropdowns = container.querySelectorAll('select[name^="link_"]');
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            
+            console.log(`  - ${typeDropdowns.length} type dropdowns:`);
+            typeDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${linkDropdowns.length} link dropdowns:`);
+            linkDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${checkboxes.length} library checkboxes (checked: ${Array.from(checkboxes).filter(cb => cb.checked).length})`);
         } else {
             // Show appropriate message based on primary server
             const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
