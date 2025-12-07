@@ -1689,31 +1689,70 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to set Plex modal to link mode
     function setPlexModalLinkMode() {
-        document.getElementById('plexLoginModalLabel').textContent = 'Link Plex Account';
-        document.getElementById('plex-modal-description').textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
-        document.getElementById('plex-username-group').style.display = 'block';
-        document.getElementById('plex-password-group').style.display = 'block';
-        document.getElementById('plex-signin-btn').style.display = 'inline-block';
-        document.getElementById('plex-update-btn').style.display = 'none';
-        document.getElementById('plex-modal-unlink-btn').style.display = 'none';
-        document.getElementById('plex-modal-url').value = '';
-        document.getElementById('plex-username').value = '';
-        document.getElementById('plex-password').value = '';
-        document.getElementById('plex-login-status').innerHTML = '';
+        const modalLabel = document.getElementById('plexLoginModalLabel');
+        const modalDescription = document.getElementById('plex-modal-description');
+        const credentialsRadio = document.getElementById('plex-auth-credentials');
+        const credentialsGroup = document.getElementById('plex-credentials-group');
+        const tokenGroup = document.getElementById('plex-token-group');
+        const signInBtn = document.getElementById('plex-signin-btn');
+        const saveTokenBtn = document.getElementById('plex-save-token-btn');
+        const updateBtn = document.getElementById('plex-update-btn');
+        const unlinkBtn = document.getElementById('plex-modal-unlink-btn');
+        const urlInput = document.getElementById('plex-modal-url');
+        const usernameInput = document.getElementById('plex-username');
+        const passwordInput = document.getElementById('plex-password');
+        const tokenInput = document.getElementById('plex-token-input');
+        const statusDiv = document.getElementById('plex-login-status');
+        
+        if (modalLabel) modalLabel.textContent = 'Link Plex Account';
+        if (modalDescription) modalDescription.textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
+        
+        // Reset to credentials mode by default
+        if (credentialsRadio) {
+            credentialsRadio.checked = true;
+            if (credentialsGroup) credentialsGroup.style.display = 'block';
+            if (tokenGroup) tokenGroup.style.display = 'none';
+        }
+        
+        if (signInBtn) signInBtn.style.display = 'inline-block';
+        if (saveTokenBtn) saveTokenBtn.style.display = 'none';
+        if (updateBtn) updateBtn.style.display = 'none';
+        if (unlinkBtn) unlinkBtn.style.display = 'none';
+        if (urlInput) urlInput.value = '';
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (tokenInput) tokenInput.value = '';
+        if (statusDiv) statusDiv.innerHTML = '';
     }
 
     // Function to set Plex modal to modify mode
     function setPlexModalModifyMode() {
-        document.getElementById('plexLoginModalLabel').textContent = 'Modify Plex Configuration';
-        document.getElementById('plex-modal-description').textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
-        document.getElementById('plex-username-group').style.display = 'none';
-        document.getElementById('plex-password-group').style.display = 'none';
-        document.getElementById('plex-signin-btn').style.display = 'none';
-        document.getElementById('plex-update-btn').style.display = 'inline-block';
-        document.getElementById('plex-modal-unlink-btn').style.display = 'inline-block';
+        const modalLabel = document.getElementById('plexLoginModalLabel');
+        const modalDescription = document.getElementById('plex-modal-description');
+        const credentialsGroup = document.getElementById('plex-credentials-group');
+        const tokenGroup = document.getElementById('plex-token-group');
+        const signInBtn = document.getElementById('plex-signin-btn');
+        const saveTokenBtn = document.getElementById('plex-save-token-btn');
+        const updateBtn = document.getElementById('plex-update-btn');
+        const unlinkBtn = document.getElementById('plex-modal-unlink-btn');
+        const urlInput = document.getElementById('plex-modal-url');
+        const statusDiv = document.getElementById('plex-login-status');
+        
+        if (modalLabel) modalLabel.textContent = 'Modify Plex Configuration';
+        if (modalDescription) modalDescription.textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
+        
+        // Hide authentication method toggle and all auth groups in modify mode
+        if (credentialsGroup) credentialsGroup.style.display = 'none';
+        if (tokenGroup) tokenGroup.style.display = 'none';
+        
+        if (signInBtn) signInBtn.style.display = 'none';
+        if (saveTokenBtn) saveTokenBtn.style.display = 'none';
+        if (updateBtn) updateBtn.style.display = 'inline-block';
+        if (unlinkBtn) unlinkBtn.style.display = 'inline-block';
+        
         // Pre-fill with current URL
-        document.getElementById('plex-modal-url').value = window.Librarrarian.settings.plexUrl || '';
-        document.getElementById('plex-login-status').innerHTML = '';
+        if (urlInput) urlInput.value = window.Librarrarian.settings.plexUrl || '';
+        if (statusDiv) statusDiv.innerHTML = '';
     }
 
     if (plexLoginBtn) {
@@ -1829,6 +1868,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Unlinking...`;
                 await fetch('/api/plex/logout', { method: 'POST' });
                 window.location.reload();
+            }
+        });
+    }
+
+    // Handle Plex authentication method toggle
+    const plexAuthCredentialsRadio = document.getElementById('plex-auth-credentials');
+    const plexAuthTokenRadio = document.getElementById('plex-auth-token');
+    const plexCredentialsGroup = document.getElementById('plex-credentials-group');
+    const plexTokenGroup = document.getElementById('plex-token-group');
+    const plexSaveTokenBtn = document.getElementById('plex-save-token-btn');
+
+    if (plexAuthCredentialsRadio && plexAuthTokenRadio && plexCredentialsGroup && plexTokenGroup && plexSignInBtn && plexSaveTokenBtn) {
+        plexAuthCredentialsRadio.addEventListener('change', () => {
+            if (plexAuthCredentialsRadio.checked) {
+                plexCredentialsGroup.style.display = 'block';
+                plexTokenGroup.style.display = 'none';
+                plexSignInBtn.style.display = 'inline-block';
+                plexSaveTokenBtn.style.display = 'none';
+            }
+        });
+
+        plexAuthTokenRadio.addEventListener('change', () => {
+            if (plexAuthTokenRadio.checked) {
+                plexCredentialsGroup.style.display = 'none';
+                plexTokenGroup.style.display = 'block';
+                plexSignInBtn.style.display = 'none';
+                plexSaveTokenBtn.style.display = 'inline-block';
+            }
+        });
+    }
+
+    // Handle Save Token button
+    if (plexSaveTokenBtn) {
+        plexSaveTokenBtn.addEventListener('click', async () => {
+            const tokenInput = document.getElementById('plex-token-input');
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+
+            if (!tokenInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex token.</div>`;
+                return;
+            }
+
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL.</div>`;
+                return;
+            }
+
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Saving token...`;
+
+            const response = await fetch('/api/plex/save-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    token: tokenInput.value,
+                    plex_url: urlInput.value
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
         });
     }
@@ -2397,6 +2505,24 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
+            
+            // DEBUG: Log created form fields for sync mode debugging
+            console.log('[Sync Mode Debug] Combined libraries loaded. Form fields created:');
+            const typeDropdowns = container.querySelectorAll('select[name^="type_"]');
+            const linkDropdowns = container.querySelectorAll('select[name^="link_"]');
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            
+            console.log(`  - ${typeDropdowns.length} type dropdowns:`);
+            typeDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${linkDropdowns.length} link dropdowns:`);
+            linkDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${checkboxes.length} library checkboxes (checked: ${Array.from(checkboxes).filter(cb => cb.checked).length})`);
         } else {
             // Show appropriate message based on primary server
             const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';

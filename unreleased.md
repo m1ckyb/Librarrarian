@@ -24,6 +24,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Improved database migration logic to use TRUNCATE + INSERT pattern instead of UPDATE for schema_version to avoid potential primary key update issues and maintain atomicity
 - Added better error handling and logging to migration system with explicit cursor cleanup
 - Fixed potential issue where schema_version table could exist but be empty
+- Increased combined libraries box max-height from 400px to 500px to prevent secondary library dropdown from being cut off
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
@@ -49,3 +50,14 @@ All upcoming features and bug fixes will be documented here until they are part 
   - Snow effect automatically starts/stops when switching themes
   - Snow effect works with both Winter Christmas and Summer Christmas themes
   - No impact on performance or UI interaction
+- Added manual Plex token input option to Plex Login Modal
+  - Users can now choose between "Login with Credentials" or "Use Existing Token"
+  - Added toggle buttons to switch between authentication methods
+  - Added text input field for manually entering a Plex authentication token
+  - Added helper text explaining where to find the token
+  - Implemented backend `/api/plex/save-token` endpoint to validate and save manually provided tokens
+  - Modal automatically resets to credentials mode when opened in link mode
+- Added comprehensive debugging logs for sync mode form submission troubleshooting
+  - Frontend logs show all type and link dropdowns created in combined libraries view
+  - Backend logs show all form fields received during settings save
+  - Logs help identify if form fields are being created, submitted, and processed correctly

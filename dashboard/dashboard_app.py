@@ -1328,6 +1328,21 @@ def options():
             all_jellyfin_sources = {k.replace('type_jellyfin_', '') for k in request.form if k.startswith('type_jellyfin_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
+            # DEBUG: Log what form fields were received
+            print(f"[Sync Mode Debug] Form submission received:")
+            print(f"  enable_multi_server: {settings_to_update.get('enable_multi_server')}")
+            print(f"  primary_media_server: {settings_to_update.get('primary_media_server')}")
+            print(f"  Plex sources found: {list(all_plex_sources)}")
+            print(f"  Jellyfin sources found: {list(all_jellyfin_sources)}")
+            print(f"  Internal sources found: {list(all_internal_sources)}")
+            
+            # Log all form fields starting with type_ or link_
+            type_and_link_fields = {k: v for k, v in request.form.items() if k.startswith('type_') or k.startswith('link_')}
+            if type_and_link_fields:
+                print(f"  Type and link fields in form:")
+                for k, v in sorted(type_and_link_fields.items()):
+                    print(f"    {k} = {v}")
+
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
                 # Items are now hidden when media_type is set to 'none' (Ignore)
@@ -2046,6 +2061,46 @@ def plex_logout():
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/save-token', methods=['POST'])
+def plex_save_token():
+    """Saves a manually provided Plex token without requiring username/password login."""
+    token = request.json.get('token', '').strip()
+    plex_url = request.json.get('plex_url', '').strip()
+    
+    if not token:
+        return jsonify(success=False, error="Plex token is required."), 400
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
+    
+    # Verify the token works with the provided server
+    try:
+        plex = PlexServer(plex_url, token)
+        # Try to access the library to verify the token is valid
+        _ = plex.library.sections()
+        
+        # Token is valid, save it
+        success, error = update_worker_settings_batch({
+            'plex_token': token,
+            'plex_url': plex_url
+        })
+        
+        if success:
+            return jsonify(success=True, message="Plex token saved successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+            
+    except Exception as e:
+        print(f"[Plex Token Verification Error] Failed to verify token for URL {plex_url}: {type(e).__name__}: {e}")
+        return jsonify(success=False, error=f"Failed to verify Plex token: {e}"), 400
 
 @app.route('/api/plex/update-url', methods=['POST'])
 def plex_update_url():
