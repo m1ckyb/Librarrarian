@@ -2099,6 +2099,7 @@ def plex_save_token():
             return jsonify(success=False, error=error), 500
             
     except Exception as e:
+        print(f"[Plex Token Verification Error] Failed to verify token for URL {plex_url}: {type(e).__name__}: {e}")
         return jsonify(success=False, error=f"Failed to verify Plex token: {e}"), 400
 
 @app.route('/api/plex/update-url', methods=['POST'])
