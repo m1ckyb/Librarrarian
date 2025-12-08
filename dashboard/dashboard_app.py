@@ -172,8 +172,8 @@ def setup_auth(app):
             
             # Check if API_KEY is configured
             if not expected_api_key:
-                print("⚠️ WARNING: API_KEY environment variable is not set. API authentication is disabled.")
-                return jsonify(error="Server misconfiguration: API_KEY not set. Please configure API_KEY in the environment."), 500
+                app.logger.warning("API_KEY environment variable is not set. API endpoints will not be accessible.")
+                return jsonify(error="Server configuration error. Please contact the administrator."), 500
             
             if api_key and api_key == expected_api_key:
                 # API key is valid, now validate worker session for worker-specific endpoints
