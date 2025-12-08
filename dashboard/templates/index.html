@@ -38,6 +38,13 @@
             background-color: #1EE4A9 !important;
             color: #000 !important;
         }
+        /* History search and controls */
+        .history-search-input {
+            width: 300px;
+        }
+        .history-per-page-select {
+            width: auto;
+        }
     </style>
 {% endblock %}
 
@@ -59,6 +66,8 @@
                     <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="light"><span class="mdi mdi-weather-sunny me-2"></span> Light</button></li>
                     <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="dark"><span class="mdi mdi-weather-night me-2"></span> Dark</button></li>
                     <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="auto"><span class="mdi mdi-desktop-classic me-2"></span> System</button></li>
+                    <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="christmas"><span class="mdi mdi-pine-tree me-2"></span> Winter Christmas</button></li>
+                    <li><button class="dropdown-item d-flex align-items-center" type="button" data-theme-value="summer-christmas"><span class="mdi mdi-white-balance-sunny me-2"></span> Summer Christmas</button></li>
                 </ul>
             </div>
             <div class="btn-group me-2" role="group">
@@ -129,7 +138,7 @@
                         <div class="card mb-3">
                             <div class="card-header fs-5 d-flex justify-content-between align-items-center">
                                 <span>{{ node.hostname }}</span>
-                                <span class="badge badge-outline-info">{{ node.version }}</span>
+                                <span class="badge badge-outline-success">{{ node.version }}</span>
                             </div>
                             <div class="card-body">
                                 {% if node.percent > 0 %}
@@ -154,7 +163,7 @@
                                     <span class="badge badge-outline-secondary me-2">FPS: {{ node.fps }}</span>
                                     <span class="badge badge-outline-secondary me-2">Speed: {{ node.speed }}x</span>
                                     <span class="badge badge-outline-teal me-2">Codec: {{ node.codec }}</span>
-                                    <span class="badge badge-outline-info">ETA: {{ node.eta or 'N/A' }}</span>
+                                    <span class="badge badge-outline-success">ETA: {{ node.eta or 'N/A' }}</span>
                                 {% else %}
                                     <span class="badge badge-outline-secondary">Idle</span>
                                 {% endif %}
@@ -186,9 +195,9 @@
                                 <button class="btn btn-outline-warning" id="pause-queue-btn" title="Pause or resume the distribution of new jobs to workers"><span class="mdi mdi-pause"></span> Pause Queue</button>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Cleanup and clear controls">
-                                <button class="btn btn-outline-info" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
-                                <button class="btn btn-outline-info" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
-                                <button class="btn btn-outline-info" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
+                                <button class="btn btn-outline-success" id="release-selected-btn" title="Release selected jobs to the queue"><span class="mdi mdi-lock-open-variant"></span> Release Selected</button>
+                                <button class="btn btn-outline-success" id="release-all-cleanup-btn" title="Release all cleanup jobs awaiting approval"><span class="mdi mdi-broom"></span> Release All Cleanup</button>
+                                <button class="btn btn-outline-success" id="release-all-rename-btn" title="Release all rename jobs awaiting approval"><span class="mdi mdi-pen"></span> Release All Renames</button>
                             </div>
                             <div class="btn-group me-2" role="group" aria-label="Clear controls">
                                 <button class="btn btn-outline-danger" id="clear-jobs-btn" title="Permanently delete all pending jobs from the queue"><span class="mdi mdi-delete-sweep"></span> Clear Queue</button>
@@ -257,9 +266,29 @@
                         </div>
                     </div>
                     <hr class="my-4">
-                    <div class="d-flex justify-content-between align-items-center mb-3">
-                        <div class="w-50">
-                            <input type="text" id="history-search-input" class="form-control" placeholder="Search by filename or node...">
+                    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+                        <div class="d-flex align-items-center gap-2">
+                            <input type="text" id="history-search-input" class="form-control history-search-input" placeholder="Search by filename or node...">
+                            <select id="history-per-page-select" class="form-select history-per-page-select">
+                                <option value="15">15 per page</option>
+                                <option value="30">30 per page</option>
+                                <option value="50">50 per page</option>
+                                <option value="100">100 per page</option>
+                                <option value="all">All</option>
+                            </select>
+                            <select id="history-limit-select" class="form-select history-per-page-select" title="Limit number of history entries loaded from database">
+                                <option value="100">Last 100 entries</option>
+                                <option value="200">Last 200 entries</option>
+                                <option value="300">Last 300 entries</option>
+                                <option value="400">Last 400 entries</option>
+                                <option value="500">Last 500 entries</option>
+                                <option value="600">Last 600 entries</option>
+                                <option value="700">Last 700 entries</option>
+                                <option value="800">Last 800 entries</option>
+                                <option value="900">Last 900 entries</option>
+                                <option value="1000">Last 1000 entries</option>
+                                <option value="all">All entries</option>
+                            </select>
                         </div>
                         <button class="btn btn-outline-danger" id="clear-history-btn"><span class="mdi mdi-delete-sweep"></span> Clear All History</button>
                     </div>
@@ -267,13 +296,13 @@
                     <table class="table table-hover table-sm">
                         <thead>
                             <tr>
-                                <th>ID</th> <!-- This was previously Job ID -->
-                                <th>File</th>
-                                <th>Node</th>
-                                <th>Codec</th>
-                                <th>Size (GB)</th>
-                                <th>Reduction</th>
-                                <th>Date</th>
+                                <th style="cursor: pointer;" data-sort="id">ID <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="filename">File <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="hostname">Node <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="codec">Codec <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="original_size">Size (GB) <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="reduction_percent">Reduction <span class="mdi mdi-sort"></span></th>
+                                <th style="cursor: pointer;" data-sort="encoded_at">Date <span class="mdi mdi-sort"></span></th>
                                 <th></th> <!-- For delete button -->
                             </tr>
                         </thead>
@@ -325,10 +354,14 @@
                                     <label class="form-check-label" for="primary_internal">Internal Media Scanner</label>
                                 </div>
                                 <div class="form-check form-switch ms-auto">
-                                    <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" {{ 'checked' if enable_multi_server }}>
+                                    <!-- Multi-server sync feature is temporarily disabled (PR #115).
+                                         The name/value attributes are retained for when the feature is re-enabled.
+                                         Disabled inputs are not submitted in forms, so this will not affect form submission. -->
+                                    <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" disabled>
                                     <label class="form-check-label" for="enable_multi_server">
                                         <strong>Sync Between Plex &amp; Jellyfin</strong>
-                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="When enabled, you can configure library mappings between Plex and Jellyfin. This allows the system to scan and manage both servers' libraries together, ensuring files are queued from both sources."></span>
+                                        <span class="badge bg-warning text-dark ms-2">Temporarily Disabled</span>
+                                        <span class="mdi mdi-help-circle-outline" data-bs-toggle="tooltip" data-bs-placement="top" title="This feature is temporarily disabled due to technical issues. It will be re-enabled in a future update."></span>
                                     </label>
                                 </div>
                             </div>
@@ -344,6 +377,13 @@
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="sonarr-integration-tab" data-bs-toggle="tab" data-bs-target="#sonarr-integration-pane" type="button">Sonarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="radarr-integration-tab" data-bs-toggle="tab" data-bs-target="#radarr-integration-pane" type="button">Radarr</button></li>
                                 <li class="nav-item" role="presentation"><button class="nav-link" id="lidarr-integration-tab" data-bs-toggle="tab" data-bs-target="#lidarr-integration-pane" type="button">Lidarr</button></li>
+                                {% if devmode %}
+                                <li class="nav-item ms-auto" role="presentation">
+                                    <button type="button" class="btn btn-outline-warning btn-sm" id="debug-settings-btn" data-bs-toggle="modal" data-bs-target="#debugSettingsModal">
+                                        <span class="mdi mdi-bug"></span> Debug Settings
+                                    </button>
+                                </li>
+                                {% endif %}
                             </ul>
 
                             <div class="tab-content border border-top-0 p-3" id="integrationsTabContent">
@@ -354,7 +394,7 @@
                                     <!-- Two-column layout: Auth on left, Libraries on right -->
                                     <div class="row">
                                         <!-- Left Column: Authentication -->
-                                        <div class="col-md-6">
+                                        <div class="col-md-4">
                                             <h6 class="mb-3"><strong>Authentication</strong></h6>
                                             
                                             <!-- Plex Auth -->
@@ -393,7 +433,7 @@
                                         </div>
 
                                         <!-- Right Column: Monitored Libraries -->
-                                        <div class="col-md-6">
+                                        <div class="col-md-8">
                                             <h6 class="mb-3"><strong>Monitored Libraries</strong></h6>
                                             
                                             <!-- Single Plex Libraries Container (used when Plex is primary and sync is disabled) -->
@@ -403,7 +443,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="plex-show-hidden-toggle">
                                                     <label class="form-check-label" for="plex-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="plex-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                                <div id="plex-libraries-list" class="border rounded p-2" style="overflow-x: hidden;"></div>
                                             </div>
 
                                             <!-- Single Jellyfin Libraries Container (used when Jellyfin is primary and sync is disabled) -->
@@ -413,7 +453,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="jellyfin-show-hidden-toggle">
                                                     <label class="form-check-label" for="jellyfin-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="jellyfin-libraries-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                                <div id="jellyfin-libraries-list" class="border rounded p-2" style="overflow-x: hidden;"></div>
                                             </div>
                                             
                                             <!-- Combined Libraries Container (used when multi-server sync is enabled) -->
@@ -423,7 +463,7 @@
                                                     <input class="form-check-input" type="checkbox" role="switch" id="combined-show-hidden-toggle">
                                                     <label class="form-check-label" for="combined-show-hidden-toggle">Show Ignored</label>
                                                 </div>
-                                                <div id="combined-libraries-list" class="border rounded p-2" style="max-height: 400px; overflow-y: auto;"></div>
+                                                <div id="combined-libraries-list" class="border rounded p-2" style="overflow-x: hidden;"></div>
                                             </div>
                                         </div>
                                     </div>
@@ -436,7 +476,7 @@
                                         <label class="form-check-label" for="internal-show-hidden-toggle">Show Ignored</label>
                                     </div>
                                     <p class="form-text text-body-secondary">Select which folders inside your main <code>/media</code> directory you want to scan.</p>
-                                    <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto;"></div>
+                                    <div id="internal-folders-list" class="border rounded p-2" style="max-height: 200px; overflow-y: auto; overflow-x: hidden;"></div>
                                 </div>
                                 <!-- Sonarr Tab -->
                                 <div class="tab-pane fade" id="sonarr-integration-pane" role="tabpanel">
@@ -648,7 +688,7 @@
                                     
                                     <div class="btn-group mt-3" role="group">
                                         <button type="button" class="btn btn-outline-primary" id="backup-now-btn"><span class="mdi mdi-database-export"></span> Manual Backup</button>
-                                        <button type="button" class="btn btn-outline-info" id="manage-backups-btn"><span class="mdi mdi-folder-open"></span> Manage Backups</button>
+                                        <button type="button" class="btn btn-outline-success" id="manage-backups-btn"><span class="mdi mdi-folder-open"></span> Manage Backups</button>
                                     </div>
                                     <div id="backup-status" class="mt-2"></div>
                                 </div>
@@ -773,7 +813,7 @@
                             <p class="form-text text-body-secondary">Run manual scans against your Sonarr instance.</p>
                             <div class="btn-group mb-3" role="group">
                                 <button id="sonarr-rename-scan-button" class="btn btn-outline-primary"><span class="mdi mdi-pen"></span> Scan for Renames</button>
-                                <button id="sonarr-quality-scan-button" class="btn btn-outline-info"><span class="mdi mdi-television-classic"></span> Scan for Quality</button>
+                                <button id="sonarr-quality-scan-button" class="btn btn-outline-success"><span class="mdi mdi-television-classic"></span> Scan for Quality</button>
                                 <button id="sonarr-cancel-scan-button" class="btn btn-outline-danger" style="display: none;"><span class="mdi mdi-cancel"></span> Cancel Scan</button>
                             </div>
 
@@ -894,7 +934,7 @@
                     <div class="p-3 border rounded mb-4">
                         <h5>System Cleanup</h5>
                         <p class="form-text text-body-secondary">This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers. This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
-                        <button class="btn btn-outline-warning" id="create-cleanup-jobs-btn"><span class="mdi mdi-broom"></span> Queue Stale File Cleanup</button>
+                        <button class="btn btn-outline-danger" id="create-cleanup-jobs-btn"><span class="mdi mdi-broom"></span> Queue Stale File Cleanup</button>
                         <div id="cleanup-status" class="mt-3"></div>
                     </div>
 
@@ -917,6 +957,9 @@
     {% include 'modals/jellyfin_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
     {% include 'modals/backup_modal.html' %}
+    {% if devmode %}
+    {% include 'modals/debug_settings_modal.html' %}
+    {% endif %}
 
     <!-- Pass server-side data to JavaScript -->
     <script>
@@ -937,6 +980,9 @@
 
     <!-- External Libraries -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/showdown/2.1.0/showdown.min.js"></script>
+
+    <!-- Christmas Snow Effect -->
+    <script src="{{ url_for('static', filename='js/snow.js') }}"></script>
 
     <!-- Main Application Script -->
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>

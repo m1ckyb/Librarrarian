@@ -13,14 +13,39 @@
                     <input type="text" class="form-control" id="plex-modal-url" placeholder="http://192.168.1.100:32400">
                     <div class="form-text">Example: http://plex:32400 or https://plex.example.com:32400</div>
                 </div>
-                <div class="mb-3" id="plex-username-group">
-                    <label for="plex-username" class="form-label">Plex Username</label>
-                    <input type="text" class="form-control" id="plex-username" autocomplete="username">
+                
+                <!-- Toggle between login methods -->
+                <div class="mb-3">
+                    <div class="btn-group btn-group-sm w-100" role="group">
+                        <input type="radio" class="btn-check" name="plex-auth-method" id="plex-auth-credentials" value="credentials" checked autocomplete="off">
+                        <label class="btn btn-outline-primary" for="plex-auth-credentials"><span class="mdi mdi-login"></span> Login with Credentials</label>
+                        
+                        <input type="radio" class="btn-check" name="plex-auth-method" id="plex-auth-token" value="token" autocomplete="off">
+                        <label class="btn btn-outline-primary" for="plex-auth-token"><span class="mdi mdi-key"></span> Use Existing Token</label>
+                    </div>
                 </div>
-                <div class="mb-3" id="plex-password-group">
-                    <label for="plex-password" class="form-label">Plex Password</label>
-                    <input type="password" class="form-control" id="plex-password" autocomplete="current-password">
+                
+                <!-- Credentials input (shown by default) -->
+                <div id="plex-credentials-group">
+                    <div class="mb-3">
+                        <label for="plex-username" class="form-label">Plex Username</label>
+                        <input type="text" class="form-control" id="plex-username" autocomplete="username">
+                    </div>
+                    <div class="mb-3">
+                        <label for="plex-password" class="form-label">Plex Password</label>
+                        <input type="password" class="form-control" id="plex-password" autocomplete="current-password">
+                    </div>
                 </div>
+                
+                <!-- Token input (hidden by default) -->
+                <div id="plex-token-group" style="display: none;">
+                    <div class="mb-3">
+                        <label for="plex-token-input" class="form-label">Plex Authentication Token</label>
+                        <input type="text" class="form-control" id="plex-token-input" placeholder="Enter your Plex token">
+                        <div class="form-text">You can find your token in Plex Web App → Settings → Account → Authorized Devices, or from the X-Plex-Token parameter in Plex URLs.</div>
+                    </div>
+                </div>
+                
                 <div id="plex-login-status" class="mt-3"></div>
             </div>
             <div class="modal-footer">
@@ -28,6 +53,7 @@
                 <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal"><span class="mdi mdi-close"></span> Close</button>
                 <button type="button" class="btn btn-outline-info" id="plex-test-connection-btn"><span class="mdi mdi-network"></span> Test Connection</button>
                 <button type="button" class="btn btn-outline-primary" id="plex-signin-btn"><span class="mdi mdi-login"></span> Sign In</button>
+                <button type="button" class="btn btn-outline-primary" id="plex-save-token-btn" style="display: none;"><span class="mdi mdi-content-save"></span> Save Token</button>
                 <button type="button" class="btn btn-outline-primary" id="plex-update-btn" style="display: none;"><span class="mdi mdi-content-save"></span> Save URL</button>
             </div>
         </div>

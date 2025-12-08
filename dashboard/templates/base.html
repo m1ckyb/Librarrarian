@@ -44,6 +44,86 @@
             --footer-link: var(--bs-body-color);
         }
 
+        /* Winter Christmas theme overrides */
+        [data-bs-theme="christmas"] {
+            /* Christmas color palette: deep red, forest green, gold, and white */
+            --bs-body-bg: #0d2818; /* Deep forest green background */
+            --bs-body-color: #f0f0f0; /* Light text */
+            --bs-emphasis-color: #ffffff;
+            --bs-secondary-color: #c4c4c4;
+            
+            /* Link colors */
+            --bs-link-color: #ffd700; /* Gold */
+            --bs-link-hover-color: #ffed4e;
+            
+            /* Primary colors (buttons, etc.) */
+            --bs-primary: #c41e3a; /* Christmas red */
+            --bs-primary-rgb: 196, 30, 58;
+            --bs-success: #165b33; /* Christmas green */
+            --bs-success-rgb: 22, 91, 51;
+            --bs-info: #ffd700; /* Gold */
+            --bs-info-rgb: 255, 215, 0;
+            --bs-warning: #ff6b35; /* Orange accent */
+            --bs-warning-rgb: 255, 107, 53;
+            --bs-danger: #c41e3a;
+            --bs-danger-rgb: 196, 30, 58;
+            
+            /* Border colors */
+            --bs-border-color: #2a5540;
+            --bs-border-color-translucent: rgba(42, 85, 64, 0.5);
+            
+            /* Card and surface colors */
+            --bs-body-bg-rgb: 13, 40, 24;
+            --bs-tertiary-bg: #163d29;
+            --bs-secondary-bg: #1a4730;
+            
+            /* Footer customization */
+            --footer-bg: rgba(13, 40, 24, 0.9);
+            --footer-border: rgba(42, 85, 64, 0.5);
+            --footer-text: #f0f0f0;
+            --footer-link: #ffd700;
+        }
+
+        /* Summer Christmas theme overrides */
+        [data-bs-theme="summer-christmas"] {
+            /* Summer Christmas: bright, beachy colors with festive red accents */
+            --bs-body-bg: #87ceeb; /* Sky blue background */
+            --bs-body-color: #2c3e50; /* Dark blue-gray text */
+            --bs-emphasis-color: #1a252f;
+            --bs-secondary-color: #6c757d;
+            
+            /* Link colors */
+            --bs-link-color: #e74c3c; /* Bright red */
+            --bs-link-hover-color: #c0392b;
+            
+            /* Primary colors (buttons, etc.) */
+            --bs-primary: #3498db; /* Sky blue */
+            --bs-primary-rgb: 52, 152, 219;
+            --bs-success: #27ae60; /* Tropical green */
+            --bs-success-rgb: 39, 174, 96;
+            --bs-info: #f39c12; /* Sunshine orange */
+            --bs-info-rgb: 243, 156, 18;
+            --bs-warning: #e67e22; /* Coral */
+            --bs-warning-rgb: 230, 126, 34;
+            --bs-danger: #e74c3c; /* Christmas red */
+            --bs-danger-rgb: 231, 76, 60;
+            
+            /* Border colors */
+            --bs-border-color: #dce7f0;
+            --bs-border-color-translucent: rgba(220, 231, 240, 0.5);
+            
+            /* Card and surface colors */
+            --bs-body-bg-rgb: 135, 206, 235;
+            --bs-tertiary-bg: #b0d9f0;
+            --bs-secondary-bg: #a8d5f0;
+            
+            /* Footer customization */
+            --footer-bg: rgba(135, 206, 235, 0.95);
+            --footer-border: rgba(220, 231, 240, 0.8);
+            --footer-text: #2c3e50;
+            --footer-link: #e74c3c;
+        }
+
         html, body {
             margin: 0;
             padding: 0;
@@ -183,7 +263,7 @@
                 try {
                     const response = await fetch(mainVersionUrl);
                     if (!response.ok) return; // Fail silently
-                    const latestStableVersion = await response.text().trim();
+                    const latestStableVersion = (await response.text()).trim();
 
                     // Use localeCompare with numeric option for proper version comparison
                     if (latestStableVersion.localeCompare(internalVersion, undefined, { numeric: true }) > 0) {
@@ -197,65 +277,6 @@
         });
     </script>
     <script>
-        // --- Tools Page Scanner Logic ---
-        $(document).ready(function() {
-            let progressPollers = {}; // Object to hold interval IDs for each scanner
-
-            function startScan(scannerType, apiEndpoint) {
-                const scanButton = $(`#trigger${scannerType}Scan`);
-                const progressBox = $(`#${scannerType.toLowerCase()}-scan-progress-box`);
-                const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
-
-                // Immediately show progress box and disable scan button
-                outputDiv.text('Starting scan...');
-                progressBox.show();
-                scanButton.prop('disabled', true);
-
-                // Make the API call to start the scan
-                $.post(apiEndpoint, function(data) {
-                    // Start polling for progress
-                    progressPollers[scannerType] = setInterval(function() {
-                        $.get(`/api/scan_progress?scanner=${scannerType.toLowerCase()}`, function(progressData) {
-                            outputDiv.text(progressData.progress);
-                            // If the scan is no longer running, stop polling
-                            if (!progressData.is_running) {
-                                stopScan(scannerType, false); // Don't call cancel API
-                            }
-                        });
-                    }, 2000); // Poll every 2 seconds
-                }).fail(function(jqXHR) {
-                    outputDiv.text(`Error starting scan: ${jqXHR.responseJSON ? jqXHR.responseJSON.error : 'Unknown error'}`);
-                    stopScan(scannerType, false);
-                });
-            }
-
-            function stopScan(scannerType, callCancelApi = true) {
-                const scanButton = $(`#trigger${scannerType}Scan`);
-                const outputDiv = $(`#${scannerType.toLowerCase()}-scan-output`);
-
-                // Stop the poller
-                if (progressPollers[scannerType]) {
-                    clearInterval(progressPollers[scannerType]);
-                    delete progressPollers[scannerType];
-                }
-
-                // Reset UI
-                scanButton.prop('disabled', false);
-
-                if (callCancelApi) {
-                    $.post(`/api/cancel_scan?scanner=${scannerType.toLowerCase()}`, function(data) {
-                        if (outputDiv.text()) {
-                            outputDiv.append('\n\nScan cancelled by user.');
-                        }
-                    });
-                }
-            }
-
-            // Attach event listeners if the elements exist on the page
-            $('#triggerSonarrRenameScan').click(() => startScan('SonarrRename', '/api/scan/rename'));
-            $('#triggerSonarrQualityScan').click(() => startScan('SonarrQuality', '/api/scan/quality'));
-        });
-
         // --- Options Page Logic ---
         document.addEventListener('DOMContentLoaded', () => {
             const keepOriginalSwitch = document.getElementById('keep_original');

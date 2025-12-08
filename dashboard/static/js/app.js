@@ -587,61 +587,64 @@ async function updateStatus() {
 }
 
 // Function to fetch and display failures in the modal
-document.getElementById('view-errors-btn').addEventListener('click', async () => {
-    const tableBody = document.getElementById('failures-table-body');
-    tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
-    try {
-        const response = await fetch('/api/failures');
-        const data = await response.json();
-        if (data.files && data.files.length > 0) {
-            tableBody.innerHTML = data.files.map((file, index) => {
-                let actionsHtml = '';
-                if (file.type === 'stuck_job') {
-                    // Stuck job: show re-add and clear buttons
-                    actionsHtml = `
-                        <div class="btn-group btn-group-sm" role="group">
-                            <button class="btn btn-outline-primary" onclick="requeueFailedJob(${file.id})" title="Re-add to queue">
-                                <span class="mdi mdi-refresh"></span> Re-add
+const viewErrorsBtn = document.getElementById('view-errors-btn');
+if (viewErrorsBtn) {
+    viewErrorsBtn.addEventListener('click', async () => {
+        const tableBody = document.getElementById('failures-table-body');
+        tableBody.innerHTML = '<tr><td colspan="4" class="text-center">Loading...</td></tr>';
+        try {
+            const response = await fetch('/api/failures');
+            const data = await response.json();
+            if (data.files && data.files.length > 0) {
+                tableBody.innerHTML = data.files.map((file, index) => {
+                    let actionsHtml = '';
+                    if (file.type === 'stuck_job') {
+                        // Stuck job: show re-add and clear buttons
+                        actionsHtml = `
+                            <div class="btn-group btn-group-sm" role="group">
+                                <button class="btn btn-outline-primary" onclick="requeueFailedJob(${file.id})" title="Re-add to queue">
+                                    <span class="mdi mdi-refresh"></span> Re-add
+                                </button>
+                                <button class="btn btn-outline-danger" onclick="deleteFailedJob(${file.id})" title="Remove stuck job">
+                                    <span class="mdi mdi-delete"></span> Clear
+                                </button>
+                            </div>
+                            <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
+                                View Details
                             </button>
-                            <button class="btn btn-outline-danger" onclick="deleteFailedJob(${file.id})" title="Remove stuck job">
-                                <span class="mdi mdi-delete"></span> Clear
+                        `;
+                    } else {
+                        // Regular failed file: show view log button
+                        actionsHtml = `
+                            <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
+                                View Log
                             </button>
-                        </div>
-                        <button class="btn btn-sm btn-outline-secondary mt-1" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
-                            View Details
-                        </button>
+                        `;
+                    }
+                    
+                    return `
+                        <tr>
+                            <td style="word-break: break-all;">${file.filename}</td>
+                            <td>${file.reason}</td>
+                            <td>${file.reported_at}</td>
+                            <td>${actionsHtml}</td>
+                        </tr>
+                        <tr class="collapse" id="collapse-log-${index}">
+                            <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
+                        </tr>
                     `;
-                } else {
-                    // Regular failed file: show view log button
-                    actionsHtml = `
-                        <button class="btn btn-sm btn-outline-secondary" type="button" data-bs-toggle="collapse" data-bs-target="#collapse-log-${index}">
-                            View Log
-                        </button>
-                    `;
-                }
-                
-                return `
-                    <tr>
-                        <td style="word-break: break-all;">${file.filename}</td>
-                        <td>${file.reason}</td>
-                        <td>${file.reported_at}</td>
-                        <td>${actionsHtml}</td>
-                    </tr>
-                    <tr class="collapse" id="collapse-log-${index}">
-                        <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
-                    </tr>
-                `;
-            }).join('');
-        } else {
-            tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files or stuck jobs found.</td></tr>';
+                }).join('');
+            } else {
+                tableBody.innerHTML = '<tr><td colspan="4" class="text-center">No failed files or stuck jobs found.</td></tr>';
+            }
+        } catch (error) {
+            tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load errors.</td></tr>';
         }
-    } catch (error) {
-        tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load errors.</td></tr>';
-    }
-});
+    });
+}
 
-// Function to clear all failures
-document.getElementById('clear-errors-btn').addEventListener('click', async () => {
+// Shared function to clear all failures
+async function clearAllFailures() {
     if (!confirm('Are you sure you want to permanently clear all failed file logs? This action cannot be undone.')) {
         return;
     }
@@ -657,7 +660,19 @@ document.getElementById('clear-errors-btn').addEventListener('click', async () =
     } catch (error) {
         alert('An error occurred while trying to clear the failures.');
     }
-});
+}
+
+// Function to clear all failures (header button)
+const clearErrorsBtn = document.getElementById('clear-errors-btn');
+if (clearErrorsBtn) {
+    clearErrorsBtn.addEventListener('click', clearAllFailures);
+}
+
+// Function to clear all failures (modal button)
+const modalClearAllErrorsBtn = document.getElementById('modal-clear-all-errors-btn');
+if (modalClearAllErrorsBtn) {
+    modalClearAllErrorsBtn.addEventListener('click', clearAllFailures);
+}
 
 // Function to re-queue a stuck job from the failures modal
 window.requeueFailedJob = async function(jobId) {
@@ -797,11 +812,13 @@ var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
 });
 
 // Function to clear all history
-document.getElementById('clear-history-btn').addEventListener('click', async () => {
-    if (!confirm('Are you sure you want to permanently clear the entire transcode history? This action cannot be undone.')) {
-        return;
-    }
-    try {
+const clearHistoryBtn = document.getElementById('clear-history-btn');
+if (clearHistoryBtn) {
+    clearHistoryBtn.addEventListener('click', async () => {
+        if (!confirm('Are you sure you want to permanently clear the entire transcode history? This action cannot be undone.')) {
+            return;
+        }
+        try {
         const response = await fetch('/api/history/clear', { method: 'POST' });
         if (response.ok) {
             // Refresh the history table to show it's empty
@@ -810,8 +827,9 @@ document.getElementById('clear-history-btn').addEventListener('click', async () 
     } catch (error) {
         console.error('Error clearing history:', error);
         alert('An error occurred while trying to clear the history.');
-    }
-});
+        }
+    });
+}
 
 // Function to update the job queue
 let jobQueueCurrentPage = 1; // Keep track of the current page
@@ -894,15 +912,25 @@ async function updateJobQueue(page = 1) {
 
         // Build the entire table HTML at once and set it. This is much more efficient
         // and prevents the "ghost row" rendering bug.
-        const rowsHtml = data.jobs.map(job => `
+        const rowsHtml = data.jobs.map(job => {
+            // Check if job has symlink metadata
+            // Parse metadata if it's a string, otherwise use it directly
+            const metadata = typeof job.metadata === 'string' ? JSON.parse(job.metadata) : job.metadata;
+            const isSymlink = metadata && metadata.is_symlink;
+            const symlinkWarning = isSymlink ? escapeHtml(metadata.warning) : '';
+            
+            return `
             <tr>
                 <td>
-                    ${(job.job_type === 'cleanup' || job.job_type === 'Rename Job') && job.status === 'awaiting_approval' ? 
+                    ${(job.job_type === 'cleanup' || job.job_type === 'Rename Job' || isSymlink) && job.status === 'awaiting_approval' ? 
                         `<input type="checkbox" class="form-check-input approval-checkbox" data-job-id="${job.id}">` : 
                         job.id 
                     }
                 </td>
-                <td style="word-break: break-all;">${job.filepath}</td>
+                <td style="word-break: break-all;">
+                    ${job.filepath}
+                    ${isSymlink ? `<br><small class="text-warning"><span class="mdi mdi-alert"></span> ${symlinkWarning}</small>` : ''}
+                </td>
                 <td><span class="badge badge-outline-info">${job.job_type}</span></td>
                 <td>
                     ${job.status === 'encoding' ? 
@@ -922,7 +950,8 @@ async function updateJobQueue(page = 1) {
                 <td>${new Date(job.created_at).toLocaleString()}</td>
                 <td>${getJobActionButtons(job)}</td>
             </tr>
-        `).join('');
+            `;
+        }).join('');
         tableBody.innerHTML = rowsHtml;
 
         renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
@@ -944,23 +973,28 @@ async function updateJobQueue(page = 1) {
 }
 
 // Function to create cleanup jobs
-document.getElementById('create-cleanup-jobs-btn').addEventListener('click', async () => {
-    const statusDiv = document.getElementById('cleanup-status');
-    statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
-    const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
-    if (!response.ok) {
-        statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
-        return;
-    }
-    const result = await response.json();
-    const alertClass = result.success ? 'alert-success' : 'alert-danger';
-    statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
-});
+const createCleanupJobsBtn = document.getElementById('create-cleanup-jobs-btn');
+if (createCleanupJobsBtn) {
+    createCleanupJobsBtn.addEventListener('click', async () => {
+        const statusDiv = document.getElementById('cleanup-status');
+        statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
+        const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
+        if (!response.ok) {
+            statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
+            return;
+        }
+        const result = await response.json();
+        const alertClass = result.success ? 'alert-success' : 'alert-danger';
+        statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
+    });
+}
 
 // --- History & Stats Page Logic ---
 let fullHistoryData = [];
 let historyCurrentPage = 1;
-const historyItemsPerPage = 15;
+let historyItemsPerPage = 15; // Default to 15
+let historySortColumn = 'id';
+let historySortDirection = 'desc'; // Default to descending (newest first)
 
 // Combined function to fetch and display stats and history
 async function updateHistoryAndStats() {
@@ -968,10 +1002,14 @@ async function updateHistoryAndStats() {
     const historyBody = document.getElementById('history-table-body');
 
     try {
+        // Get the limit from the dropdown
+        const historyLimitSelect = document.getElementById('history-limit-select');
+        const limit = historyLimitSelect ? historyLimitSelect.value : '100';
+        
         // Fetch both stats and history in parallel
         const [statsResponse, historyResponse] = await Promise.all([
             fetch('/api/stats'),
-            fetch('/api/history')
+            fetch(`/api/history?limit=${limit}`)
         ]);
 
         // Process Stats
@@ -1014,23 +1052,67 @@ async function updateHistoryAndStats() {
     }
 }
 
-// Function to render the history table with search and pagination
+// Function to render the history table with search, sorting, and pagination
 function renderHistoryTable() {
     const historyBody = document.getElementById('history-table-body');
     const paginationContainer = document.getElementById('history-pagination');
     const searchTerm = document.getElementById('history-search-input').value.toLowerCase();
+    const perPageValue = document.getElementById('history-per-page-select').value;
 
-    const filteredData = fullHistoryData.filter(item => 
+    // Filter data
+    let filteredData = fullHistoryData.filter(item => 
         item.filename.toLowerCase().includes(searchTerm) ||
         item.hostname.toLowerCase().includes(searchTerm)
     );
 
-    const totalPages = Math.ceil(filteredData.length / historyItemsPerPage);
-    if (historyCurrentPage > totalPages) {
-        historyCurrentPage = totalPages || 1;
+    // Sort data
+    filteredData.sort((a, b) => {
+        let aVal = a[historySortColumn];
+        let bVal = b[historySortColumn];
+        
+        // Handle numeric sorting for specific columns
+        if (historySortColumn === 'id' || historySortColumn === 'original_size' || historySortColumn === 'reduction_percent') {
+            aVal = parseFloat(aVal) || 0;
+            bVal = parseFloat(bVal) || 0;
+        } else {
+            // String comparison
+            aVal = String(aVal).toLowerCase();
+            bVal = String(bVal).toLowerCase();
+        }
+        
+        if (aVal < bVal) return historySortDirection === 'asc' ? -1 : 1;
+        if (aVal > bVal) return historySortDirection === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    // Update sort indicators in table headers
+    document.querySelectorAll('th[data-sort]').forEach(th => {
+        const sortIcon = th.querySelector('.mdi');
+        if (th.getAttribute('data-sort') === historySortColumn) {
+            sortIcon.className = `mdi mdi-arrow-${historySortDirection === 'asc' ? 'up' : 'down'}`;
+        } else {
+            sortIcon.className = 'mdi mdi-sort';
+        }
+    });
+
+    // Determine items per page and paginate data
+    let paginatedData;
+    let totalPages;
+    
+    if (perPageValue === 'all' || filteredData.length === 0) {
+        // Show all items or handle empty data
+        paginatedData = filteredData;
+        totalPages = filteredData.length > 0 ? 1 : 0;
+        historyCurrentPage = 1;
+    } else {
+        const effectiveItemsPerPage = parseInt(perPageValue);
+        totalPages = Math.ceil(filteredData.length / effectiveItemsPerPage);
+        if (historyCurrentPage > totalPages) {
+            historyCurrentPage = totalPages || 1;
+        }
+        const startIndex = (historyCurrentPage - 1) * effectiveItemsPerPage;
+        paginatedData = filteredData.slice(startIndex, startIndex + effectiveItemsPerPage);
     }
-    const startIndex = (historyCurrentPage - 1) * historyItemsPerPage;
-    const paginatedData = filteredData.slice(startIndex, startIndex + historyItemsPerPage);
 
     // Render table rows
     if (paginatedData.length > 0) {
@@ -1051,30 +1133,105 @@ function renderHistoryTable() {
             </tr>
         `).join('');
     } else {
-        historyBody.innerHTML = `<tr><td colspan="7" class="text-center">${searchTerm ? 'No matching files found.' : 'No encoded files found.'}</td></tr>`;
+        historyBody.innerHTML = `<tr><td colspan="8" class="text-center">${searchTerm ? 'No matching files found.' : 'No encoded files found.'}</td></tr>`;
     }
 
-    // Render pagination
+    // Render pagination (only if not showing all)
     paginationContainer.innerHTML = '';
-    if (totalPages > 1) {
-        for (let i = 1; i <= totalPages; i++) {
+    if (totalPages > 1 && perPageValue !== 'all') {
+        const pageWindow = 5; // How many pages to show around the current page
+        
+        // Helper to create a page link
+        const createPageLink = (page, text, isDisabled = false, isActive = false) => {
             const li = document.createElement('li');
-            li.className = `page-item ${i === historyCurrentPage ? 'active' : ''}`;
-            li.innerHTML = `<a class="page-link" href="#">${i}</a>`;
-            li.addEventListener('click', (e) => {
-                e.preventDefault();
-                historyCurrentPage = i;
-                renderHistoryTable();
-            });
-            paginationContainer.appendChild(li);
+            li.className = `page-item ${isDisabled ? 'disabled' : ''} ${isActive ? 'active' : ''}`;
+            const a = document.createElement('a');
+            a.className = 'page-link';
+            a.href = '#';
+            a.innerText = text;
+            if (!isDisabled) {
+                a.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    historyCurrentPage = page;
+                    renderHistoryTable();
+                });
+            }
+            li.appendChild(a);
+            return li;
+        };
+        
+        // Previous Button
+        paginationContainer.appendChild(createPageLink(historyCurrentPage - 1, 'Previous', historyCurrentPage === 1));
+        
+        // Page numbers
+        let startPage = Math.max(1, historyCurrentPage - pageWindow);
+        let endPage = Math.min(totalPages, historyCurrentPage + pageWindow);
+        
+        if (startPage > 1) {
+            paginationContainer.appendChild(createPageLink(1, '1'));
+            if (startPage > 2) {
+                paginationContainer.appendChild(createPageLink(-1, '...', true));
+            }
         }
+        
+        for (let i = startPage; i <= endPage; i++) {
+            paginationContainer.appendChild(createPageLink(i, i.toString(), false, i === historyCurrentPage));
+        }
+        
+        if (endPage < totalPages) {
+            if (endPage < totalPages - 1) {
+                paginationContainer.appendChild(createPageLink(-1, '...', true));
+            }
+            paginationContainer.appendChild(createPageLink(totalPages, totalPages.toString()));
+        }
+        
+        // Next Button
+        paginationContainer.appendChild(createPageLink(historyCurrentPage + 1, 'Next', historyCurrentPage === totalPages));
     }
 }
 
 // Event listener for the search input
-document.getElementById('history-search-input').addEventListener('input', () => {
-    historyCurrentPage = 1; // Reset to first page on search
-    renderHistoryTable();
+const historySearchInput = document.getElementById('history-search-input');
+if (historySearchInput) {
+    historySearchInput.addEventListener('input', () => {
+        historyCurrentPage = 1; // Reset to first page on search
+        renderHistoryTable();
+    });
+}
+
+// Event listener for the per-page select
+const historyPerPageSelect = document.getElementById('history-per-page-select');
+if (historyPerPageSelect) {
+    historyPerPageSelect.addEventListener('change', () => {
+        historyCurrentPage = 1; // Reset to first page when changing items per page
+        renderHistoryTable();
+    });
+}
+
+// Event listener for the history limit select
+const historyLimitSelect = document.getElementById('history-limit-select');
+if (historyLimitSelect) {
+    historyLimitSelect.addEventListener('change', () => {
+        historyCurrentPage = 1; // Reset to first page when changing limit
+        updateHistoryAndStats(); // Re-fetch data from server with new limit
+    });
+}
+
+// Event listeners for sortable column headers
+document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+        const sortColumn = th.getAttribute('data-sort');
+        if (historySortColumn === sortColumn) {
+            // Toggle sort direction if clicking the same column
+            historySortDirection = historySortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            // New column, default to descending for ID/date, ascending for others
+            historySortColumn = sortColumn;
+            historySortDirection = (sortColumn === 'id' || sortColumn === 'encoded_at') ? 'desc' : 'asc';
+        }
+        historyCurrentPage = 1; // Reset to first page when sorting
+        renderHistoryTable();
+    });
 });
 
 // --- NEW: Smart Pagination Renderer ---
@@ -1532,31 +1689,70 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to set Plex modal to link mode
     function setPlexModalLinkMode() {
-        document.getElementById('plexLoginModalLabel').textContent = 'Link Plex Account';
-        document.getElementById('plex-modal-description').textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
-        document.getElementById('plex-username-group').style.display = 'block';
-        document.getElementById('plex-password-group').style.display = 'block';
-        document.getElementById('plex-signin-btn').style.display = 'inline-block';
-        document.getElementById('plex-update-btn').style.display = 'none';
-        document.getElementById('plex-modal-unlink-btn').style.display = 'none';
-        document.getElementById('plex-modal-url').value = '';
-        document.getElementById('plex-username').value = '';
-        document.getElementById('plex-password').value = '';
-        document.getElementById('plex-login-status').innerHTML = '';
+        const modalLabel = document.getElementById('plexLoginModalLabel');
+        const modalDescription = document.getElementById('plex-modal-description');
+        const credentialsRadio = document.getElementById('plex-auth-credentials');
+        const credentialsGroup = document.getElementById('plex-credentials-group');
+        const tokenGroup = document.getElementById('plex-token-group');
+        const signInBtn = document.getElementById('plex-signin-btn');
+        const saveTokenBtn = document.getElementById('plex-save-token-btn');
+        const updateBtn = document.getElementById('plex-update-btn');
+        const unlinkBtn = document.getElementById('plex-modal-unlink-btn');
+        const urlInput = document.getElementById('plex-modal-url');
+        const usernameInput = document.getElementById('plex-username');
+        const passwordInput = document.getElementById('plex-password');
+        const tokenInput = document.getElementById('plex-token-input');
+        const statusDiv = document.getElementById('plex-login-status');
+        
+        if (modalLabel) modalLabel.textContent = 'Link Plex Account';
+        if (modalDescription) modalDescription.textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
+        
+        // Reset to credentials mode by default
+        if (credentialsRadio) {
+            credentialsRadio.checked = true;
+            if (credentialsGroup) credentialsGroup.style.display = 'block';
+            if (tokenGroup) tokenGroup.style.display = 'none';
+        }
+        
+        if (signInBtn) signInBtn.style.display = 'inline-block';
+        if (saveTokenBtn) saveTokenBtn.style.display = 'none';
+        if (updateBtn) updateBtn.style.display = 'none';
+        if (unlinkBtn) unlinkBtn.style.display = 'none';
+        if (urlInput) urlInput.value = '';
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (tokenInput) tokenInput.value = '';
+        if (statusDiv) statusDiv.innerHTML = '';
     }
 
     // Function to set Plex modal to modify mode
     function setPlexModalModifyMode() {
-        document.getElementById('plexLoginModalLabel').textContent = 'Modify Plex Configuration';
-        document.getElementById('plex-modal-description').textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
-        document.getElementById('plex-username-group').style.display = 'none';
-        document.getElementById('plex-password-group').style.display = 'none';
-        document.getElementById('plex-signin-btn').style.display = 'none';
-        document.getElementById('plex-update-btn').style.display = 'inline-block';
-        document.getElementById('plex-modal-unlink-btn').style.display = 'inline-block';
+        const modalLabel = document.getElementById('plexLoginModalLabel');
+        const modalDescription = document.getElementById('plex-modal-description');
+        const credentialsGroup = document.getElementById('plex-credentials-group');
+        const tokenGroup = document.getElementById('plex-token-group');
+        const signInBtn = document.getElementById('plex-signin-btn');
+        const saveTokenBtn = document.getElementById('plex-save-token-btn');
+        const updateBtn = document.getElementById('plex-update-btn');
+        const unlinkBtn = document.getElementById('plex-modal-unlink-btn');
+        const urlInput = document.getElementById('plex-modal-url');
+        const statusDiv = document.getElementById('plex-login-status');
+        
+        if (modalLabel) modalLabel.textContent = 'Modify Plex Configuration';
+        if (modalDescription) modalDescription.textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
+        
+        // Hide authentication method toggle and all auth groups in modify mode
+        if (credentialsGroup) credentialsGroup.style.display = 'none';
+        if (tokenGroup) tokenGroup.style.display = 'none';
+        
+        if (signInBtn) signInBtn.style.display = 'none';
+        if (saveTokenBtn) saveTokenBtn.style.display = 'none';
+        if (updateBtn) updateBtn.style.display = 'inline-block';
+        if (unlinkBtn) unlinkBtn.style.display = 'inline-block';
+        
         // Pre-fill with current URL
-        document.getElementById('plex-modal-url').value = window.Librarrarian.settings.plexUrl || '';
-        document.getElementById('plex-login-status').innerHTML = '';
+        if (urlInput) urlInput.value = window.Librarrarian.settings.plexUrl || '';
+        if (statusDiv) statusDiv.innerHTML = '';
     }
 
     if (plexLoginBtn) {
@@ -1672,6 +1868,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Unlinking...`;
                 await fetch('/api/plex/logout', { method: 'POST' });
                 window.location.reload();
+            }
+        });
+    }
+
+    // Handle Plex authentication method toggle
+    const plexAuthCredentialsRadio = document.getElementById('plex-auth-credentials');
+    const plexAuthTokenRadio = document.getElementById('plex-auth-token');
+    const plexCredentialsGroup = document.getElementById('plex-credentials-group');
+    const plexTokenGroup = document.getElementById('plex-token-group');
+    const plexSaveTokenBtn = document.getElementById('plex-save-token-btn');
+
+    if (plexAuthCredentialsRadio && plexAuthTokenRadio && plexCredentialsGroup && plexTokenGroup && plexSignInBtn && plexSaveTokenBtn) {
+        plexAuthCredentialsRadio.addEventListener('change', () => {
+            if (plexAuthCredentialsRadio.checked) {
+                plexCredentialsGroup.style.display = 'block';
+                plexTokenGroup.style.display = 'none';
+                plexSignInBtn.style.display = 'inline-block';
+                plexSaveTokenBtn.style.display = 'none';
+            }
+        });
+
+        plexAuthTokenRadio.addEventListener('change', () => {
+            if (plexAuthTokenRadio.checked) {
+                plexCredentialsGroup.style.display = 'none';
+                plexTokenGroup.style.display = 'block';
+                plexSignInBtn.style.display = 'none';
+                plexSaveTokenBtn.style.display = 'inline-block';
+            }
+        });
+    }
+
+    // Handle Save Token button
+    if (plexSaveTokenBtn) {
+        plexSaveTokenBtn.addEventListener('click', async () => {
+            const tokenInput = document.getElementById('plex-token-input');
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+
+            if (!tokenInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex token.</div>`;
+                return;
+            }
+
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL.</div>`;
+                return;
+            }
+
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Saving token...`;
+
+            const response = await fetch('/api/plex/save-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    token: tokenInput.value,
+                    plex_url: urlInput.value
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
         });
     }
@@ -1845,6 +2110,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Show/Hide Logic ---
+    /**
+     * Enables all form inputs (inputs and selects) within a container.
+     * Used after dynamically populating containers to ensure form submission works correctly.
+     * @param {HTMLElement} container - The container element to enable inputs within
+     */
+    function enableFormInputs(container) {
+        container.querySelectorAll('input, select').forEach(el => el.disabled = false);
+    }
+    
     // Set up visibility toggles BEFORE loading functions are called
     // Items are considered "ignored" when their media type dropdown is set to "none"
     function setupShowIgnoredToggle(toggleId, listContainerId) {
@@ -1946,9 +2220,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const createJellyfinLinkDropdown = (plexLibName) => {
-            // Note: Backend handling for library linking needs to be implemented
-            // These form fields (link_plex_*) are not yet processed by the server
+        const createJellyfinLinkDropdown = (plexLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(plexLibName);
             const hasJellyfinAuth = window.Librarrarian.settings.jellyfinApiKey !== "";
             
@@ -1959,7 +2231,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibs.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = jLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -1978,11 +2251,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
                         ${showJellyfinLink ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
-                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
+                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
         } else {
             container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
         }
@@ -2048,9 +2324,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const createPlexLinkDropdown = (jellyfinLibName) => {
-            // Note: Backend handling for library linking needs to be implemented
-            // These form fields (link_jellyfin_*) are not yet processed by the server
+        const createPlexLinkDropdown = (jellyfinLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(jellyfinLibName);
             const hasPlexAuth = window.Librarrarian.settings.plexToken !== "";
             
@@ -2061,7 +2335,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibs.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = pLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -2082,11 +2357,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
                         ${showPlexLink ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
-                        ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
+                        ${showPlexLink ? createPlexLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
         } else {
             container.innerHTML = '<p class="text-muted">No libraries found.</p>';
         }
@@ -2164,7 +2442,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Create linking dropdown helper functions
-        const createJellyfinLinkDropdown = (plexLibName) => {
+        const createJellyfinLinkDropdown = (plexLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(plexLibName);
             if (!hasJellyfinAuth) {
                 return `<span class="text-muted small">Jellyfin not linked</span>`;
@@ -2172,13 +2450,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibraries.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = jLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        const createPlexLinkDropdown = (jellyfinLibName) => {
+        const createPlexLinkDropdown = (jellyfinLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(jellyfinLibName);
             if (!hasPlexAuth) {
                 return `<span class="text-muted small">Plex not linked</span>`;
@@ -2186,32 +2465,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibraries.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = pLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        // Build combined library list
+        // Build combined library list - show PRIMARY server's libraries with optional linking to secondary
         let libraryItems = [];
         
-        // Add primary server's libraries first
+        // Show ONLY the primary server's libraries
         if (primaryServer === 'plex' && plexLibraries.length > 0) {
-            const currentLibs = window.Librarrarian.settings.plexLibraries;
+            const currentLibs = window.Librarrarian.settings.plexLibraries || [];
             libraryItems = plexLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedKey = escapeHtml(lib.key);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
+                    <span class="badge badge-outline-warning me-2">Plex</span>
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="lib-${escapedKey}"><span class="badge badge-outline-warning me-1">Plex</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-purple">Jellyfin</span>
-                        ${createJellyfinLinkDropdown(lib.title)}
+                        ${hasJellyfinAuth ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
+                        ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
                 `;
@@ -2223,15 +2503,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const escapedId = escapeHtml(lib.id || lib.title);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
+                    <span class="badge badge-outline-purple me-2">Jellyfin</span>
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-purple me-1">Jellyfin</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="jlib-${escapedId}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-warning">Plex</span>
-                        ${createPlexLinkDropdown(lib.title)}
+                        ${hasPlexAuth ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
+                        ${hasPlexAuth ? createPlexLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
                 `;
@@ -2240,7 +2520,29 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
+            
+            // DEBUG: Log created form fields for sync mode debugging
+            console.log('[Sync Mode Debug] Combined libraries loaded. Form fields created:');
+            const typeDropdowns = container.querySelectorAll('select[name^="type_"]');
+            const linkDropdowns = container.querySelectorAll('select[name^="link_"]');
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            
+            console.log(`  - ${typeDropdowns.length} type dropdowns:`);
+            typeDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${linkDropdowns.length} link dropdowns:`);
+            linkDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${checkboxes.length} library checkboxes (checked: ${Array.from(checkboxes).filter(cb => cb.checked).length})`);
         } else {
+            // Show appropriate message based on primary server
             const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
             const serverError = primaryServer === 'plex' ? plexError : jellyfinError;
             
@@ -2266,26 +2568,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const multiServerCheckbox = document.getElementById('enable_multi_server');
         if (!multiServerCheckbox) return;
         
-        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
-        
-        // If internal scanner is selected, disable sync
-        if (primaryServer === 'internal') {
-            multiServerCheckbox.disabled = true;
-            multiServerCheckbox.checked = false;
-            return;
-        }
-        
-        // Check if both Plex and Jellyfin are linked
-        const plexLinked = window.Librarrarian.settings.plexToken && window.Librarrarian.settings.plexToken.length > 0;
-        const jellyfinLinked = window.Librarrarian.settings.jellyfinApiKey && window.Librarrarian.settings.jellyfinApiKey.length > 0;
-        
-        // Only enable sync if both servers are linked
-        if (plexLinked && jellyfinLinked) {
-            multiServerCheckbox.disabled = false;
-        } else {
-            multiServerCheckbox.disabled = true;
-            multiServerCheckbox.checked = false;
-        }
+        // Multi-server sync feature is temporarily disabled due to persistent issues
+        // Always keep the checkbox disabled and unchecked
+        multiServerCheckbox.disabled = true;
+        multiServerCheckbox.checked = false;
     }
     
     // Reload libraries when multi-server is toggled
@@ -2355,25 +2641,58 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             
             // Show/hide library containers based on selection and multi-server mode
+            // Also disable form inputs in hidden containers to prevent them from being submitted
             if (multiServerEnabled) {
                 // When multi-server is enabled, show only the combined container
-                if (plexContainer) plexContainer.style.display = 'none';
-                if (jellyfinContainer) jellyfinContainer.style.display = 'none';
-                if (combinedContainer) combinedContainer.style.display = 'block';
+                if (plexContainer) {
+                    plexContainer.style.display = 'none';
+                    // Disable all form inputs in this container
+                    plexContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                }
+                if (jellyfinContainer) {
+                    jellyfinContainer.style.display = 'none';
+                    // Disable all form inputs in this container
+                    jellyfinContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                }
+                if (combinedContainer) {
+                    combinedContainer.style.display = 'block';
+                    // Enable all form inputs in this container
+                    combinedContainer.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                }
                 
                 // Load combined libraries
                 loadCombinedLibraries();
             } else {
                 // When multi-server is disabled, hide combined and show only the selected server's container
-                if (combinedContainer) combinedContainer.style.display = 'none';
+                if (combinedContainer) {
+                    combinedContainer.style.display = 'none';
+                    // Disable all form inputs in this container
+                    combinedContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                }
                 
                 if (primaryServer === 'plex') {
-                    if (plexContainer) plexContainer.style.display = 'block';
-                    if (jellyfinContainer) jellyfinContainer.style.display = 'none';
+                    if (plexContainer) {
+                        plexContainer.style.display = 'block';
+                        // Enable all form inputs in this container
+                        plexContainer.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                    }
+                    if (jellyfinContainer) {
+                        jellyfinContainer.style.display = 'none';
+                        // Disable all form inputs in this container
+                        jellyfinContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                    }
                     loadPlexLibraries();
                 } else if (primaryServer === 'jellyfin') {
-                    if (plexContainer) plexContainer.style.display = 'none';
-                    if (jellyfinContainer) jellyfinContainer.style.display = 'block';
+                    if (plexContainer) {
+                        plexContainer.style.display = 'none';
+                        // Disable all form inputs in this container
+                        plexContainer.querySelectorAll('input, select').forEach(el => el.disabled = true);
+                    }
+                    if (jellyfinContainer) {
+                        jellyfinContainer.style.display = 'block';
+                        // Enable all form inputs in this container
+                        jellyfinContainer.querySelectorAll('input, select').forEach(el => el.disabled = false);
+                    }
                     loadJellyfinLibraries();
                 }
             }
@@ -2432,9 +2751,11 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
     const internalTab = document.getElementById('internal-integration-tab');
-    internalTab.addEventListener('shown.bs.tab', () => {
-        loadInternalFolders();
-    });
+    if (internalTab) {
+        internalTab.addEventListener('shown.bs.tab', () => {
+            loadInternalFolders();
+        });
+    }
 
     // --- NEW: Integrations Tab Logic ---
     const scannerPlexRadio = document.getElementById('scanner_plex');
@@ -2447,139 +2768,148 @@ document.addEventListener('DOMContentLoaded', () => {
     const pathMappingToggle = document.getElementById('plex_path_mapping_enabled');
     const internalTabButton = document.getElementById('internal-integration-tab');
 
-    function handleScannerChange() {
-        // Both inputs should always be enabled.
-        pathFromInput.disabled = false;
+    // Only set up scanner change logic if the required elements exist
+    if (scannerPlexRadio && scannerInternalRadio && pathFromInput && pathFromLabel && 
+        pathFromTooltip && plexTabButton && pathMappingToggleContainer && 
+        pathMappingToggle && internalTabButton) {
+        
+        function handleScannerChange() {
+            // Both inputs should always be enabled.
+            pathFromInput.disabled = false;
 
-        if (scannerPlexRadio.checked) {
-            pathFromLabel.innerText = 'Path in Plex';
-            pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
-            // Enable Plex tab, disable Internal tab
-            plexTabButton.disabled = false;
-            internalTabButton.disabled = true;
-            // If the internal tab was active, switch to the plex tab
-            pathMappingToggleContainer.style.display = 'block'; // Show the toggle
-            // Disable/enable path inputs based on the toggle's state
-            const isMappingEnabled = pathMappingToggle.checked;
-            document.getElementById('plex_path_from').disabled = !isMappingEnabled;
-            document.getElementById('plex_path_to').disabled = !isMappingEnabled;
+            if (scannerPlexRadio.checked) {
+                pathFromLabel.innerText = 'Path in Plex';
+                pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the Plex server (e.g., /data/movies)');
+                // Enable Plex tab, disable Internal tab
+                plexTabButton.disabled = false;
+                internalTabButton.disabled = true;
+                // If the internal tab was active, switch to the plex tab
+                pathMappingToggleContainer.style.display = 'block'; // Show the toggle
+                // Disable/enable path inputs based on the toggle's state
+                const isMappingEnabled = pathMappingToggle.checked;
+                document.getElementById('plex_path_from').disabled = !isMappingEnabled;
+                document.getElementById('plex_path_to').disabled = !isMappingEnabled;
 
-            if (internalTabButton.classList.contains('active')) {
-                new bootstrap.Tab(plexTabButton).show();
+                if (internalTabButton.classList.contains('active')) {
+                    new bootstrap.Tab(plexTabButton).show();
+                }
+            } else if (scannerInternalRadio.checked) {
+                pathFromLabel.innerText = 'Internal Worker Path';
+                pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the worker machine (e.g., /nfs/media)');
+                // Disable Plex tab, enable Internal tab
+                plexTabButton.disabled = true;
+                internalTabButton.disabled = false;
+                pathMappingToggleContainer.style.display = 'none'; // Hide the toggle
+                // Always enable path inputs for internal scanner
+                document.getElementById('plex_path_from').disabled = false;
+                document.getElementById('plex_path_to').disabled = false;
+                // If the plex tab was active, switch to the internal tab
+                if (plexTabButton.classList.contains('active')) {
+                    new bootstrap.Tab(internalTabButton).show();
+                }
             }
-        } else if (scannerInternalRadio.checked) {
-            pathFromLabel.innerText = 'Internal Worker Path';
-            pathFromTooltip.setAttribute('data-bs-original-title', 'The absolute path to your media as seen by the worker machine (e.g., /nfs/media)');
-            // Disable Plex tab, enable Internal tab
-            plexTabButton.disabled = true;
-            internalTabButton.disabled = false;
-            pathMappingToggleContainer.style.display = 'none'; // Hide the toggle
-            // Always enable path inputs for internal scanner
-            document.getElementById('plex_path_from').disabled = false;
-            document.getElementById('plex_path_to').disabled = false;
-            // If the plex tab was active, switch to the internal tab
-            if (plexTabButton.classList.contains('active')) {
-                new bootstrap.Tab(internalTabButton).show();
+
+            // Also update the manual scan button state
+            const manualScanBtn = document.getElementById('manual-scan-btn');
+            if (manualScanBtn) {
+                const hasPlexToken = window.Librarrarian.settings.plexToken !== "";
+                if (scannerPlexRadio.checked && !hasPlexToken) {
+                    manualScanBtn.disabled = true;
+                    manualScanBtn.title = "Plex account must be linked to run a scan.";
+                } else {
+                    manualScanBtn.disabled = false;
+                    manualScanBtn.title = "Trigger a manual scan of the active media integration";
+                }
             }
         }
 
-        // Also update the manual scan button state
-        const manualScanBtn = document.getElementById('manual-scan-btn');
-        const hasPlexToken = window.Librarrarian.settings.plexToken !== "";
-        if (scannerPlexRadio.checked && !hasPlexToken) {
-            manualScanBtn.disabled = true;
-            manualScanBtn.title = "Plex account must be linked to run a scan.";
-        } else {
-            manualScanBtn.disabled = false;
-            manualScanBtn.title = "Trigger a manual scan of the active media integration";
-        }
+        scannerPlexRadio.addEventListener('change', handleScannerChange);
+        scannerInternalRadio.addEventListener('change', handleScannerChange);
+        // Add listener for the new toggle
+        pathMappingToggle.addEventListener('change', () => {
+            const isEnabled = pathMappingToggle.checked;
+            document.getElementById('plex_path_from').disabled = !isEnabled;
+            document.getElementById('plex_path_to').disabled = !isEnabled;
+        });
+
+        handleScannerChange(); // Run on initial script execution to set the correct state
     }
-
-    scannerPlexRadio.addEventListener('change', handleScannerChange);
-    scannerInternalRadio.addEventListener('change', handleScannerChange);
-    // Add listener for the new toggle
-    pathMappingToggle.addEventListener('change', () => {
-        const isEnabled = pathMappingToggle.checked;
-        document.getElementById('plex_path_from').disabled = !isEnabled;
-        document.getElementById('plex_path_to').disabled = !isEnabled;
-    });
-
-    handleScannerChange(); // Run on initial script execution to set the correct state
 
     // --- Manual Media Scan Logic ---
     const manualScanBtn = document.getElementById('manual-scan-btn');
     const scanStatusDiv = document.getElementById('scan-status');
     const forceRescanCheckbox = document.getElementById('force-rescan-checkbox');
     
-    // Media scan progress elements
-    const mediaScanContainer = document.getElementById('media-scan-container');
-    const mediaScanFeedback = document.getElementById('media-scan-feedback');
-    const mediaScanProgress = document.getElementById('media-scan-progress');
-    const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
-    const mediaScanProgressText = document.getElementById('media-scan-progress-text');
-    const mediaScanTime = document.getElementById('media-scan-time');
-    
-    let mediaScanInterval = null;
-    let mediaScanStartTime = null;
+    if (manualScanBtn && scanStatusDiv) {
+        // Media scan progress elements
+        const mediaScanContainer = document.getElementById('media-scan-container');
+        const mediaScanFeedback = document.getElementById('media-scan-feedback');
+        const mediaScanProgress = document.getElementById('media-scan-progress');
+        const mediaScanProgressBar = mediaScanProgress ? mediaScanProgress.querySelector('.progress-bar') : null;
+        const mediaScanProgressText = document.getElementById('media-scan-progress-text');
+        const mediaScanTime = document.getElementById('media-scan-time');
+        
+        let mediaScanInterval = null;
+        let mediaScanStartTime = null;
 
-    function startMediaScanPolling() {
-        if (mediaScanInterval) clearInterval(mediaScanInterval);
-        
-        mediaScanStartTime = new Date();
-        if (mediaScanContainer) mediaScanContainer.style.display = 'block';
-        if (mediaScanProgress) mediaScanProgress.style.display = 'block';
-        if (mediaScanProgressBar) {
-            mediaScanProgressBar.style.width = '0%';
-            mediaScanProgressBar.textContent = '0%';
-        }
-        if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
-        
-        mediaScanInterval = setInterval(async () => {
-            try {
-                const response = await fetch('/api/scan/progress');
-                const data = await response.json();
-                
-                const now = new Date();
-                const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
-                if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
-                
-                if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-                    const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
-                    if (mediaScanProgressBar) {
-                        mediaScanProgressBar.style.width = `${progressPercent}%`;
-                        mediaScanProgressBar.textContent = `${progressPercent}%`;
-                    }
-                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
-                } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
-                    // Scan finished
-                    clearInterval(mediaScanInterval);
-                    mediaScanInterval = null;
-                    
-                    if (mediaScanProgressBar) {
-                        mediaScanProgressBar.style.width = '100%';
-                        mediaScanProgressBar.textContent = '100%';
-                    }
-                    if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
-                    
-                    // Re-enable the button
-                    if (manualScanBtn) {
-                        manualScanBtn.disabled = false;
-                        manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
-                    }
-                    
-                    // Refresh the job queue
-                    updateJobQueue();
-                    
-                    // Hide progress after a delay
-                    setTimeout(() => {
-                        if (mediaScanContainer) mediaScanContainer.style.display = 'none';
-                    }, 3000);
-                }
-            } catch (error) {
-                console.error('Error polling for media scan progress:', error);
+        function startMediaScanPolling() {
+            if (mediaScanInterval) clearInterval(mediaScanInterval);
+            
+            mediaScanStartTime = new Date();
+            if (mediaScanContainer) mediaScanContainer.style.display = 'block';
+            if (mediaScanProgress) mediaScanProgress.style.display = 'block';
+            if (mediaScanProgressBar) {
+                mediaScanProgressBar.style.width = '0%';
+                mediaScanProgressBar.textContent = '0%';
             }
-        }, 2000);
-    }
+            if (mediaScanProgressText) mediaScanProgressText.textContent = 'Starting scan...';
+            
+            mediaScanInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/scan/progress');
+                    const data = await response.json();
+                    
+                    const now = new Date();
+                    const elapsedSeconds = Math.round((now - mediaScanStartTime) / 1000);
+                    if (mediaScanTime) mediaScanTime.textContent = `Elapsed: ${formatElapsedTime(elapsedSeconds)}`;
+                    
+                    if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                        const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+                        if (mediaScanProgressBar) {
+                            mediaScanProgressBar.style.width = `${progressPercent}%`;
+                            mediaScanProgressBar.textContent = `${progressPercent}%`;
+                        }
+                        if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scanning...';
+                    } else if (!data.is_running && (data.scan_source === '' || data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                        // Scan finished
+                        clearInterval(mediaScanInterval);
+                        mediaScanInterval = null;
+                        
+                        if (mediaScanProgressBar) {
+                            mediaScanProgressBar.style.width = '100%';
+                            mediaScanProgressBar.textContent = '100%';
+                        }
+                        if (mediaScanProgressText) mediaScanProgressText.textContent = data.current_step || 'Scan complete.';
+                        
+                        // Re-enable the button
+                        if (manualScanBtn) {
+                            manualScanBtn.disabled = false;
+                            manualScanBtn.innerHTML = `<span class="mdi mdi-sync"></span> Scan Media`;
+                        }
+                        
+                        // Refresh the job queue
+                        updateJobQueue();
+                        
+                        // Hide progress after a delay
+                        setTimeout(() => {
+                            if (mediaScanContainer) mediaScanContainer.style.display = 'none';
+                        }, 3000);
+                    }
+                } catch (error) {
+                    console.error('Error polling for media scan progress:', error);
+                }
+            }, 2000);
+        }
 
     manualScanBtn.addEventListener('click', async () => {
         manualScanBtn.disabled = true;
@@ -2607,14 +2937,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // On page load, check if a media scan is already running
-    fetch('/api/scan/progress').then(r => r.json()).then(data => {
-        if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
-            manualScanBtn.disabled = true;
-            manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
-            startMediaScanPolling();
-        }
-    });
+        // On page load, check if a media scan is already running
+        fetch('/api/scan/progress').then(r => r.json()).then(data => {
+            if (data.is_running && (data.scan_source === 'plex' || data.scan_source === 'internal')) {
+                manualScanBtn.disabled = true;
+                manualScanBtn.innerHTML = `<span class="spinner-border spinner-border-sm"></span> Scanning...`;
+                startMediaScanPolling();
+            }
+        });
+    }
 
     // --- Sonarr Options Logic ---
     const sendToQueueSwitch = document.getElementById('sonarr_send_to_queue');
@@ -2667,29 +2998,35 @@ document.addEventListener('DOMContentLoaded', () => {
     const releaseAllCleanupBtn = document.getElementById('release-all-cleanup-btn');
     const releaseAllRenameBtn = document.getElementById('release-all-rename-btn');
 
-    releaseSelectedBtn.addEventListener('click', async () => {
-        const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
-        if (selectedIds.length === 0) {
-            alert('No jobs selected. Select jobs awaiting approval to release them.');
-            return;
-        }
-        if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
-            // Release all job types when selected
-            await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
-        }
-    });
+    if (releaseSelectedBtn) {
+        releaseSelectedBtn.addEventListener('click', async () => {
+            const selectedIds = Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId);
+            if (selectedIds.length === 0) {
+                alert('No jobs selected. Select jobs awaiting approval to release them.');
+                return;
+            }
+            if (confirm(`Are you sure you want to release ${selectedIds.length} job(s) to the queue?`)) {
+                // Release all job types when selected
+                await releaseJobs({ job_ids: selectedIds, job_type: ['cleanup', 'Rename Job'] });
+            }
+        });
+    }
 
-    releaseAllCleanupBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
-            await releaseJobs({ release_all: true, job_type: 'cleanup' });
-        }
-    });
+    if (releaseAllCleanupBtn) {
+        releaseAllCleanupBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL cleanup jobs that are awaiting approval?')) {
+                await releaseJobs({ release_all: true, job_type: 'cleanup' });
+            }
+        });
+    }
 
-    releaseAllRenameBtn.addEventListener('click', async () => {
-        if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
-            await releaseJobs({ release_all: true, job_type: 'Rename Job' });
-        }
-    });
+    if (releaseAllRenameBtn) {
+        releaseAllRenameBtn.addEventListener('click', async () => {
+            if (confirm('Are you sure you want to release ALL rename jobs that are awaiting approval? They will be processed automatically.')) {
+                await releaseJobs({ release_all: true, job_type: 'Rename Job' });
+            }
+        });
+    }
 
     async function releaseJobs(payload) {
         try {
@@ -2708,30 +3045,32 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Clear All Jobs Logic ---
     const clearJobsBtn = document.getElementById('clear-jobs-btn');
-    clearJobsBtn.addEventListener('click', async () => {
-        const forceClearCheckbox = document.getElementById('force-clear-checkbox');
-        const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
-        
-        const confirmMessage = force 
-            ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
-            : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
-        
-        if (!confirm(confirmMessage)) {
-            return;
-        }
-        try {
-            const response = await fetch('/api/jobs/clear', { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ force: force })
-            });
-            if (response.ok) {
-                updateJobQueue(1); // Refresh the queue to show it's empty
+    if (clearJobsBtn) {
+        clearJobsBtn.addEventListener('click', async () => {
+            const forceClearCheckbox = document.getElementById('force-clear-checkbox');
+            const force = forceClearCheckbox ? forceClearCheckbox.checked : false;
+            
+            const confirmMessage = force 
+                ? 'Are you sure you want to force clear the entire job queue? This will remove ALL jobs including those currently encoding. This action cannot be undone.'
+                : 'Are you sure you want to permanently clear the entire job queue? This action cannot be undone.';
+            
+            if (!confirm(confirmMessage)) {
+                return;
             }
-        } catch (error) {
-            alert('An error occurred while trying to clear the job queue.');
-        }
-    });
+            try {
+                const response = await fetch('/api/jobs/clear', { 
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ force: force })
+                });
+                if (response.ok) {
+                    updateJobQueue(1); // Refresh the queue to show it's empty
+                }
+            } catch (error) {
+                alert('An error occurred while trying to clear the job queue.');
+            }
+        });
+    }
 
     // --- Delete Individual Job Logic ---
     window.deleteJob = async function(jobId) {
@@ -2769,16 +3108,18 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // --- Pause Queue Button Logic ---
     const pauseQueueBtn = document.getElementById('pause-queue-btn');
-    pauseQueueBtn.addEventListener('click', async () => {
-        try {
-            const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
-            if (response.ok) {
-                mainUpdateLoop(); // Immediately refresh the UI to show the new state
+    if (pauseQueueBtn) {
+        pauseQueueBtn.addEventListener('click', async () => {
+            try {
+                const response = await fetch('/api/queue/toggle_pause', { method: 'POST' });
+                if (response.ok) {
+                    mainUpdateLoop(); // Immediately refresh the UI to show the new state
+                }
+            } catch (error) {
+                alert('An error occurred while trying to toggle the queue state.');
             }
-        } catch (error) {
-            alert('An error occurred while trying to toggle the queue state.');
-        }
-    });
+        });
+    }
 
     // --- *Arr Connection Test Logic ---
     window.testArrConnection = async function(arrType) {
@@ -2962,18 +3303,39 @@ document.addEventListener('DOMContentLoaded', () => {
         if (theme === 'auto') {
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+        // Christmas theme and other themes pass through as-is
         return theme;
     };
 
     const setTheme = theme => {
         // Resolve 'auto' to actual theme for Bootstrap
         const resolvedTheme = getResolvedTheme(theme);
+        const previousTheme = document.documentElement.getAttribute('data-bs-theme');
         document.documentElement.setAttribute('data-bs-theme', resolvedTheme);
         
         // Update icon based on stored theme (not resolved) to show user's selection
         if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
+        else if (theme === 'christmas') themeIcon.className = 'mdi mdi-pine-tree';
+        else if (theme === 'summer-christmas') themeIcon.className = 'mdi mdi-white-balance-sunny';
         else themeIcon.className = 'mdi mdi-desktop-classic';
+        
+        // Enable/disable Christmas snow effect for both Christmas themes
+        if (typeof window.snowEffect !== 'undefined') {
+            const isChristmasTheme = theme === 'christmas' || theme === 'summer-christmas';
+            const wasChristmasTheme = previousTheme === 'christmas' || previousTheme === 'summer-christmas';
+            
+            if (isChristmasTheme && wasChristmasTheme) {
+                // Switching between Christmas themes - update snowflake colors
+                window.snowEffect.updateTheme();
+            } else if (isChristmasTheme) {
+                // Starting snow effect
+                window.snowEffect.start();
+            } else {
+                // Stopping snow effect
+                window.snowEffect.stop();
+            }
+        }
     };
 
     // Set initial theme on page load
@@ -3011,7 +3373,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const response = await fetch(mainVersionUrl);
-            const latestStableVersion = await response.text().trim();
+            const latestStableVersion = (await response.text()).trim();
 
             // Use localeCompare with numeric option for proper version comparison (e.g., "0.10.7b" > "0.10.7")
             const comparison = internalVersion.localeCompare(latestStableVersion, undefined, { numeric: true });
@@ -3183,4 +3545,129 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
-});
+}); // End of main DOMContentLoaded block
+
+// --- Debug Settings Modal (DEVMODE only) ---
+// This section handles the debug settings modal that shows database settings
+// Use a function that works whether DOM is already loaded or not
+function initDebugSettingsModal() {
+    const debugSettingsModal = document.getElementById('debugSettingsModal');
+    if (!debugSettingsModal) {
+        console.log('Debug Settings Modal: Element not found, DEVMODE likely disabled');
+        return; // Exit if modal doesn't exist (DEVMODE disabled)
+    }
+    
+    console.log('Debug Settings Modal: Initializing');
+    const debugSettingsContent = document.getElementById('debug-settings-content');
+    const debugSettingsTimestamp = document.getElementById('debug-settings-timestamp');
+    const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
+    const reloadDebugSettingsBtn = document.getElementById('reload-debug-settings-btn');
+    
+    // Function to load settings from the API
+    async function loadSettings() {
+        console.log('Debug Settings Modal: Loading settings...');
+        // Show loading state
+        debugSettingsContent.textContent = 'Loading settings...';
+        
+        // Disable reload button during load
+        if (reloadDebugSettingsBtn) {
+            reloadDebugSettingsBtn.disabled = true;
+        }
+        
+        try {
+            console.log('Debug Settings Modal: Fetching /api/settings');
+            const response = await fetch('/api/settings');
+            console.log('Debug Settings Modal: Received response', response.status, response.statusText);
+            
+            if (!response.ok) {
+                const errorText = `HTTP Error: ${response.status} ${response.statusText}`;
+                console.error('Debug Settings Modal:', errorText);
+                debugSettingsContent.textContent = errorText;
+                return;
+            }
+            
+            const data = await response.json();
+            console.log('Debug Settings Modal: Parsed JSON data', data);
+            
+            if (data.error) {
+                console.error('Debug Settings Modal: API returned error:', data.error);
+                debugSettingsContent.textContent = `Error: ${data.error}`;
+            } else if (!data.settings) {
+                console.warn('Debug Settings Modal: data.settings is undefined or null');
+                debugSettingsContent.textContent = `Error: No settings object in API response.\n\nRaw API response:\n${JSON.stringify(data, null, 2)}`;
+            } else if (Object.keys(data.settings).length === 0) {
+                console.warn('Debug Settings Modal: settings object is empty');
+                debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.\n\nThis could indicate:\n1. Fresh installation (settings not yet initialized)\n2. Database connection issue\n3. Database migration not completed';
+            } else {
+                // Format the settings as pretty JSON
+                console.log('Debug Settings Modal: Successfully loaded', Object.keys(data.settings).length, 'settings');
+                const settingsCount = Object.keys(data.settings).length;
+                debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
+                // Update timestamp
+                const now = new Date();
+                debugSettingsTimestamp.textContent = `Last loaded: ${now.toLocaleString()} (${settingsCount} settings)`;
+            }
+        } catch (error) {
+            console.error('Debug Settings Modal: Exception caught:', error);
+            // Show user-friendly error message, full details only in console
+            debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nPlease check the browser console (F12) for more details.`;
+        } finally {
+            // Re-enable reload button after load completes (success or failure)
+            if (reloadDebugSettingsBtn) {
+                reloadDebugSettingsBtn.disabled = false;
+            }
+        }
+    }
+    
+    // Load settings when modal is shown
+    // Use Bootstrap's event listener on the modal element
+    if (debugSettingsModal) {
+        debugSettingsModal.addEventListener('show.bs.modal', () => {
+            console.log('Debug Settings Modal: show.bs.modal event fired');
+            loadSettings();
+        });
+        
+        // Also trigger load immediately if DEVMODE users open the page with the modal already visible
+        // This handles edge cases where the modal might be pre-opened via URL hash or other means
+        if (debugSettingsModal.classList.contains('show')) {
+            console.log('Debug Settings Modal: Modal already shown on page load, loading settings');
+            loadSettings();
+        }
+    }
+    
+    // Reload settings when reload button is clicked
+    if (reloadDebugSettingsBtn) {
+        reloadDebugSettingsBtn.addEventListener('click', loadSettings);
+    }
+    
+    // Copy to clipboard functionality
+    if (copyDebugSettingsBtn) {
+        copyDebugSettingsBtn.addEventListener('click', function() {
+            const text = debugSettingsContent.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                // Visual feedback
+                const originalText = copyDebugSettingsBtn.innerHTML;
+                copyDebugSettingsBtn.innerHTML = '<span class="mdi mdi-check"></span> Copied!';
+                copyDebugSettingsBtn.classList.remove('btn-outline-primary');
+                copyDebugSettingsBtn.classList.add('btn-outline-success');
+                
+                setTimeout(() => {
+                    copyDebugSettingsBtn.innerHTML = originalText;
+                    copyDebugSettingsBtn.classList.remove('btn-outline-success');
+                    copyDebugSettingsBtn.classList.add('btn-outline-primary');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text:', err);
+                alert('Failed to copy to clipboard');
+            });
+        });
+    }
+}
+
+// Initialize the debug modal - works whether DOM is already loaded or not
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDebugSettingsModal);
+} else {
+    // DOM is already loaded, run immediately
+    initDebugSettingsModal();
+}

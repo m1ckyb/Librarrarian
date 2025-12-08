@@ -95,6 +95,9 @@ DB_CONFIG = {
 WORKER_SESSION_TIMEOUT_SECONDS = 300  # 5 minutes - time before a worker is considered stale
 WORKER_PROTECTED_ENDPOINTS = ['request_job', 'update_job']  # Endpoints that require session validation
 
+# Symbolic link warning message (used by media scanners)
+SYMLINK_WARNING = "This is a symbolic link. Transcoding will increase file size as it creates a real file."
+
 def setup_auth(app):
     """Initializes and configures the authentication system."""
     app.config['AUTH_ENABLED'] = os.environ.get('AUTH_ENABLED', 'false').lower() == 'true'
@@ -268,7 +271,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 14
+TARGET_SCHEMA_VERSION = 16
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -370,35 +373,55 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
     ],
+    # Version 15: Add library linking support for multi-server sync mode
+    15: [
+        "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS linked_library VARCHAR(255);"
+    ],
+    # Version 16: Disable multi-server sync feature due to persistent issues
+    16: [
+        # Use INSERT ON CONFLICT to handle both fresh installations and existing ones
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO UPDATE SET setting_value = 'false';"
+    ],
 }
 
 def run_migrations():
     """Checks the current DB schema version and applies any necessary migrations."""
     # This function is now called before the app starts serving requests.
     print("Checking database schema version...")
+    conn = None
+    cur = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
 
         # Check if the schema_version table exists. If not, this is a pre-migration database.
         cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
-        if not cur.fetchone()[0]:
-            print("Schema version table not found. Assuming version 1.")
+        schema_table_exists = cur.fetchone()[0]
+        
+        if not schema_table_exists:
+            print("Schema version table not found. Creating it with version 1.")
             current_version = 1
             cur.execute("CREATE TABLE schema_version (version INT PRIMARY KEY);")
             cur.execute("INSERT INTO schema_version (version) VALUES (1);")
             conn.commit()
+            print(f"Created schema_version table with initial version {current_version}.")
         else:
-            cur.execute("SELECT version FROM schema_version ORDER BY version DESC LIMIT 1")
+            # Get the current version - there should only be one row
+            cur.execute("SELECT version FROM schema_version LIMIT 1")
             res = cur.fetchone()
-            current_version = res[0] if res else 1
+            if res:
+                current_version = res[0]
+            else:
+                # Table exists but has no rows - this shouldn't happen, but handle it
+                print("WARNING: schema_version table exists but is empty. Setting to version 1.")
+                current_version = 1
+                cur.execute("INSERT INTO schema_version (version) VALUES (1);")
+                conn.commit()
 
         print(f"Current schema version: {current_version}. Target version: {TARGET_SCHEMA_VERSION}.")
 
         if current_version >= TARGET_SCHEMA_VERSION:
             print("Database schema is up to date.")
-            cur.close()
-            conn.close()
             return
 
         # Apply migrations in order
@@ -408,16 +431,27 @@ def run_migrations():
                 for statement in MIGRATIONS[version]:
                     print(f"  -> Executing: {statement[:80]}...")
                     cur.execute(statement)
-                cur.execute("UPDATE schema_version SET version = %s", (version,))
+                
+                # Update the version - use TRUNCATE + INSERT to maintain atomicity within transaction
+                # TRUNCATE is transaction-safe and faster than DELETE for single-row tables
+                cur.execute("TRUNCATE TABLE schema_version;")
+                cur.execute("INSERT INTO schema_version (version) VALUES (%s);", (version,))
                 conn.commit()
                 print(f"Successfully migrated to version {version}.")
 
-        cur.close()
-        conn.close()
+        print("All migrations completed successfully.")
     except Exception as e:
         print(f"❌ CRITICAL: Database migration failed: {e}")
         print("   The application cannot start. Please resolve the database issue and restart the container.")
+        if conn:
+            conn.rollback()
         sys.exit(1)
+    finally:
+        # Ensure resources are always cleaned up
+        if cur:
+            cur.close()
+        if conn:
+            conn.close()
 
 # ===========================
 # Database Layer
@@ -623,6 +657,10 @@ def initialize_database_if_needed():
     except Exception as e:
         print(f"❌ CRITICAL: Could not connect to or initialize the database: {e}")
         sys.exit(1)
+    finally:
+        # Ensure connection is always closed
+        if conn:
+            conn.close()
 
 def get_cluster_status():
     """Fetches node and failure data from the database."""
@@ -864,9 +902,10 @@ def get_worker_settings():
     try:
         # Using new settings table schema
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT setting_name, setting_value, 'description' as description FROM worker_settings")
+            cur.execute("SELECT setting_name, setting_value FROM worker_settings ORDER BY setting_name")
             for row in cur.fetchall():
-                settings[row['setting_name']] = row
+                # Store as nested dict to match template expectations
+                settings[row['setting_name']] = {'setting_value': row['setting_value']}
     except Exception as e:
         db_error = f"Database query failed: {e}"
     return settings, db_error
@@ -958,8 +997,8 @@ def set_node_status(hostname, status):
 # History Functions
 # ===========================
 
-def get_history():
-    """Fetches the last 100 successfully encoded files."""
+def get_history(limit=None):
+    """Fetches successfully encoded files from history. If limit is None or 'all', fetches all records."""
     db = get_db()
     history = []
     db_error = None
@@ -968,10 +1007,16 @@ def get_history():
         return history, db_error
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("""
-                SELECT *, encoded_by as hostname 
-                FROM encoded_files ORDER BY encoded_at DESC LIMIT 100
-            """)
+            if limit is None or limit == 'all':
+                cur.execute("""
+                    SELECT *, encoded_by as hostname 
+                    FROM encoded_files ORDER BY encoded_at DESC
+                """)
+            else:
+                cur.execute("""
+                    SELECT *, encoded_by as hostname 
+                    FROM encoded_files ORDER BY encoded_at DESC LIMIT %s
+                """, (limit,))
             history = cur.fetchall()
     except Exception as e:
         db_error = f"Database query failed: {e}"
@@ -1288,25 +1333,44 @@ def options():
             all_jellyfin_sources = {k.replace('type_jellyfin_', '') for k in request.form if k.startswith('type_jellyfin_')}
             all_internal_sources = {k.replace('type_internal_', '') for k in request.form if k.startswith('type_internal_')}
 
+            # DEBUG: Log what form fields were received
+            print(f"[Sync Mode Debug] Form submission received:")
+            print(f"  enable_multi_server: {settings_to_update.get('enable_multi_server')}")
+            print(f"  primary_media_server: {settings_to_update.get('primary_media_server')}")
+            print(f"  Plex sources found: {list(all_plex_sources)}")
+            print(f"  Jellyfin sources found: {list(all_jellyfin_sources)}")
+            print(f"  Internal sources found: {list(all_internal_sources)}")
+            
+            # Log all form fields starting with type_ or link_
+            type_and_link_fields = {k: v for k, v in request.form.items() if k.startswith('type_') or k.startswith('link_')}
+            if type_and_link_fields:
+                print(f"  Type and link fields in form:")
+                for k, v in sorted(type_and_link_fields.items()):
+                    print(f"    {k} = {v}")
+
             for source_name in all_plex_sources:
                 media_type = request.form.get(f'type_plex_{source_name}')
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
+                # Get the linked library from the form (for multi-server sync mode)
+                linked_library = request.form.get(f'link_plex_{source_name}', '')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
-                    VALUES (%s, 'plex', %s, %s, 'plex')
-                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
-                """, (source_name, media_type, is_hidden))
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type, linked_library)
+                    VALUES (%s, 'plex', %s, %s, 'plex', %s)
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden, linked_library = EXCLUDED.linked_library;
+                """, (source_name, media_type, is_hidden, linked_library))
 
             for source_name in all_jellyfin_sources:
                 media_type = request.form.get(f'type_jellyfin_{source_name}')
                 # Items are now hidden when media_type is set to 'none' (Ignore)
                 is_hidden = (media_type == 'none')
+                # Get the linked library from the form (for multi-server sync mode)
+                linked_library = request.form.get(f'link_jellyfin_{source_name}', '')
                 cur.execute("""
-                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type)
-                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin')
-                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
-                """, (source_name, media_type, is_hidden))
+                    INSERT INTO media_source_types (source_name, scanner_type, media_type, is_hidden, server_type, linked_library)
+                    VALUES (%s, 'jellyfin', %s, %s, 'jellyfin', %s)
+                    ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden, linked_library = EXCLUDED.linked_library;
+                """, (source_name, media_type, is_hidden, linked_library))
 
             for source_name in all_internal_sources:
                 media_type = request.form.get(f'type_internal_{source_name}')
@@ -1333,7 +1397,19 @@ def api_settings():
     settings, db_error = get_worker_settings()
     if db_error:
         return jsonify(settings={}, error=db_error), 500
-    return jsonify(settings=settings, dashboard_version=get_project_version())
+    
+    # Flatten the nested structure for the debug modal
+    # get_worker_settings returns {setting_name: {'setting_value': value}}
+    # but we want {setting_name: value} for display
+    flat_settings = {}
+    for key, value_dict in settings.items():
+        if isinstance(value_dict, dict) and 'setting_value' in value_dict:
+            flat_settings[key] = value_dict['setting_value']
+        else:
+            # Fallback if structure is different
+            flat_settings[key] = value_dict
+    
+    return jsonify(settings=flat_settings, dashboard_version=get_project_version())
 
 @app.route('/api/backup/now', methods=['POST'])
 def api_backup_now():
@@ -1792,8 +1868,19 @@ def api_pause_all_nodes():
 
 @app.route('/api/history', methods=['GET'])
 def api_history():
-    """Returns the encoding history as JSON."""
-    history, db_error = get_history() # get_history is defined elsewhere
+    """Returns the encoding history as JSON. Accepts optional 'limit' query parameter."""
+    limit_param = request.args.get('limit', '100')
+    
+    # Convert limit parameter to int or 'all'
+    if limit_param == 'all':
+        limit = 'all'
+    else:
+        try:
+            limit = int(limit_param)
+        except ValueError:
+            limit = 100  # Default fallback
+    
+    history, db_error = get_history(limit=limit)
     for item in history:
         # Format datetime and sizes for display
         item['encoded_at'] = item['encoded_at'].strftime('%Y-%m-%d %H:%M:%S')
@@ -1979,6 +2066,46 @@ def plex_logout():
         return jsonify(success=True, message="Plex account unlinked.")
     else:
         return jsonify(success=False, error=error), 500
+
+@app.route('/api/plex/save-token', methods=['POST'])
+def plex_save_token():
+    """Saves a manually provided Plex token without requiring username/password login."""
+    token = request.json.get('token', '').strip()
+    plex_url = request.json.get('plex_url', '').strip()
+    
+    if not token:
+        return jsonify(success=False, error="Plex token is required."), 400
+    
+    if not plex_url:
+        return jsonify(success=False, error="Plex Server URL is required."), 400
+    
+    # Validate and normalize URL format
+    is_valid, error_msg = validate_plex_url(plex_url)
+    if not is_valid:
+        return jsonify(success=False, error=error_msg), 400
+    
+    plex_url = normalize_server_url(plex_url)
+    
+    # Verify the token works with the provided server
+    try:
+        plex = PlexServer(plex_url, token)
+        # Try to access the library to verify the token is valid
+        _ = plex.library.sections()
+        
+        # Token is valid, save it
+        success, error = update_worker_settings_batch({
+            'plex_token': token,
+            'plex_url': plex_url
+        })
+        
+        if success:
+            return jsonify(success=True, message="Plex token saved successfully!")
+        else:
+            return jsonify(success=False, error=error), 500
+            
+    except Exception as e:
+        print(f"[Plex Token Verification Error] Failed to verify token for URL {plex_url}: {type(e).__name__}: {e}")
+        return jsonify(success=False, error=f"Failed to verify Plex token: {e}"), 400
 
 @app.route('/api/plex/update-url', methods=['POST'])
 def plex_update_url():
@@ -2245,9 +2372,9 @@ def jellyfin_get_libraries():
         # 1. Fetch saved types from the database into a dictionary
         saved_types = {}
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'jellyfin'")
+            cur.execute("SELECT source_name, media_type, is_hidden, linked_library FROM media_source_types WHERE scanner_type = 'jellyfin'")
             for row in cur.fetchall():
-                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row.get('linked_library') or ''}
 
         # 2. Fetch libraries from Jellyfin and merge with saved settings
         result_libraries = []
@@ -2274,6 +2401,7 @@ def jellyfin_get_libraries():
                     'title': lib_name,
                     'type': saved_setting['type'],
                     'is_hidden': saved_setting['is_hidden'],
+                    'linked_library': saved_setting.get('linked_library', ''),
                     'jellyfin_type': lib_type,
                     'id': lib_id
                 })
@@ -2283,6 +2411,7 @@ def jellyfin_get_libraries():
                     'title': lib_name,
                     'type': mapped_type,
                     'is_hidden': False,
+                    'linked_library': '',
                     'jellyfin_type': lib_type,
                     'id': lib_id
                 })
@@ -2313,13 +2442,21 @@ def plex_get_libraries():
         # 1. Fetch saved types from the database into a dictionary
         saved_types = {}
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            cur.execute("SELECT source_name, media_type, is_hidden FROM media_source_types WHERE scanner_type = 'plex'")
+            cur.execute("SELECT source_name, media_type, is_hidden, linked_library FROM media_source_types WHERE scanner_type = 'plex'")
             for row in cur.fetchall():
-                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden']}
+                saved_types[row['source_name']] = {'type': row['media_type'], 'is_hidden': row['is_hidden'], 'linked_library': row.get('linked_library') or ''}
 
         # 2. Fetch libraries from Plex and merge with saved settings
         result_libraries = []
         plex_sections = [s for s in plex.library.sections() if s.type in ['movie', 'show', 'artist', 'photo']]
+        
+        # Map Plex types to our internal types
+        plex_type_mapping = {
+            'movie': 'movie',
+            'show': 'show',
+            'artist': 'music',
+            'photo': 'other'
+        }
         
         for section in plex_sections:
             saved_setting = saved_types.get(section.title)
@@ -2328,15 +2465,18 @@ def plex_get_libraries():
                     'title': section.title,
                     'type': saved_setting['type'],
                     'is_hidden': saved_setting['is_hidden'],
+                    'linked_library': saved_setting.get('linked_library', ''),
                     'plex_type': section.type,
                     'key': section.key
                 })
             else:
-                # If not in our DB, use Plex's info and default to not hidden
+                # If not in our DB, map Plex's type to our internal type
+                internal_type = plex_type_mapping.get(section.type, 'other')
                 result_libraries.append({
                     'title': section.title,
-                    'type': section.type, # Default to the type from Plex
+                    'type': internal_type,
                     'is_hidden': False,
+                    'linked_library': '',
                     'plex_type': section.type,
                     'key': section.key
                 })
@@ -2402,6 +2542,10 @@ cleanup_scan_now_event = threading.Event()
 scan_progress_state = {
     "is_running": False, "current_step": "", "total_steps": 0, "progress": 0, "scan_source": "", "scan_type": ""
 }
+
+# --- Global flag for force scan with lock protection ---
+force_scan_flag = False
+force_scan_flag_lock = threading.Lock()
 
 def arr_background_thread():
     """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
@@ -2979,16 +3123,28 @@ def run_internal_scan(force_scan=False):
                             continue
 
                         try:
+                            # Check if file is a symbolic link
+                            is_symlink = os.path.islink(filepath)
+                            
                             # Use ffprobe to get the video codec
                             ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
                             codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
                             
-                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'}{', Symlink' if is_symlink else ''})")
                             if codec and codec not in skip_codecs:
-                                print(f"    -> Adding file to queue (codec: {codec}).")
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                                if cur.rowcount > 0:
-                                    new_files_found += 1
+                                if is_symlink:
+                                    # Add symbolic links with 'awaiting_approval' status and metadata warning
+                                    print(f"    -> Adding symbolic link to queue with approval required (codec: {codec}).")
+                                    metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
+                                else:
+                                    # Add regular files as pending
+                                    print(f"    -> Adding file to queue (codec: {codec}).")
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
                         except (subprocess.CalledProcessError, FileNotFoundError) as e:
                             print(f"    -> Could not probe file '{filepath}'. Error: {e}")
 
@@ -3098,12 +3254,24 @@ def run_plex_scan(force_scan=False):
                     
                     scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
 
-                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'})")
+                    # Check if file is a symbolic link
+                    is_symlink = os.path.islink(filepath)
+                    
+                    print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'}{', Symlink' if is_symlink else ''})")
                     if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
-                        print(f"    -> Adding file to queue (codec: {codec_lower}).")
-                        cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                        if cur.rowcount > 0:
-                            new_files_found += 1
+                        if is_symlink:
+                            # Add symbolic links with 'awaiting_approval' status and metadata warning
+                            print(f"    -> Adding symbolic link to queue with approval required (codec: {codec_lower}).")
+                            metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
+                            if cur.rowcount > 0:
+                                new_files_found += 1
+                        else:
+                            # Add regular files as pending
+                            print(f"    -> Adding file to queue (codec: {codec_lower}).")
+                            cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                            if cur.rowcount > 0:
+                                new_files_found += 1
             
             # Commit all the inserts at the end of the scan
             conn.commit()
@@ -3286,12 +3454,24 @@ def run_jellyfin_scan(force_scan=False):
                             
                             scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
                             
-                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'})")
+                            # Check if file is a symbolic link
+                            is_symlink = os.path.islink(filepath)
+                            
+                            print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'}{', Symlink' if is_symlink else ''})")
                             if codec and codec not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
-                                print(f"    -> Adding file to queue (codec: {codec}).")
-                                cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
-                                if cur.rowcount > 0:
-                                    new_files_found += 1
+                                if is_symlink:
+                                    # Add symbolic links with 'awaiting_approval' status and metadata warning
+                                    print(f"    -> Adding symbolic link to queue with approval required (codec: {codec}).")
+                                    metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
+                                else:
+                                    # Add regular files as pending
+                                    print(f"    -> Adding file to queue (codec: {codec}).")
+                                    cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
+                                    if cur.rowcount > 0:
+                                        new_files_found += 1
                     
                     except requests.exceptions.RequestException as e:
                         print(f"[{datetime.now()}] Error scanning Jellyfin library '{lib_name}': {e}")
@@ -3311,12 +3491,21 @@ def run_jellyfin_scan(force_scan=False):
 def api_trigger_scan():
     """
     API endpoint to manually trigger a media server scan based on primary_media_server setting.
-    The scanner thread will use force_scan=True for manual scans to ensure a complete rescan.
+    Accepts optional 'force' parameter to force re-queue files already in history.
     """
+    global force_scan_flag
+    
     if scanner_lock.locked():
         return jsonify({"success": False, "message": "A scan is already in progress."})
     
-    print(f"[{datetime.now()}] Manual scan requested via API.")
+    # Read the force parameter from the request and set it atomically
+    data = request.get_json() or {}
+    force_value = data.get('force', False)
+    
+    with force_scan_flag_lock:
+        force_scan_flag = force_value
+    
+    print(f"[{datetime.now()}] Manual scan requested via API (force={force_value}).")
     
     # Trigger the background thread to run the scan
     scan_now_event.set() 
@@ -3936,17 +4125,25 @@ def plex_scanner_thread():
         
         if scan_triggered:
             print(f"[{datetime.now()}] Manual scan trigger received.")
+            global force_scan_flag
+            
+            # Read the force_scan_flag atomically and reset it
+            with force_scan_flag_lock:
+                use_force_scan = force_scan_flag
+                force_scan_flag = False  # Reset immediately after reading
+            
             with app.app_context():
                 settings, _ = get_worker_settings()
                 primary_server = settings.get('primary_media_server', {}).get('setting_value', 'plex')
                 
                 # Determine which scanner to use based on primary_media_server
+                # Use the force_scan value we read from the flag
                 if primary_server == 'jellyfin':
-                    run_jellyfin_scan(force_scan=True)
+                    run_jellyfin_scan(force_scan=use_force_scan)
                 elif primary_server == 'internal':
-                    run_internal_scan(force_scan=True)
+                    run_internal_scan(force_scan=use_force_scan)
                 else:  # default to plex
-                    run_plex_scan(force_scan=True)
+                    run_plex_scan(force_scan=use_force_scan)
                     
             scan_now_event.clear() # Reset the event for the next time
         elif delay > 0:
