@@ -35,6 +35,11 @@ services:
       # --- SSL/TLS Verification ---
       - OIDC_SSL_VERIFY=${OIDC_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
       - ARR_SSL_VERIFY=${ARR_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
+      # --- Passkey/WebAuthn Authentication (Optional) ---
+      - PASSKEY_ENABLED=${PASSKEY_ENABLED}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
+      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN}
       # --- Force print() statements to appear in logs immediately ---
       - PYTHONUNBUFFERED=1
     depends_on:
