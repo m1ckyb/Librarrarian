@@ -12,6 +12,14 @@ class SnowEffect {
         this.maxSnowflakes = 75; // Maximum number of snowflakes on screen (increased from 50)
         this.animationFrame = null;
         this.isActive = false;
+        
+        // Define festive colors for Summer Christmas theme
+        this.summerColors = [
+            { color: 'rgba(39, 174, 96, 0.9)', shadow: '0 0 5px rgba(39, 174, 96, 0.5)' },      // Green
+            { color: 'rgba(231, 76, 60, 0.9)', shadow: '0 0 5px rgba(231, 76, 60, 0.5)' },      // Red
+            { color: 'rgba(192, 192, 192, 0.9)', shadow: '0 0 5px rgba(192, 192, 192, 0.6)' },  // Silver
+            { color: 'rgba(255, 215, 0, 0.9)', shadow: '0 0 5px rgba(255, 215, 0, 0.5)' }       // Gold
+        ];
     }
 
     /**
@@ -56,13 +64,7 @@ class SnowEffect {
         
         if (currentTheme === 'summer-christmas') {
             // For Summer Christmas, use festive colors: green, red, silver, gold
-            const colors = [
-                { color: 'rgba(39, 174, 96, 0.9)', shadow: '0 0 5px rgba(39, 174, 96, 0.5)' },      // Green
-                { color: 'rgba(231, 76, 60, 0.9)', shadow: '0 0 5px rgba(231, 76, 60, 0.5)' },      // Red
-                { color: 'rgba(192, 192, 192, 0.9)', shadow: '0 0 5px rgba(192, 192, 192, 0.6)' },  // Silver
-                { color: 'rgba(255, 215, 0, 0.9)', shadow: '0 0 5px rgba(255, 215, 0, 0.5)' }       // Gold
-            ];
-            const randomColor = colors[Math.floor(Math.random() * colors.length)];
+            const randomColor = this.summerColors[Math.floor(Math.random() * this.summerColors.length)];
             color = randomColor.color;
             textShadow = randomColor.shadow;
         } else {
