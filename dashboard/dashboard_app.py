@@ -271,7 +271,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 15
+TARGET_SCHEMA_VERSION = 16
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -376,6 +376,11 @@ MIGRATIONS = {
     # Version 15: Add library linking support for multi-server sync mode
     15: [
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS linked_library VARCHAR(255);"
+    ],
+    # Version 16: Disable multi-server sync feature due to persistent issues
+    16: [
+        # Use INSERT ON CONFLICT to handle both fresh installations and existing ones
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO UPDATE SET setting_value = 'false';"
     ],
 }
 

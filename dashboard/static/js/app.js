@@ -2568,26 +2568,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const multiServerCheckbox = document.getElementById('enable_multi_server');
         if (!multiServerCheckbox) return;
         
-        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
-        
-        // If internal scanner is selected, disable sync
-        if (primaryServer === 'internal') {
-            multiServerCheckbox.disabled = true;
-            multiServerCheckbox.checked = false;
-            return;
-        }
-        
-        // Check if both Plex and Jellyfin are linked
-        const plexLinked = window.Librarrarian.settings.plexToken && window.Librarrarian.settings.plexToken.length > 0;
-        const jellyfinLinked = window.Librarrarian.settings.jellyfinApiKey && window.Librarrarian.settings.jellyfinApiKey.length > 0;
-        
-        // Only enable sync if both servers are linked
-        if (plexLinked && jellyfinLinked) {
-            multiServerCheckbox.disabled = false;
-        } else {
-            multiServerCheckbox.disabled = true;
-            multiServerCheckbox.checked = false;
-        }
+        // Multi-server sync feature is temporarily disabled due to persistent issues
+        // Always keep the checkbox disabled and unchecked
+        multiServerCheckbox.disabled = true;
+        multiServerCheckbox.checked = false;
     }
     
     // Reload libraries when multi-server is toggled
