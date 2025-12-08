@@ -2110,7 +2110,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Show/Hide Logic ---
-    // Helper function to enable all form inputs in a container
+    /**
+     * Enables all form inputs (inputs and selects) within a container.
+     * Used after dynamically populating containers to ensure form submission works correctly.
+     * @param {HTMLElement} container - The container element to enable inputs within
+     */
     function enableFormInputs(container) {
         container.querySelectorAll('input, select').forEach(el => el.disabled = false);
     }
