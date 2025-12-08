@@ -379,7 +379,8 @@ MIGRATIONS = {
     ],
     # Version 16: Disable multi-server sync feature due to persistent issues
     16: [
-        "UPDATE worker_settings SET setting_value = 'false' WHERE setting_name = 'enable_multi_server';"
+        # Use INSERT ON CONFLICT to handle both fresh installations and existing ones
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO UPDATE SET setting_value = 'false';"
     ],
 }
 

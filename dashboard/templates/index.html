@@ -354,6 +354,9 @@
                                     <label class="form-check-label" for="primary_internal">Internal Media Scanner</label>
                                 </div>
                                 <div class="form-check form-switch ms-auto">
+                                    <!-- Multi-server sync feature is temporarily disabled (PR #115).
+                                         The name/value attributes are retained for when the feature is re-enabled.
+                                         Disabled inputs are not submitted in forms, so this will not affect form submission. -->
                                     <input class="form-check-input" type="checkbox" role="switch" id="enable_multi_server" name="enable_multi_server" value="true" disabled>
                                     <label class="form-check-label" for="enable_multi_server">
                                         <strong>Sync Between Plex &amp; Jellyfin</strong>
