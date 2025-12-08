@@ -787,6 +787,9 @@ setInterval(() => {
 // 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
 setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls every second
 
+// 3. A separate loop for polling cleanup scan progress
+setInterval(() => { if (isPollingForCleanup) pollCleanupProgress(); }, 1000); // Polls every second
+
 // Run initial update on page load
 updateStatus();
 
@@ -973,19 +976,64 @@ async function updateJobQueue(page = 1) {
 }
 
 // Function to create cleanup jobs
+let isPollingForCleanup = false;
+let cleanupStartTime = 0;
+
+async function pollCleanupProgress() {
+    if (!isPollingForCleanup) return;
+
+    try {
+        const response = await fetch('/api/scan/progress');
+        const data = await response.json();
+        const statusDiv = document.getElementById('cleanup-status');
+
+        if (data.is_running && data.scan_source === 'cleanup') {
+            const elapsed = Math.round((Date.now() - cleanupStartTime) / 1000);
+            const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
+            statusDiv.innerHTML = `
+                <div class="progress" style="height: 20px;">
+                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
+                </div>
+                <div class="mt-1">
+                    <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
+                </div>
+            `;
+        } else {
+            // Scan is finished
+            isPollingForCleanup = false;
+            const finalMessage = data.current_step || "Cleanup scan finished.";
+            const alertClass = finalMessage.includes('Error') ? 'alert-danger' : 'alert-success';
+            statusDiv.innerHTML = `<div class="alert ${alertClass}">${finalMessage}</div>`;
+            // Refresh job queue to see results of scan
+            if (document.querySelector('#jobs-tab.active')) {
+                updateJobQueue();
+            }
+        }
+    } catch (error) {
+        console.error("Error polling for cleanup progress:", error);
+        isPollingForCleanup = false;
+    }
+}
+
 const createCleanupJobsBtn = document.getElementById('create-cleanup-jobs-btn');
 if (createCleanupJobsBtn) {
     createCleanupJobsBtn.addEventListener('click', async () => {
         const statusDiv = document.getElementById('cleanup-status');
-        statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Searching for stale files...`;
+        statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Initializing cleanup scan...`;
         const response = await fetch('/api/jobs/create_cleanup', { method: 'POST' });
         if (!response.ok) {
             statusDiv.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
             return;
         }
         const result = await response.json();
-        const alertClass = result.success ? 'alert-success' : 'alert-danger';
-        statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
+        if (result.success) {
+            // Start polling for progress
+            isPollingForCleanup = true;
+            cleanupStartTime = Date.now();
+        } else {
+            const alertClass = result.success ? 'alert-success' : 'alert-danger';
+            statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
+        }
     });
 }
 

@@ -430,6 +430,16 @@
                                                     </div>
                                                 </div>
                                             </div>
+
+                                            {% if passkey_enabled %}
+                                            <!-- Passkey Management -->
+                                            <div class="mb-3">
+                                                <label class="form-label">Passkeys</label>
+                                                <div class="d-flex gap-2">
+                                                    <button type="button" class="btn btn-outline-info" id="passkey-manage-btn" data-bs-toggle="modal" data-bs-target="#passkeyManagementModal"><span class="mdi mdi-fingerprint"></span> Manage Passkeys</button>
+                                                </div>
+                                            </div>
+                                            {% endif %}
                                         </div>
 
                                         <!-- Right Column: Monitored Libraries -->
@@ -957,6 +967,9 @@
     {% include 'modals/jellyfin_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
     {% include 'modals/backup_modal.html' %}
+    {% if passkey_enabled %}
+    {% include 'modals/passkey_management_modal.html' %}
+    {% endif %}
     {% if devmode %}
     {% include 'modals/debug_settings_modal.html' %}
     {% endif %}
