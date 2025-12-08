@@ -33,6 +33,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
 - Modified Jellyfin Configuration Modal footer to ensure all buttons stay on one line with flexbox
 - Renamed "Christmas" theme to "Winter Christmas" for clarity
+- **Temporarily disabled "Sync Between Plex & Jellyfin" feature** due to persistent issues with settings not being saved correctly (PR #115). The checkbox is now disabled in the UI with a clear "Temporarily Disabled" badge, and database migration v16 ensures the setting is always set to 'false'. This feature will be re-enabled in a future update once the underlying issues are resolved.
 - Increased snow animation from 50 to 75 snowflakes for a more festive effect
 
 ### Added
