@@ -37,6 +37,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - **Temporarily disabled "Sync Between Plex & Jellyfin" feature** due to persistent issues with settings not being saved correctly (PR #115). The checkbox is now disabled in the UI with a clear "Temporarily Disabled" badge, and database migration v16 ensures the setting is always set to 'false'. This feature will be re-enabled in a future update once the underlying issues are resolved.
 - Increased snow animation from 50 to 75 snowflakes for a more festive effect
 - Snowflakes now use festive colors (green, red, silver, gold) on Summer Christmas theme instead of white, making them visible on the light background
+- Changed Summer Christmas theme background from cream (#fff8dc) to sky blue (#87ceeb) for a more vibrant beach/ocean-like appearance
 
 ### Added
 - Added symbolic link detection during media scanning
