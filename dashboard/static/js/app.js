@@ -2320,16 +2320,35 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
         
+        // Fetch saved library links
+        let savedLinks = {};
+        try {
+            const linksResponse = await fetch('/api/library/links');
+            const linksData = await linksResponse.json();
+            if (linksData.links) {
+                // Convert to a lookup map: { "plex:LibraryName" => "jellyfin:LinkedLibName" }
+                linksData.links.forEach(link => {
+                    const key = `${link.primary_server}:${link.primary_library}`;
+                    savedLinks[key] = link.secondary_library;
+                });
+            }
+        } catch (e) {
+            console.log('Could not fetch library links:', e);
+        }
+        
         // Create linking dropdown helper functions
         const createJellyfinLinkDropdown = (plexLibName) => {
             const escapedLibName = escapeHtml(plexLibName);
             if (!hasJellyfinAuth) {
                 return `<span class="text-muted small">Jellyfin not linked</span>`;
             }
+            // Get saved link value if it exists
+            const savedLink = savedLinks[`plex:${plexLibName}`] || '';
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibraries.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = (jLib.title === savedLink) ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -2340,10 +2359,13 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!hasPlexAuth) {
                 return `<span class="text-muted small">Plex not linked</span>`;
             }
+            // Get saved link value if it exists
+            const savedLink = savedLinks[`jellyfin:${jellyfinLibName}`] || '';
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibraries.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = (pLib.title === savedLink) ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;

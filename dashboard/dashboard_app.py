@@ -271,7 +271,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 14
+TARGET_SCHEMA_VERSION = 15
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -372,6 +372,22 @@ MIGRATIONS = {
         """,
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('hide_jellyfin_updates', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "ALTER TABLE media_source_types ADD COLUMN IF NOT EXISTS server_type VARCHAR(50) DEFAULT 'plex';" 
+    ],
+    # Version 15: Add library_links table for multi-server sync mappings
+    15: [
+        f"""
+        CREATE TABLE IF NOT EXISTS library_links (
+            id SERIAL PRIMARY KEY,
+            primary_server VARCHAR(50) NOT NULL,
+            primary_library VARCHAR(255) NOT NULL,
+            secondary_server VARCHAR(50) NOT NULL,
+            secondary_library VARCHAR(255) NOT NULL,
+            UNIQUE(primary_server, primary_library, secondary_server)
+        );
+        """,
+        f"GRANT ALL PRIVILEGES ON TABLE library_links TO {DB_CONFIG['user']};",
+        f"GRANT USAGE, SELECT ON SEQUENCE library_links_id_seq TO {DB_CONFIG['user']};",
+        f"ALTER TABLE library_links OWNER TO {DB_CONFIG['user']};"
     ],
 }
 
@@ -1326,6 +1342,42 @@ def options():
                     VALUES (%s, 'internal', %s, %s, 'internal')
                     ON CONFLICT (source_name, scanner_type) DO UPDATE SET media_type = EXCLUDED.media_type, is_hidden = EXCLUDED.is_hidden;
                 """, (source_name, media_type, is_hidden))
+
+            # 3. Process library links for multi-server sync mode
+            # Clear existing links first
+            cur.execute("DELETE FROM library_links;")
+            
+            # Get the primary server
+            primary_server = request.form.get('primary_media_server', 'plex')
+            enable_multi_server = 'enable_multi_server' in request.form
+            
+            # Only process links if multi-server sync is enabled
+            if enable_multi_server:
+                # Process Plex -> Jellyfin links
+                all_plex_link_sources = {k.replace('link_plex_', '') for k in request.form if k.startswith('link_plex_')}
+                for plex_library in all_plex_link_sources:
+                    jellyfin_library = request.form.get(f'link_plex_{plex_library}')
+                    # Only save if a link was selected (not empty)
+                    if jellyfin_library:
+                        cur.execute("""
+                            INSERT INTO library_links (primary_server, primary_library, secondary_server, secondary_library)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (primary_server, primary_library, secondary_server) 
+                            DO UPDATE SET secondary_library = EXCLUDED.secondary_library;
+                        """, ('plex', plex_library, 'jellyfin', jellyfin_library))
+                
+                # Process Jellyfin -> Plex links
+                all_jellyfin_link_sources = {k.replace('link_jellyfin_', '') for k in request.form if k.startswith('link_jellyfin_')}
+                for jellyfin_library in all_jellyfin_link_sources:
+                    plex_library = request.form.get(f'link_jellyfin_{jellyfin_library}')
+                    # Only save if a link was selected (not empty)
+                    if plex_library:
+                        cur.execute("""
+                            INSERT INTO library_links (primary_server, primary_library, secondary_server, secondary_library)
+                            VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (primary_server, primary_library, secondary_server) 
+                            DO UPDATE SET secondary_library = EXCLUDED.secondary_library;
+                        """, ('jellyfin', jellyfin_library, 'plex', plex_library))
 
         db.commit()
         flash('Worker settings have been updated successfully!', 'success')
@@ -2364,6 +2416,21 @@ def plex_get_libraries():
         return jsonify(libraries=result_libraries)
     except Exception as e:
         return jsonify(libraries=[], error=f"Cannot connect to Plex server. Please check your server URL and ensure Plex is running. Error: {e}"), 503
+
+@app.route('/api/library/links', methods=['GET'])
+def api_get_library_links():
+    """Returns all saved library links for multi-server sync mode."""
+    db = get_db()
+    if not db:
+        return jsonify(links=[], error="Could not connect to the database."), 500
+    
+    try:
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT primary_server, primary_library, secondary_server, secondary_library FROM library_links")
+            links = cur.fetchall()
+            return jsonify(links=links)
+    except Exception as e:
+        return jsonify(links=[], error=str(e)), 500
 
 @app.route('/api/internal/folders', methods=['GET'])
 def api_internal_folders():
