@@ -16,3 +16,5 @@ All upcoming features and bug fixes will be documented here until they are part 
 ## Fixed
 - **Database Initialization**: Fixed missing `passkey_credentials` table error on fresh installations. The table is now properly created during initial database setup instead of only being defined in a migration that would never run.
 - **Worker Registration**: Fixed incorrect DASHBOARD_URL in docker-compose.yml (was `http://dashboard:5000`, now `http://librarrarian:5000` to match the actual service name). Workers may fail to register if `API_KEY` is not properly set in the `.env` file - ensure it matches between dashboard and worker configurations.
+- **Passkey Authentication JavaScript Error**: Fixed "can't access property 'replace', base64url is undefined" error by adding defensive null checking to the `base64urlToBuffer()` function. The function now throws a clear error message if called with null or undefined values.
+- **API Key Authentication Error Messages**: Improved error messages when API_KEY environment variable is not set. The dashboard now returns a 500 error with a clear message indicating server misconfiguration instead of silently failing with 401 errors.
