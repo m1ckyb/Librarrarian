@@ -2247,6 +2247,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs in the container
+            container.querySelectorAll('input, select').forEach(el => el.disabled = false);
         } else {
             container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
         }
@@ -2350,6 +2353,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs in the container
+            container.querySelectorAll('input, select').forEach(el => el.disabled = false);
         } else {
             container.innerHTML = '<p class="text-muted">No libraries found.</p>';
         }
@@ -2505,6 +2511,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
+            
+            // Enable all form inputs in the container (fixes issue where newly created elements are disabled)
+            container.querySelectorAll('input, select').forEach(el => el.disabled = false);
             
             // DEBUG: Log created form fields for sync mode debugging
             console.log('[Sync Mode Debug] Combined libraries loaded. Form fields created:');

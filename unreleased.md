@@ -26,6 +26,8 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Fixed potential issue where schema_version table could exist but be empty
 - Increased combined libraries box max-height from 400px to 500px to prevent secondary library dropdown from being cut off
 - Fixed monitored libraries secondary server dropdown being cut off by adjusting column layout: reduced Authentication column from col-md-6 to col-md-4, expanded Monitored Libraries column from col-md-6 to col-md-8
+- Fixed form inputs in sync mode being disabled after library lists are populated, preventing settings from being saved when both Plex and Jellyfin are linked
+- Made monitored library boxes dynamically sized by removing fixed max-height constraints, allowing them to grow with content
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
