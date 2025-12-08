@@ -523,8 +523,8 @@ def initialize_database_if_needed():
         # Use a direct connection to check for initialization before the app context is fully ready.
         conn = psycopg2.connect(**DB_CONFIG)
         with conn.cursor() as cur:
-            # Check if a key table (like schema_version) exists.
-            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
+            # Check if a key table (like nodes) exists.
+            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'nodes')")
             table_exists = cur.fetchone()[0]
             
             if not table_exists:
@@ -695,19 +695,9 @@ def initialize_database_if_needed():
                         ('passkey_enabled', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
-
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS schema_version (
-                        version INT PRIMARY KEY
-                    );
-                """)
-                cur.execute(f"ALTER TABLE schema_version OWNER TO {db_user};")
-                # Insert the target schema version since we just created a fresh database
-                # with all tables already at the latest schema.
-                cur.execute("INSERT INTO schema_version (version) VALUES (%s) ON CONFLICT DO NOTHING", (TARGET_SCHEMA_VERSION,))
                 
                 conn.commit()
-                print(f"Database initialized at schema version {TARGET_SCHEMA_VERSION}.")
+                print(f"Database initialized.")
 
             else:
                 print("Database already initialized. Skipping initial setup.")
@@ -1262,11 +1252,32 @@ def login():
             flash('Invalid credentials.', 'danger')
             return redirect(url_for('login')) # Redirect back on failure
 
-    # For GET requests, just render the login page.
+    # For GET requests, determine if passkey login should be offered.
+    has_passkeys = False
+    if app.config.get('PASSKEY_ENABLED'):
+        conn = None
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            with conn.cursor() as cur:
+                # Check if table exists first to avoid errors on a fresh install before migrations run
+                cur.execute("SELECT to_regclass('public.passkey_credentials')")
+                table_exists = cur.fetchone()[0]
+                if table_exists:
+                    cur.execute("SELECT 1 FROM passkey_credentials LIMIT 1")
+                    has_passkeys = cur.fetchone() is not None
+        except psycopg2.Error as e:
+            print(f"Database error while checking for passkeys: {e}", file=sys.stderr)
+            # If DB isn't ready, we can't show passkey login anyway.
+            has_passkeys = False
+        finally:
+            if conn:
+                conn.close()
+
     return render_template('login.html', 
                          oidc_enabled=app.config.get('OIDC_ENABLED'), 
                          local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'),
                          passkey_enabled=app.config.get('PASSKEY_ENABLED'),
+                         has_passkeys=has_passkeys,
                          oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'))
 
 @app.route('/login/oidc')
@@ -1321,7 +1332,7 @@ def passkey_register_challenge():
             cur.execute("SELECT credential_id FROM passkey_credentials WHERE user_id = %s", (user_id,))
             existing_creds = cur.fetchall()
             exclude_credentials = [
-                PublicKeyCredentialDescriptor(id=base64.b64decode(cred['credential_id'].encode()))
+                PublicKeyCredentialDescriptor(id=base64.urlsafe_b64decode((cred['credential_id'] + '=' * (-len(cred['credential_id']) % 4)).encode()))
                 for cred in existing_creds
             ]
         
@@ -1336,9 +1347,9 @@ def passkey_register_challenge():
         )
         
         # Store challenge in session for verification
-        session['passkey_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
+        session['passkey_challenge'] = base64.urlsafe_b64encode(options.challenge).decode('utf-8')
         
-        return jsonify(options_to_json(options))
+        return app.response_class(options_to_json(options), mimetype='application/json')
     except Exception as e:
         print(f"Error generating passkey registration challenge: {e}")
         return jsonify(error=str(e)), 500
@@ -1361,7 +1372,7 @@ def passkey_register_verify():
         # Verify the credential
         verification = verify_registration_response(
             credential=request.json,
-            expected_challenge=base64.b64decode(session['passkey_challenge'].encode()),
+            expected_challenge=base64.urlsafe_b64decode(session['passkey_challenge'].encode()),
             expected_origin=app.config['WEBAUTHN_ORIGIN'],
             expected_rp_id=app.config['WEBAUTHN_RP_ID']
         )
@@ -1375,8 +1386,8 @@ def passkey_register_verify():
                    VALUES (%s, %s, %s, %s, %s)""",
                 (
                     user_id,
-                    base64.b64encode(verification.credential_id).decode('utf-8'),
-                    base64.b64encode(verification.credential_public_key).decode('utf-8'),
+                    base64.urlsafe_b64encode(verification.credential_id).decode('utf-8').rstrip('='),
+                    base64.urlsafe_b64encode(verification.credential_public_key).decode('utf-8').rstrip('='),
                     verification.sign_count,
                     device_name
                 )
@@ -1407,7 +1418,7 @@ def passkey_auth_challenge():
             cur.execute("SELECT credential_id FROM passkey_credentials")
             all_creds = cur.fetchall()
             allow_credentials = [
-                PublicKeyCredentialDescriptor(id=base64.b64decode(cred['credential_id'].encode()))
+                PublicKeyCredentialDescriptor(id=base64.urlsafe_b64decode((cred['credential_id'] + '=' * (-len(cred['credential_id']) % 4)).encode()))
                 for cred in all_creds
             ]
         
@@ -1421,9 +1432,9 @@ def passkey_auth_challenge():
         )
         
         # Store challenge in session for verification
-        session['passkey_auth_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
+        session['passkey_auth_challenge'] = base64.urlsafe_b64encode(options.challenge).decode('utf-8')
         
-        return jsonify(options_to_json(options))
+        return app.response_class(options_to_json(options), mimetype='application/json')
     except Exception as e:
         print(f"Error generating passkey authentication challenge: {e}")
         return jsonify(error=str(e)), 500
@@ -1457,10 +1468,10 @@ def passkey_auth_verify():
         # Verify the authentication
         verification = verify_authentication_response(
             credential=request.json,
-            expected_challenge=base64.b64decode(session['passkey_auth_challenge'].encode()),
+            expected_challenge=base64.urlsafe_b64decode(session['passkey_auth_challenge'].encode()),
             expected_origin=app.config['WEBAUTHN_ORIGIN'],
             expected_rp_id=app.config['WEBAUTHN_RP_ID'],
-            credential_public_key=base64.b64decode(credential['public_key'].encode()),
+            credential_public_key=base64.urlsafe_b64decode((credential['public_key'] + '=' * (-len(credential['public_key']) % 4)).encode()),
             credential_current_sign_count=credential['sign_count']
         )
         

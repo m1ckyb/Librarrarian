@@ -44,9 +44,9 @@
                     </a>
                 {% endif %}
 
-                {% if passkey_enabled and (oidc_enabled or local_login_enabled) %}<hr>{% endif %}
+                {% if passkey_enabled and has_passkeys and (oidc_enabled or local_login_enabled) %}<hr>{% endif %}
 
-                {% if passkey_enabled %}
+                {% if passkey_enabled and has_passkeys %}
                     <button type="button" id="passkey-login-btn" class="btn btn-outline-info w-100">
                         <span class="mdi mdi-fingerprint"></span> Login with Passkey
                     </button>
@@ -57,7 +57,7 @@
     </div>
 </div>
 
-{% if passkey_enabled %}
+{% if passkey_enabled and has_passkeys %}
 <script>
 // WebAuthn helper functions
 function base64urlToBuffer(base64url) {

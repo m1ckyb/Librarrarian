@@ -79,11 +79,11 @@
                 </button>
             </div>
             {% if auth_enabled and user_name and not devmode %}
-                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
-                <span class="navbar-text me-2">{{ greeting }}, <strong>{{ user_name }}</strong></span>
-                <button type="button" class="btn btn-outline-secondary" data-bs-toggle="modal" data-bs-target="#userSettingsModal" title="User Settings">
+                <button type="button" class="btn btn-outline-secondary me-2" data-bs-toggle="modal" data-bs-target="#userSettingsModal" title="User Settings">
                     <span class="mdi mdi-cog"></span>
                 </button>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
+                <span class="navbar-text">{{ greeting }}, <strong>{{ user_name }}</strong></span>
             {% endif %}
         </div>
     </div>

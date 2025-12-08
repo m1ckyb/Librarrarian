@@ -290,8 +290,9 @@ def get_dashboard_settings():
         data = response.json()
         settings_data = data.get('settings', {})
         dashboard_version = data.get('dashboard_version')
-        # Flatten the settings for easier access
-        return {key: value['setting_value'] for key, value in settings_data.items()}, dashboard_version
+        # The /api/settings endpoint now returns a flattened dictionary,
+        # so we can return it directly.
+        return settings_data, dashboard_version
     except requests.exceptions.RequestException as e:
         print(f"[{datetime.now()}] API Error: Could not fetch settings from {DASHBOARD_URL}. {e}")
         print("    Ensure the dashboard is running and accessible from this machine.")

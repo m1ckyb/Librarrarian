@@ -100,11 +100,11 @@ async function loadPasskeys() {
                             <br>
                             <small class="text-muted">Created: ${createdDate} | Last used: ${lastUsed}</small>
                         </div>
-                        <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary passkey-rename-btn" data-cred-id="${cred.id}" data-cred-name="${escapeHtml(cred.device_name || '')}">
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary passkey-rename-btn" style="margin-right: 4px;" data-cred-id="${cred.id}" data-cred-name="${escapeHtml(cred.device_name || '')}">
                                 <span class="mdi mdi-pencil"></span>
                             </button>
-                            <button class="btn btn-outline-danger passkey-delete-btn" data-cred-id="${cred.id}">
+                            <button class="btn btn-sm btn-outline-danger passkey-delete-btn" data-cred-id="${cred.id}">
                                 <span class="mdi mdi-delete"></span>
                             </button>
                         </div>
