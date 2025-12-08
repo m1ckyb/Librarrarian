@@ -1689,31 +1689,70 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Function to set Plex modal to link mode
     function setPlexModalLinkMode() {
-        document.getElementById('plexLoginModalLabel').textContent = 'Link Plex Account';
-        document.getElementById('plex-modal-description').textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
-        document.getElementById('plex-username-group').style.display = 'block';
-        document.getElementById('plex-password-group').style.display = 'block';
-        document.getElementById('plex-signin-btn').style.display = 'inline-block';
-        document.getElementById('plex-update-btn').style.display = 'none';
-        document.getElementById('plex-modal-unlink-btn').style.display = 'none';
-        document.getElementById('plex-modal-url').value = '';
-        document.getElementById('plex-username').value = '';
-        document.getElementById('plex-password').value = '';
-        document.getElementById('plex-login-status').innerHTML = '';
+        const modalLabel = document.getElementById('plexLoginModalLabel');
+        const modalDescription = document.getElementById('plex-modal-description');
+        const credentialsRadio = document.getElementById('plex-auth-credentials');
+        const credentialsGroup = document.getElementById('plex-credentials-group');
+        const tokenGroup = document.getElementById('plex-token-group');
+        const signInBtn = document.getElementById('plex-signin-btn');
+        const saveTokenBtn = document.getElementById('plex-save-token-btn');
+        const updateBtn = document.getElementById('plex-update-btn');
+        const unlinkBtn = document.getElementById('plex-modal-unlink-btn');
+        const urlInput = document.getElementById('plex-modal-url');
+        const usernameInput = document.getElementById('plex-username');
+        const passwordInput = document.getElementById('plex-password');
+        const tokenInput = document.getElementById('plex-token-input');
+        const statusDiv = document.getElementById('plex-login-status');
+        
+        if (modalLabel) modalLabel.textContent = 'Link Plex Account';
+        if (modalDescription) modalDescription.textContent = 'Enter your Plex server URL and Plex.tv credentials. This is a one-time login to retrieve an authentication token. Your password is not stored.';
+        
+        // Reset to credentials mode by default
+        if (credentialsRadio) {
+            credentialsRadio.checked = true;
+            if (credentialsGroup) credentialsGroup.style.display = 'block';
+            if (tokenGroup) tokenGroup.style.display = 'none';
+        }
+        
+        if (signInBtn) signInBtn.style.display = 'inline-block';
+        if (saveTokenBtn) saveTokenBtn.style.display = 'none';
+        if (updateBtn) updateBtn.style.display = 'none';
+        if (unlinkBtn) unlinkBtn.style.display = 'none';
+        if (urlInput) urlInput.value = '';
+        if (usernameInput) usernameInput.value = '';
+        if (passwordInput) passwordInput.value = '';
+        if (tokenInput) tokenInput.value = '';
+        if (statusDiv) statusDiv.innerHTML = '';
     }
 
     // Function to set Plex modal to modify mode
     function setPlexModalModifyMode() {
-        document.getElementById('plexLoginModalLabel').textContent = 'Modify Plex Configuration';
-        document.getElementById('plex-modal-description').textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
-        document.getElementById('plex-username-group').style.display = 'none';
-        document.getElementById('plex-password-group').style.display = 'none';
-        document.getElementById('plex-signin-btn').style.display = 'none';
-        document.getElementById('plex-update-btn').style.display = 'inline-block';
-        document.getElementById('plex-modal-unlink-btn').style.display = 'inline-block';
+        const modalLabel = document.getElementById('plexLoginModalLabel');
+        const modalDescription = document.getElementById('plex-modal-description');
+        const credentialsGroup = document.getElementById('plex-credentials-group');
+        const tokenGroup = document.getElementById('plex-token-group');
+        const signInBtn = document.getElementById('plex-signin-btn');
+        const saveTokenBtn = document.getElementById('plex-save-token-btn');
+        const updateBtn = document.getElementById('plex-update-btn');
+        const unlinkBtn = document.getElementById('plex-modal-unlink-btn');
+        const urlInput = document.getElementById('plex-modal-url');
+        const statusDiv = document.getElementById('plex-login-status');
+        
+        if (modalLabel) modalLabel.textContent = 'Modify Plex Configuration';
+        if (modalDescription) modalDescription.textContent = 'Update your Plex server URL. Your existing authentication will be verified with the new server.';
+        
+        // Hide authentication method toggle and all auth groups in modify mode
+        if (credentialsGroup) credentialsGroup.style.display = 'none';
+        if (tokenGroup) tokenGroup.style.display = 'none';
+        
+        if (signInBtn) signInBtn.style.display = 'none';
+        if (saveTokenBtn) saveTokenBtn.style.display = 'none';
+        if (updateBtn) updateBtn.style.display = 'inline-block';
+        if (unlinkBtn) unlinkBtn.style.display = 'inline-block';
+        
         // Pre-fill with current URL
-        document.getElementById('plex-modal-url').value = window.Librarrarian.settings.plexUrl || '';
-        document.getElementById('plex-login-status').innerHTML = '';
+        if (urlInput) urlInput.value = window.Librarrarian.settings.plexUrl || '';
+        if (statusDiv) statusDiv.innerHTML = '';
     }
 
     if (plexLoginBtn) {
@@ -1829,6 +1868,75 @@ document.addEventListener('DOMContentLoaded', () => {
                 statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Unlinking...`;
                 await fetch('/api/plex/logout', { method: 'POST' });
                 window.location.reload();
+            }
+        });
+    }
+
+    // Handle Plex authentication method toggle
+    const plexAuthCredentialsRadio = document.getElementById('plex-auth-credentials');
+    const plexAuthTokenRadio = document.getElementById('plex-auth-token');
+    const plexCredentialsGroup = document.getElementById('plex-credentials-group');
+    const plexTokenGroup = document.getElementById('plex-token-group');
+    const plexSaveTokenBtn = document.getElementById('plex-save-token-btn');
+
+    if (plexAuthCredentialsRadio && plexAuthTokenRadio && plexCredentialsGroup && plexTokenGroup && plexSignInBtn && plexSaveTokenBtn) {
+        plexAuthCredentialsRadio.addEventListener('change', () => {
+            if (plexAuthCredentialsRadio.checked) {
+                plexCredentialsGroup.style.display = 'block';
+                plexTokenGroup.style.display = 'none';
+                plexSignInBtn.style.display = 'inline-block';
+                plexSaveTokenBtn.style.display = 'none';
+            }
+        });
+
+        plexAuthTokenRadio.addEventListener('change', () => {
+            if (plexAuthTokenRadio.checked) {
+                plexCredentialsGroup.style.display = 'none';
+                plexTokenGroup.style.display = 'block';
+                plexSignInBtn.style.display = 'none';
+                plexSaveTokenBtn.style.display = 'inline-block';
+            }
+        });
+    }
+
+    // Handle Save Token button
+    if (plexSaveTokenBtn) {
+        plexSaveTokenBtn.addEventListener('click', async () => {
+            const tokenInput = document.getElementById('plex-token-input');
+            const urlInput = document.getElementById('plex-modal-url');
+            const statusDiv = document.getElementById('plex-login-status');
+
+            if (!tokenInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex token.</div>`;
+                return;
+            }
+
+            if (!urlInput.value) {
+                statusDiv.innerHTML = `<div class="alert alert-warning">Please enter a Plex Server URL.</div>`;
+                return;
+            }
+
+            statusDiv.innerHTML = `<div class="spinner-border spinner-border-sm"></div> Saving token...`;
+
+            const response = await fetch('/api/plex/save-token', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    token: tokenInput.value,
+                    plex_url: urlInput.value
+                })
+            });
+            const data = await response.json();
+            if (data.success) {
+                statusDiv.innerHTML = `<div class="alert alert-success">${data.message}</div>`;
+                setTimeout(() => {
+                    const loginModal = bootstrap.Modal.getInstance(document.getElementById('plexLoginModal'));
+                    if (loginModal) loginModal.hide();
+                    window.location.hash = '#options-tab-pane';
+                    window.location.reload();
+                }, 2000);
+            } else {
+                statusDiv.innerHTML = `<div class="alert alert-danger">${data.error}</div>`;
             }
         });
     }
@@ -2002,6 +2110,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Show/Hide Logic ---
+    /**
+     * Enables all form inputs (inputs and selects) within a container.
+     * Used after dynamically populating containers to ensure form submission works correctly.
+     * @param {HTMLElement} container - The container element to enable inputs within
+     */
+    function enableFormInputs(container) {
+        container.querySelectorAll('input, select').forEach(el => el.disabled = false);
+    }
+    
     // Set up visibility toggles BEFORE loading functions are called
     // Items are considered "ignored" when their media type dropdown is set to "none"
     function setupShowIgnoredToggle(toggleId, listContainerId) {
@@ -2103,9 +2220,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const createJellyfinLinkDropdown = (plexLibName) => {
-            // Note: Backend handling for library linking needs to be implemented
-            // These form fields (link_plex_*) are not yet processed by the server
+        const createJellyfinLinkDropdown = (plexLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(plexLibName);
             const hasJellyfinAuth = window.Librarrarian.settings.jellyfinApiKey !== "";
             
@@ -2116,7 +2231,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibs.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = jLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -2135,11 +2251,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.plex_type, lib.type)}
                         ${showJellyfinLink ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
-                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title) : ''}
+                        ${showJellyfinLink ? createJellyfinLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
         } else {
             container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
         }
@@ -2205,9 +2324,7 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
 
-        const createPlexLinkDropdown = (jellyfinLibName) => {
-            // Note: Backend handling for library linking needs to be implemented
-            // These form fields (link_jellyfin_*) are not yet processed by the server
+        const createPlexLinkDropdown = (jellyfinLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(jellyfinLibName);
             const hasPlexAuth = window.Librarrarian.settings.plexToken !== "";
             
@@ -2218,7 +2335,8 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibs.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = pLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
@@ -2239,11 +2357,14 @@ document.addEventListener('DOMContentLoaded', () => {
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
                         ${showPlexLink ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
-                        ${showPlexLink ? createPlexLinkDropdown(lib.title) : ''}
+                        ${showPlexLink ? createPlexLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
         } else {
             container.innerHTML = '<p class="text-muted">No libraries found.</p>';
         }
@@ -2321,7 +2442,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         
         // Create linking dropdown helper functions
-        const createJellyfinLinkDropdown = (plexLibName) => {
+        const createJellyfinLinkDropdown = (plexLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(plexLibName);
             if (!hasJellyfinAuth) {
                 return `<span class="text-muted small">Jellyfin not linked</span>`;
@@ -2329,13 +2450,14 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(jellyfinLibraries.map(jLib => {
                     const escapedTitle = escapeHtml(jLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = jLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_plex_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        const createPlexLinkDropdown = (jellyfinLibName) => {
+        const createPlexLinkDropdown = (jellyfinLibName, selectedLibrary = '') => {
             const escapedLibName = escapeHtml(jellyfinLibName);
             if (!hasPlexAuth) {
                 return `<span class="text-muted small">Plex not linked</span>`;
@@ -2343,32 +2465,33 @@ document.addEventListener('DOMContentLoaded', () => {
             const options = ['<option value="">-- Ignore --</option>']
                 .concat(plexLibraries.map(pLib => {
                     const escapedTitle = escapeHtml(pLib.title);
-                    return `<option value="${escapedTitle}">${escapedTitle}</option>`;
+                    const selected = pLib.title === selectedLibrary ? 'selected' : '';
+                    return `<option value="${escapedTitle}" ${selected}>${escapedTitle}</option>`;
                 }))
                 .join('');
             return `<select class="form-select form-select-sm" name="link_jellyfin_${escapedLibName}" style="width: 180px;">${options}</select>`;
         };
         
-        // Build combined library list
+        // Build combined library list - show PRIMARY server's libraries with optional linking to secondary
         let libraryItems = [];
         
-        // Add primary server's libraries first
+        // Show ONLY the primary server's libraries
         if (primaryServer === 'plex' && plexLibraries.length > 0) {
-            const currentLibs = window.Librarrarian.settings.plexLibraries;
+            const currentLibs = window.Librarrarian.settings.plexLibraries || [];
             libraryItems = plexLibraries.map(lib => {
                 const escapedTitle = escapeHtml(lib.title);
                 const escapedKey = escapeHtml(lib.key);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
+                    <span class="badge badge-outline-warning me-2">Plex</span>
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="plex_libraries" value="${escapedTitle}" id="lib-${escapedKey}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="lib-${escapedKey}"><span class="badge badge-outline-warning me-1">Plex</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="lib-${escapedKey}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_plex_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-purple">Jellyfin</span>
-                        ${createJellyfinLinkDropdown(lib.title)}
+                        ${hasJellyfinAuth ? '<span class="badge badge-outline-purple">Jellyfin</span>' : ''}
+                        ${hasJellyfinAuth ? createJellyfinLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
                 `;
@@ -2380,15 +2503,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const escapedId = escapeHtml(lib.id || lib.title);
                 return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
+                    <span class="badge badge-outline-purple me-2">Jellyfin</span>
                     <div class="form-check" style="min-width: 200px;">
                         <input class="form-check-input" type="checkbox" name="jellyfin_libraries" value="${escapedTitle}" id="jlib-${escapedId}" ${currentLibs.includes(lib.title) ? 'checked' : ''}>
-                        <label class="form-check-label" for="jlib-${escapedId}"><span class="badge badge-outline-purple me-1">Jellyfin</span>${escapedTitle}</label>
+                        <label class="form-check-label" for="jlib-${escapedId}">${escapedTitle}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center gap-2">
                         ${createDropdown(`type_jellyfin_${escapedTitle}`, lib.type)}
-                        <!-- Badge always shown in combined view to label the linking dropdown -->
-                        <span class="badge badge-outline-warning">Plex</span>
-                        ${createPlexLinkDropdown(lib.title)}
+                        ${hasPlexAuth ? '<span class="badge badge-outline-warning">Plex</span>' : ''}
+                        ${hasPlexAuth ? createPlexLinkDropdown(lib.title, lib.linked_library || '') : ''}
                     </div>
                 </div>
                 `;
@@ -2397,7 +2520,29 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
+            
+            // DEBUG: Log created form fields for sync mode debugging
+            console.log('[Sync Mode Debug] Combined libraries loaded. Form fields created:');
+            const typeDropdowns = container.querySelectorAll('select[name^="type_"]');
+            const linkDropdowns = container.querySelectorAll('select[name^="link_"]');
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]');
+            
+            console.log(`  - ${typeDropdowns.length} type dropdowns:`);
+            typeDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${linkDropdowns.length} link dropdowns:`);
+            linkDropdowns.forEach(dropdown => {
+                console.log(`    ${dropdown.name} = ${dropdown.value} (disabled: ${dropdown.disabled})`);
+            });
+            
+            console.log(`  - ${checkboxes.length} library checkboxes (checked: ${Array.from(checkboxes).filter(cb => cb.checked).length})`);
         } else {
+            // Show appropriate message based on primary server
             const serverName = primaryServer === 'plex' ? 'Plex' : 'Jellyfin';
             const serverError = primaryServer === 'plex' ? plexError : jellyfinError;
             
@@ -2423,26 +2568,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const multiServerCheckbox = document.getElementById('enable_multi_server');
         if (!multiServerCheckbox) return;
         
-        const primaryServer = document.querySelector('input[name="primary_media_server"]:checked')?.value;
-        
-        // If internal scanner is selected, disable sync
-        if (primaryServer === 'internal') {
-            multiServerCheckbox.disabled = true;
-            multiServerCheckbox.checked = false;
-            return;
-        }
-        
-        // Check if both Plex and Jellyfin are linked
-        const plexLinked = window.Librarrarian.settings.plexToken && window.Librarrarian.settings.plexToken.length > 0;
-        const jellyfinLinked = window.Librarrarian.settings.jellyfinApiKey && window.Librarrarian.settings.jellyfinApiKey.length > 0;
-        
-        // Only enable sync if both servers are linked
-        if (plexLinked && jellyfinLinked) {
-            multiServerCheckbox.disabled = false;
-        } else {
-            multiServerCheckbox.disabled = true;
-            multiServerCheckbox.checked = false;
-        }
+        // Multi-server sync feature is temporarily disabled due to persistent issues
+        // Always keep the checkbox disabled and unchecked
+        multiServerCheckbox.disabled = true;
+        multiServerCheckbox.checked = false;
     }
     
     // Reload libraries when multi-server is toggled
@@ -3174,18 +3303,39 @@ document.addEventListener('DOMContentLoaded', () => {
         if (theme === 'auto') {
             return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
         }
+        // Christmas theme and other themes pass through as-is
         return theme;
     };
 
     const setTheme = theme => {
         // Resolve 'auto' to actual theme for Bootstrap
         const resolvedTheme = getResolvedTheme(theme);
+        const previousTheme = document.documentElement.getAttribute('data-bs-theme');
         document.documentElement.setAttribute('data-bs-theme', resolvedTheme);
         
         // Update icon based on stored theme (not resolved) to show user's selection
         if (theme === 'dark') themeIcon.className = 'mdi mdi-weather-night';
         else if (theme === 'light') themeIcon.className = 'mdi mdi-weather-sunny';
+        else if (theme === 'christmas') themeIcon.className = 'mdi mdi-pine-tree';
+        else if (theme === 'summer-christmas') themeIcon.className = 'mdi mdi-white-balance-sunny';
         else themeIcon.className = 'mdi mdi-desktop-classic';
+        
+        // Enable/disable Christmas snow effect for both Christmas themes
+        if (typeof window.snowEffect !== 'undefined') {
+            const isChristmasTheme = theme === 'christmas' || theme === 'summer-christmas';
+            const wasChristmasTheme = previousTheme === 'christmas' || previousTheme === 'summer-christmas';
+            
+            if (isChristmasTheme && wasChristmasTheme) {
+                // Switching between Christmas themes - update snowflake colors
+                window.snowEffect.updateTheme();
+            } else if (isChristmasTheme) {
+                // Starting snow effect
+                window.snowEffect.start();
+            } else {
+                // Stopping snow effect
+                window.snowEffect.stop();
+            }
+        }
     };
 
     // Set initial theme on page load
@@ -3223,7 +3373,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             const response = await fetch(mainVersionUrl);
-            const latestStableVersion = await response.text().trim();
+            const latestStableVersion = (await response.text()).trim();
 
             // Use localeCompare with numeric option for proper version comparison (e.g., "0.10.7b" > "0.10.7")
             const comparison = internalVersion.localeCompare(latestStableVersion, undefined, { numeric: true });
@@ -3395,4 +3545,129 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
-});
+}); // End of main DOMContentLoaded block
+
+// --- Debug Settings Modal (DEVMODE only) ---
+// This section handles the debug settings modal that shows database settings
+// Use a function that works whether DOM is already loaded or not
+function initDebugSettingsModal() {
+    const debugSettingsModal = document.getElementById('debugSettingsModal');
+    if (!debugSettingsModal) {
+        console.log('Debug Settings Modal: Element not found, DEVMODE likely disabled');
+        return; // Exit if modal doesn't exist (DEVMODE disabled)
+    }
+    
+    console.log('Debug Settings Modal: Initializing');
+    const debugSettingsContent = document.getElementById('debug-settings-content');
+    const debugSettingsTimestamp = document.getElementById('debug-settings-timestamp');
+    const copyDebugSettingsBtn = document.getElementById('copy-debug-settings-btn');
+    const reloadDebugSettingsBtn = document.getElementById('reload-debug-settings-btn');
+    
+    // Function to load settings from the API
+    async function loadSettings() {
+        console.log('Debug Settings Modal: Loading settings...');
+        // Show loading state
+        debugSettingsContent.textContent = 'Loading settings...';
+        
+        // Disable reload button during load
+        if (reloadDebugSettingsBtn) {
+            reloadDebugSettingsBtn.disabled = true;
+        }
+        
+        try {
+            console.log('Debug Settings Modal: Fetching /api/settings');
+            const response = await fetch('/api/settings');
+            console.log('Debug Settings Modal: Received response', response.status, response.statusText);
+            
+            if (!response.ok) {
+                const errorText = `HTTP Error: ${response.status} ${response.statusText}`;
+                console.error('Debug Settings Modal:', errorText);
+                debugSettingsContent.textContent = errorText;
+                return;
+            }
+            
+            const data = await response.json();
+            console.log('Debug Settings Modal: Parsed JSON data', data);
+            
+            if (data.error) {
+                console.error('Debug Settings Modal: API returned error:', data.error);
+                debugSettingsContent.textContent = `Error: ${data.error}`;
+            } else if (!data.settings) {
+                console.warn('Debug Settings Modal: data.settings is undefined or null');
+                debugSettingsContent.textContent = `Error: No settings object in API response.\n\nRaw API response:\n${JSON.stringify(data, null, 2)}`;
+            } else if (Object.keys(data.settings).length === 0) {
+                console.warn('Debug Settings Modal: settings object is empty');
+                debugSettingsContent.textContent = 'No settings found in database.\n\nThe worker_settings table appears to be empty.\n\nThis could indicate:\n1. Fresh installation (settings not yet initialized)\n2. Database connection issue\n3. Database migration not completed';
+            } else {
+                // Format the settings as pretty JSON
+                console.log('Debug Settings Modal: Successfully loaded', Object.keys(data.settings).length, 'settings');
+                const settingsCount = Object.keys(data.settings).length;
+                debugSettingsContent.textContent = JSON.stringify(data.settings, null, 2);
+                // Update timestamp
+                const now = new Date();
+                debugSettingsTimestamp.textContent = `Last loaded: ${now.toLocaleString()} (${settingsCount} settings)`;
+            }
+        } catch (error) {
+            console.error('Debug Settings Modal: Exception caught:', error);
+            // Show user-friendly error message, full details only in console
+            debugSettingsContent.textContent = `Failed to load settings: ${error.message}\n\nPlease check the browser console (F12) for more details.`;
+        } finally {
+            // Re-enable reload button after load completes (success or failure)
+            if (reloadDebugSettingsBtn) {
+                reloadDebugSettingsBtn.disabled = false;
+            }
+        }
+    }
+    
+    // Load settings when modal is shown
+    // Use Bootstrap's event listener on the modal element
+    if (debugSettingsModal) {
+        debugSettingsModal.addEventListener('show.bs.modal', () => {
+            console.log('Debug Settings Modal: show.bs.modal event fired');
+            loadSettings();
+        });
+        
+        // Also trigger load immediately if DEVMODE users open the page with the modal already visible
+        // This handles edge cases where the modal might be pre-opened via URL hash or other means
+        if (debugSettingsModal.classList.contains('show')) {
+            console.log('Debug Settings Modal: Modal already shown on page load, loading settings');
+            loadSettings();
+        }
+    }
+    
+    // Reload settings when reload button is clicked
+    if (reloadDebugSettingsBtn) {
+        reloadDebugSettingsBtn.addEventListener('click', loadSettings);
+    }
+    
+    // Copy to clipboard functionality
+    if (copyDebugSettingsBtn) {
+        copyDebugSettingsBtn.addEventListener('click', function() {
+            const text = debugSettingsContent.textContent;
+            navigator.clipboard.writeText(text).then(() => {
+                // Visual feedback
+                const originalText = copyDebugSettingsBtn.innerHTML;
+                copyDebugSettingsBtn.innerHTML = '<span class="mdi mdi-check"></span> Copied!';
+                copyDebugSettingsBtn.classList.remove('btn-outline-primary');
+                copyDebugSettingsBtn.classList.add('btn-outline-success');
+                
+                setTimeout(() => {
+                    copyDebugSettingsBtn.innerHTML = originalText;
+                    copyDebugSettingsBtn.classList.remove('btn-outline-success');
+                    copyDebugSettingsBtn.classList.add('btn-outline-primary');
+                }, 2000);
+            }).catch(err => {
+                console.error('Failed to copy text:', err);
+                alert('Failed to copy to clipboard');
+            });
+        });
+    }
+}
+
+// Initialize the debug modal - works whether DOM is already loaded or not
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initDebugSettingsModal);
+} else {
+    // DOM is already loaded, run immediately
+    initDebugSettingsModal();
+}
