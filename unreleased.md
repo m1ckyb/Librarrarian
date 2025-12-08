@@ -9,3 +9,6 @@ All upcoming features and bug fixes will be documented here until they are part 
 ## Changed
 - Cleanup scan progress is now tracked using the existing `scan_progress_state` mechanism for consistency with other scan operations.
 - Login page now displays a "Login with Passkey" option when passkey authentication is enabled.
+
+## Fixed
+- **Database Initialization**: Fixed missing `passkey_credentials` table error on fresh installations. The table is now properly created during initial database setup instead of only being defined in a migration that would never run.

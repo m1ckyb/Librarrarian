@@ -620,6 +620,23 @@ def initialize_database_if_needed():
                 cur.execute(f"ALTER TABLE media_source_types OWNER TO {db_user};")
 
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS passkey_credentials (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        credential_id TEXT NOT NULL UNIQUE,
+                        public_key TEXT NOT NULL,
+                        sign_count BIGINT NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        last_used_at TIMESTAMP WITH TIME ZONE,
+                        device_name VARCHAR(255),
+                        UNIQUE(user_id, credential_id)
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE passkey_credentials TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE passkey_credentials_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE passkey_credentials OWNER TO {db_user};")
+
+                cur.execute("""
                     INSERT INTO worker_settings (setting_name, setting_value) VALUES
                         ('rescan_delay_minutes', '0'),
                         ('worker_poll_interval', '30'),
@@ -664,7 +681,8 @@ def initialize_database_if_needed():
                         ('enable_multi_server', 'false'),
                         ('hide_job_requests', 'false'),
                         ('hide_plex_updates', 'false'),
-                        ('hide_jellyfin_updates', 'false')
+                        ('hide_jellyfin_updates', 'false'),
+                        ('passkey_enabled', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
 
