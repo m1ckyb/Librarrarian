@@ -25,6 +25,7 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Added better error handling and logging to migration system with explicit cursor cleanup
 - Fixed potential issue where schema_version table could exist but be empty
 - Increased combined libraries box max-height from 400px to 500px to prevent secondary library dropdown from being cut off
+- Fixed monitored libraries secondary server dropdown being cut off by adjusting column layout: reduced Authentication column from col-md-6 to col-md-4, expanded Monitored Libraries column from col-md-6 to col-md-8
 
 ### Changed
 - Updated "Sync Between Plex & Jellyfin" tooltip to clarify that it syncs completed transcodes back to both servers
