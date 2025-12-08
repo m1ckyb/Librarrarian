@@ -61,6 +61,9 @@
 <script>
 // WebAuthn helper functions
 function base64urlToBuffer(base64url) {
+    if (!base64url) {
+        throw new Error('base64url parameter is required');
+    }
     const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
     const binary = atob(base64);
     return Uint8Array.from(binary, c => c.charCodeAt(0));

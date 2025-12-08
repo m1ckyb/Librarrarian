@@ -168,7 +168,14 @@ def setup_auth(app):
         # This is for machine-to-machine communication (workers).
         if request.path.startswith('/api/'):
             api_key = request.headers.get('X-API-Key')
-            if api_key and api_key == os.environ.get('API_KEY'):
+            expected_api_key = os.environ.get('API_KEY')
+            
+            # Check if API_KEY is configured
+            if not expected_api_key:
+                app.logger.warning("API_KEY environment variable is not set. API endpoints will not be accessible.")
+                return jsonify(error="Server configuration error. Please contact the administrator."), 500
+            
+            if api_key and api_key == expected_api_key:
                 # API key is valid, now validate worker session for worker-specific endpoints
                 # These are endpoints that ONLY workers should call
                 if request.endpoint in WORKER_PROTECTED_ENDPOINTS:
@@ -193,7 +200,10 @@ def setup_auth(app):
                         return jsonify(error=error_msg), 403
                 
                 return # API key is valid, allow access
-            return jsonify(error="Authentication required. Invalid or missing API Key."), 401
+            
+            # API key is missing or invalid
+            error_msg = "Authentication required. Missing X-API-Key header." if not api_key else "Authentication required. Invalid API Key."
+            return jsonify(error=error_msg), 401
 
         return redirect(url_for('login'))
 
