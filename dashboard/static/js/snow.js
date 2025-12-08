@@ -173,6 +173,33 @@ class SnowEffect {
         
         console.log('❄ Snow effect stopped');
     }
+
+    /**
+     * Update the snow effect when theme changes between Christmas themes
+     * This recreates all snowflakes with the correct colors for the new theme
+     */
+    updateTheme() {
+        if (!this.isActive) return;
+        
+        console.log('❄ Updating snow effect for theme change');
+        
+        // Remove all existing snowflakes
+        this.snowflakes.forEach(snowflake => {
+            if (snowflake.parentNode) {
+                snowflake.parentNode.removeChild(snowflake);
+            }
+        });
+        this.snowflakes = [];
+        
+        // Create new snowflakes with correct colors for current theme
+        for (let i = 0; i < this.maxSnowflakes; i++) {
+            const snowflake = this.createSnowflake();
+            // Set drift as CSS variable for animation
+            snowflake.style.setProperty('--drift', `${snowflake.dataset.drift}px`);
+            this.container.appendChild(snowflake);
+            this.snowflakes.push(snowflake);
+        }
+    }
 }
 
 // Create global snow effect instance
