@@ -2110,6 +2110,15 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // --- Show/Hide Logic ---
+    /**
+     * Enables all form inputs (inputs and selects) within a container.
+     * Used after dynamically populating containers to ensure form submission works correctly.
+     * @param {HTMLElement} container - The container element to enable inputs within
+     */
+    function enableFormInputs(container) {
+        container.querySelectorAll('input, select').forEach(el => el.disabled = false);
+    }
+    
     // Set up visibility toggles BEFORE loading functions are called
     // Items are considered "ignored" when their media type dropdown is set to "none"
     function setupShowIgnoredToggle(toggleId, listContainerId) {
@@ -2247,6 +2256,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
         } else {
             container.innerHTML = `<p class="text-muted">${data.error || 'No video libraries found.'}</p>`;
         }
@@ -2350,6 +2362,9 @@ document.addEventListener('DOMContentLoaded', () => {
                 </div>
             `;
             }).join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
         } else {
             container.innerHTML = '<p class="text-muted">No libraries found.</p>';
         }
@@ -2505,6 +2520,9 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (libraryItems.length > 0) {
             container.innerHTML = libraryItems.join('');
+            
+            // Enable all form inputs after populating container
+            enableFormInputs(container);
             
             // DEBUG: Log created form fields for sync mode debugging
             console.log('[Sync Mode Debug] Combined libraries loaded. Form fields created:');
