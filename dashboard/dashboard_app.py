@@ -3574,9 +3574,12 @@ def run_cleanup_scan():
     """
     if not cleanup_scanner_lock.acquire(blocking=False):
         print(f"[{datetime.now()}] Cleanup scan trigger ignored: A scan is already in progress.")
+        scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
         return
 
     try:
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing cleanup scan...", "total_steps": 0, "progress": 0, "scan_source": "cleanup", "scan_type": "cleanup"})
+        
         with app.app_context():
             settings, _ = get_worker_settings()
             plex_url = settings.get('plex_url', {}).get('setting_value')
@@ -3588,10 +3591,12 @@ def run_cleanup_scan():
 
             if not all([plex_url, plex_token, plex_libraries]):
                 print(f"[{datetime.now()}] Cleanup scan skipped: Plex integration is not fully configured.")
+                scan_progress_state["current_step"] = "Cleanup scan skipped: Plex integration is not fully configured."
                 return
 
             # Get the root paths from the monitored Plex libraries
             scan_paths = set()
+            scan_progress_state["current_step"] = "Connecting to Plex to get library paths..."
             try:
                 plex = PlexServer(plex_url, plex_token)
                 for section in plex.library.sections():
@@ -3609,20 +3614,28 @@ def run_cleanup_scan():
                             scan_paths.add(local_path)
             except Exception as e:
                 print(f"[{datetime.now()}] Cleanup scan failed: Could not connect to Plex to get library paths. Error: {e}")
+                scan_progress_state["current_step"] = f"Error: Could not connect to Plex. {e}"
                 return
 
             if not scan_paths:
                 print(f"[{datetime.now()}] Cleanup scan finished: No valid library paths found to scan.")
+                scan_progress_state["current_step"] = "No valid library paths found to scan."
                 return
 
             print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+            
+            # Set total steps to the number of paths to scan
+            scan_progress_state["total_steps"] = len(scan_paths)
+            
             jobs_created = 0
             db = get_db()
             with db.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT filepath FROM jobs")
                 existing_jobs = {row['filepath'] for row in cur.fetchall()}
 
-                for path in scan_paths:
+                for idx, path in enumerate(scan_paths):
+                    scan_progress_state.update({"current_step": f"Scanning: {path}", "progress": idx})
+                    
                     if not os.path.isdir(path): continue
                     # Scan for files ending in .lock or starting with tmp_
                     for root, _, files in os.walk(path):
@@ -3634,12 +3647,19 @@ def run_cleanup_scan():
                                         "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'awaiting_approval')",
                                         (full_path,))
                                     jobs_created += 1
+                
+                # Mark the last path as complete
+                scan_progress_state["progress"] = len(scan_paths)
+                
             db.commit()
             print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
+            scan_progress_state["current_step"] = f"Scan complete. Created {jobs_created} cleanup jobs."
     except Exception as e:
         print(f"[{datetime.now()}] Error during cleanup scan: {e}")
+        scan_progress_state["current_step"] = f"Error: {e}"
     finally:
         cleanup_scanner_lock.release()
+        scan_progress_state.update({"is_running": False})
 
 @app.route('/api/jobs/release', methods=['POST'])
 def release_jobs():
