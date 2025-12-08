@@ -3310,6 +3310,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const setTheme = theme => {
         // Resolve 'auto' to actual theme for Bootstrap
         const resolvedTheme = getResolvedTheme(theme);
+        const previousTheme = document.documentElement.getAttribute('data-bs-theme');
         document.documentElement.setAttribute('data-bs-theme', resolvedTheme);
         
         // Update icon based on stored theme (not resolved) to show user's selection
@@ -3321,9 +3322,17 @@ document.addEventListener('DOMContentLoaded', () => {
         
         // Enable/disable Christmas snow effect for both Christmas themes
         if (typeof window.snowEffect !== 'undefined') {
-            if (theme === 'christmas' || theme === 'summer-christmas') {
+            const isChristmasTheme = theme === 'christmas' || theme === 'summer-christmas';
+            const wasChristmasTheme = previousTheme === 'christmas' || previousTheme === 'summer-christmas';
+            
+            if (isChristmasTheme && wasChristmasTheme) {
+                // Switching between Christmas themes - update snowflake colors
+                window.snowEffect.updateTheme();
+            } else if (isChristmasTheme) {
+                // Starting snow effect
                 window.snowEffect.start();
             } else {
+                // Stopping snow effect
                 window.snowEffect.stop();
             }
         }
