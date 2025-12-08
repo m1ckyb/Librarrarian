@@ -12,6 +12,14 @@ class SnowEffect {
         this.maxSnowflakes = 75; // Maximum number of snowflakes on screen (increased from 50)
         this.animationFrame = null;
         this.isActive = false;
+        
+        // Define festive colors for Summer Christmas theme
+        this.summerColors = [
+            { color: 'rgba(39, 174, 96, 0.9)', shadow: '0 0 5px rgba(39, 174, 96, 0.5)' },      // Green
+            { color: 'rgba(231, 76, 60, 0.9)', shadow: '0 0 5px rgba(231, 76, 60, 0.5)' },      // Red
+            { color: 'rgba(192, 192, 192, 0.9)', shadow: '0 0 5px rgba(192, 192, 192, 0.6)' },  // Silver
+            { color: 'rgba(255, 215, 0, 0.9)', shadow: '0 0 5px rgba(255, 215, 0, 0.5)' }       // Gold
+        ];
     }
 
     /**
@@ -49,12 +57,29 @@ class SnowEffect {
         const delay = Math.random() * 5; // Random start delay up to 5 seconds
         const drift = (Math.random() - 0.5) * 100; // Horizontal drift (-50px to 50px)
         
+        // Choose color based on theme
+        const currentTheme = document.documentElement.getAttribute('data-bs-theme');
+        let color;
+        let textShadow;
+        
+        if (currentTheme === 'summer-christmas') {
+            // For Summer Christmas, use festive colors: green, red, silver, gold
+            const randomColor = this.summerColors[Math.floor(Math.random() * this.summerColors.length)];
+            color = randomColor.color;
+            textShadow = randomColor.shadow;
+        } else {
+            // For Winter Christmas, use white snowflakes
+            color = 'rgba(255, 255, 255, 0.8)';
+            textShadow = '0 0 5px rgba(255, 255, 255, 0.5)';
+        }
+        
         snowflake.style.cssText = `
             position: absolute;
             top: -20px;
             left: ${startX}%;
             font-size: ${size}rem;
-            color: rgba(255, 255, 255, 0.8);
+            color: ${color};
+            text-shadow: ${textShadow};
             animation: snowfall ${duration}s linear ${delay}s infinite;
             transform: translateX(0);
             user-select: none;
@@ -91,10 +116,6 @@ class SnowEffect {
                     transform: translateY(100vh) translateX(var(--drift, 0px)) rotate(360deg);
                     opacity: 0;
                 }
-            }
-            
-            .snowflake {
-                text-shadow: 0 0 5px rgba(255, 255, 255, 0.5);
             }
         `;
         document.head.appendChild(style);
