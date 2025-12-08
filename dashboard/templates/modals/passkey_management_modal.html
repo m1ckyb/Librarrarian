@@ -82,19 +82,26 @@ async function loadPasskeys() {
             const createdDate = new Date(cred.created_at).toLocaleDateString();
             const lastUsed = cred.last_used_at ? new Date(cred.last_used_at).toLocaleDateString() : 'Never';
             
+            // Escape HTML to prevent XSS
+            const escapeHtml = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            };
+            
             html += `
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-center">
                         <div>
-                            <strong>${cred.device_name || 'Unnamed Device'}</strong>
+                            <strong>${escapeHtml(cred.device_name || 'Unnamed Device')}</strong>
                             <br>
                             <small class="text-muted">Created: ${createdDate} | Last used: ${lastUsed}</small>
                         </div>
                         <div class="btn-group btn-group-sm">
-                            <button class="btn btn-outline-primary" onclick="renamePasskey(${cred.id}, '${cred.device_name || ''}')">
+                            <button class="btn btn-outline-primary passkey-rename-btn" data-cred-id="${cred.id}" data-cred-name="${escapeHtml(cred.device_name || '')}">
                                 <span class="mdi mdi-pencil"></span>
                             </button>
-                            <button class="btn btn-outline-danger" onclick="deletePasskey(${cred.id})">
+                            <button class="btn btn-outline-danger passkey-delete-btn" data-cred-id="${cred.id}">
                                 <span class="mdi mdi-delete"></span>
                             </button>
                         </div>
@@ -104,6 +111,22 @@ async function loadPasskeys() {
         }
         html += '</div>';
         listDiv.innerHTML = html;
+        
+        // Attach event listeners to dynamically created buttons
+        document.querySelectorAll('.passkey-rename-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const credId = parseInt(btn.dataset.credId);
+                const credName = btn.dataset.credName;
+                renamePasskey(credId, credName);
+            });
+        });
+        
+        document.querySelectorAll('.passkey-delete-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const credId = parseInt(btn.dataset.credId);
+                deletePasskey(credId);
+            });
+        });
     } catch (error) {
         console.error('Error loading passkeys:', error);
         listDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
