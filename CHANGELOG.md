@@ -1,3 +1,8 @@
+## [0.13.1] - 2025-12-08 - Patch Release
+
+### Fixed
+- Fixed worker crash loop (`TypeError: string indices must be integers, not 'str'`) caused by a data structure mismatch when fetching settings from the dashboard's `/api/settings` endpoint. The worker was not updated to handle the flattened dictionary structure introduced in v0.13.0.
+
 ## [0.13.0] - 2025-12-08 - Festive Fixes & Debug Tools
 
 ### Fixed
