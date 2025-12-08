@@ -38,6 +38,13 @@ All upcoming features and bug fixes will be documented here until they are part 
 - Increased snow animation from 50 to 75 snowflakes for a more festive effect
 - Snowflakes now use festive colors (green, red, silver, gold) on Summer Christmas theme instead of white, making them visible on the light background
 - Changed Summer Christmas theme background from cream (#fff8dc) to sky blue (#87ceeb) for a more vibrant beach/ocean-like appearance
+- Changed button and badge colors for better visibility on Summer Christmas theme:
+  - Release buttons (Job Queue tab) changed from cyan (btn-outline-info) to green (btn-outline-success)
+  - Active node version badges changed from cyan (badge-outline-info) to green (badge-outline-success)
+  - ETA badges changed from cyan (badge-outline-info) to green (badge-outline-success)
+  - Manage Backups button changed from cyan (btn-outline-info) to green (btn-outline-success)
+  - Queue Stale File Cleanup button changed from orange (btn-outline-warning) to red (btn-outline-danger) for better contrast
+  - Sonarr Quality Scan button changed from cyan (btn-outline-info) to green (btn-outline-success)
 
 ### Added
 - Added symbolic link detection during media scanning
