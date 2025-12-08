@@ -1,10 +1,12 @@
 # Passkey/WebAuthn Authentication Implementation Notes
 
-This document outlines what would be needed to implement passkey/WebAuthn authentication for Librarrarian.
+**STATUS: ✅ IMPLEMENTED**
+
+This document outlines the implementation of passkey/WebAuthn authentication for Librarrarian.
 
 ## Overview
 
-Passkey authentication would provide a passwordless login option using FIDO2/WebAuthn standards. This is a complex security feature that requires careful implementation.
+Passkey authentication provides a passwordless login option using FIDO2/WebAuthn standards. This feature has been fully implemented and integrated into the authentication system.
 
 ## Requirements
 
@@ -226,19 +228,70 @@ WEBAUTHN_ORIGIN=http://localhost:5000
 - Test error cases (cancelled authentication, timeout, etc.)
 - Test with different browsers (Chrome, Firefox, Safari, Edge)
 
-## Implementation Effort
+## Implementation Status
 
-This is a **significant feature** that would require:
-- ~8-12 hours of development time
-- Thorough security review
-- Comprehensive testing
-- Documentation updates
-- Migration path for existing users
+✅ **COMPLETED** - All planned features have been implemented:
+- Database migration (v17) adds `passkey_credentials` table
+- Backend API endpoints for registration and authentication
+- Frontend UI for passkey login on login page
+- Passkey management UI in Options tab
+- Environment variables for WebAuthn configuration
+- Security best practices implemented (challenge expiry, sign counter tracking, XSS prevention)
 
-## Alternative: WebAuthn Library
+## Implementation Details
 
-Consider using a complete WebAuthn library like [py_webauthn](https://github.com/duo-labs/py_webauthn) which handles much of the complexity.
+### Database Migration
+- Version 17 migration creates the `passkey_credentials` table
+- Dynamic permission grants using `DB_CONFIG['user']`
+- Idempotent SQL for safe re-execution
 
-## Recommendation
+### Backend Implementation
+- Uses `webauthn>=2.0.0` library from PyPI
+- API endpoints:
+  - `POST /api/auth/passkey/register/challenge` - Start registration
+  - `POST /api/auth/passkey/register/verify` - Complete registration
+  - `POST /api/auth/passkey/auth/challenge` - Start authentication
+  - `POST /api/auth/passkey/auth/verify` - Complete authentication
+  - `GET /api/auth/passkey/credentials` - List user's passkeys
+  - `DELETE /api/auth/passkey/credentials/<id>` - Delete a passkey
+  - `POST /api/auth/passkey/credentials/<id>/rename` - Rename a passkey
 
-Implement this as a **separate feature PR** after the current bug fixes are complete. It should not be bundled with bug fixes due to its complexity and scope.
+### Frontend Implementation
+- Login page includes "Login with Passkey" button when enabled
+- Passkey management modal in Options tab under Authentication
+- WebAuthn helper functions for base64url encoding/decoding
+- Proper error handling and user feedback
+- XSS protection using HTML escaping and event listeners
+
+### Security Features
+- Challenges stored in session and cleared after use
+- Sign counters tracked to detect cloned authenticators
+- Only works over HTTPS (except localhost for development)
+- Credentials stored with base64 encoding
+- Requires user to be logged in to register new passkeys
+
+## Testing Recommendations
+
+1. **Registration Flow**
+   - Log in with existing method (password or OIDC)
+   - Navigate to Options → Authentication → Manage Passkeys
+   - Click "Register a New Passkey"
+   - Follow device prompts
+   - Verify passkey appears in list
+
+2. **Authentication Flow**
+   - Log out
+   - Click "Login with Passkey" on login page
+   - Follow device prompts
+   - Verify successful login
+
+3. **Management Features**
+   - Test renaming a passkey
+   - Test deleting a passkey
+   - Verify timestamps are correct
+
+4. **Security Testing**
+   - Verify HTTPS requirement (should fail on non-localhost HTTP)
+   - Test with multiple authenticators
+   - Verify sign counter increments
+   - Test concurrent registration attempts

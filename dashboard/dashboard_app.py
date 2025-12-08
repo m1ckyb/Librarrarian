@@ -105,12 +105,18 @@ def setup_auth(app):
     app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
     app.config['OIDC_PROVIDER_NAME'] = os.environ.get('OIDC_PROVIDER_NAME')
     app.config['DEVMODE'] = os.environ.get('DEVMODE', 'false').lower() == 'true'
+    
+    # Passkey/WebAuthn configuration
+    app.config['PASSKEY_ENABLED'] = os.environ.get('PASSKEY_ENABLED', 'false').lower() == 'true'
+    app.config['WEBAUTHN_RP_ID'] = os.environ.get('WEBAUTHN_RP_ID', 'localhost')
+    app.config['WEBAUTHN_RP_NAME'] = os.environ.get('WEBAUTHN_RP_NAME', 'Librarrarian')
+    app.config['WEBAUTHN_ORIGIN'] = os.environ.get('WEBAUTHN_ORIGIN', 'http://localhost:5000')
 
     if not app.config['AUTH_ENABLED']:
         return # Do nothing if auth is disabled
 
     # If auth is on, but no methods are enabled, disable auth to prevent a lockout.
-    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED']:
+    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED'] and not app.config['PASSKEY_ENABLED']:
         print("⚠️ WARNING: AUTH_ENABLED is true, but no authentication methods are enabled. Disabling authentication.")
         app.config['AUTH_ENABLED'] = False
         return
@@ -153,14 +159,23 @@ def setup_auth(app):
             return
 
         # If the user is logged in, allow access.
-        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health']:
+        # Also allow passkey authentication endpoints
+        passkey_endpoints = ['passkey_auth_challenge', 'passkey_auth_verify']
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health'] + passkey_endpoints:
             return
 
         # Block all unauthenticated API access.
         # This is for machine-to-machine communication (workers).
         if request.path.startswith('/api/'):
             api_key = request.headers.get('X-API-Key')
-            if api_key and api_key == os.environ.get('API_KEY'):
+            expected_api_key = os.environ.get('API_KEY')
+            
+            # Check if API_KEY is configured
+            if not expected_api_key:
+                app.logger.warning("API_KEY environment variable is not set. API endpoints will not be accessible.")
+                return jsonify(error="Server configuration error. Please contact the administrator."), 500
+            
+            if api_key and api_key == expected_api_key:
                 # API key is valid, now validate worker session for worker-specific endpoints
                 # These are endpoints that ONLY workers should call
                 if request.endpoint in WORKER_PROTECTED_ENDPOINTS:
@@ -185,7 +200,10 @@ def setup_auth(app):
                         return jsonify(error=error_msg), 403
                 
                 return # API key is valid, allow access
-            return jsonify(error="Authentication required. Invalid or missing API Key."), 401
+            
+            # API key is missing or invalid
+            error_msg = "Authentication required. Missing X-API-Key header." if not api_key else "Authentication required. Invalid API Key."
+            return jsonify(error=error_msg), 401
 
         return redirect(url_for('login'))
 
@@ -271,7 +289,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 16
+TARGET_SCHEMA_VERSION = 17
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -382,6 +400,27 @@ MIGRATIONS = {
         # Use INSERT ON CONFLICT to handle both fresh installations and existing ones
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO UPDATE SET setting_value = 'false';"
     ],
+    # Version 17: Add passkey/WebAuthn support
+    17: [
+        """
+        CREATE TABLE IF NOT EXISTS passkey_credentials (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            credential_id TEXT NOT NULL UNIQUE,
+            public_key TEXT NOT NULL,
+            sign_count BIGINT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMP WITH TIME ZONE,
+            device_name VARCHAR(255),
+            UNIQUE(user_id, credential_id)
+        );
+        """,
+        # Grant permissions dynamically
+        f"GRANT ALL PRIVILEGES ON TABLE passkey_credentials TO {DB_CONFIG['user']};",
+        f"GRANT USAGE, SELECT ON SEQUENCE passkey_credentials_id_seq TO {DB_CONFIG['user']};",
+        # Add passkey settings
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('passkey_enabled', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+    ],
 }
 
 def run_migrations():
@@ -484,8 +523,8 @@ def initialize_database_if_needed():
         # Use a direct connection to check for initialization before the app context is fully ready.
         conn = psycopg2.connect(**DB_CONFIG)
         with conn.cursor() as cur:
-            # Check if a key table (like schema_version) exists.
-            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
+            # Check if a key table (like nodes) exists.
+            cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'nodes')")
             table_exists = cur.fetchone()[0]
             
             if not table_exists:
@@ -591,6 +630,23 @@ def initialize_database_if_needed():
                 cur.execute(f"ALTER TABLE media_source_types OWNER TO {db_user};")
 
                 cur.execute("""
+                    CREATE TABLE IF NOT EXISTS passkey_credentials (
+                        id SERIAL PRIMARY KEY,
+                        user_id VARCHAR(255) NOT NULL,
+                        credential_id TEXT NOT NULL UNIQUE,
+                        public_key TEXT NOT NULL,
+                        sign_count BIGINT NOT NULL DEFAULT 0,
+                        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                        last_used_at TIMESTAMP WITH TIME ZONE,
+                        device_name VARCHAR(255),
+                        UNIQUE(user_id, credential_id)
+                    );
+                """)
+                cur.execute(f"GRANT ALL PRIVILEGES ON TABLE passkey_credentials TO {db_user};")
+                cur.execute(f"GRANT USAGE, SELECT ON SEQUENCE passkey_credentials_id_seq TO {db_user};")
+                cur.execute(f"ALTER TABLE passkey_credentials OWNER TO {db_user};")
+
+                cur.execute("""
                     INSERT INTO worker_settings (setting_name, setting_value) VALUES
                         ('rescan_delay_minutes', '0'),
                         ('worker_poll_interval', '30'),
@@ -635,22 +691,13 @@ def initialize_database_if_needed():
                         ('enable_multi_server', 'false'),
                         ('hide_job_requests', 'false'),
                         ('hide_plex_updates', 'false'),
-                        ('hide_jellyfin_updates', 'false')
+                        ('hide_jellyfin_updates', 'false'),
+                        ('passkey_enabled', 'false')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
-
-                cur.execute("""
-                    CREATE TABLE IF NOT EXISTS schema_version (
-                        version INT PRIMARY KEY
-                    );
-                """)
-                cur.execute(f"ALTER TABLE schema_version OWNER TO {db_user};")
-                # Insert the target schema version since we just created a fresh database
-                # with all tables already at the latest schema.
-                cur.execute("INSERT INTO schema_version (version) VALUES (%s) ON CONFLICT DO NOTHING", (TARGET_SCHEMA_VERSION,))
                 
                 conn.commit()
-                print(f"Database initialized at schema version {TARGET_SCHEMA_VERSION}.")
+                print(f"Database initialized.")
 
             else:
                 print("Database already initialized. Skipping initial setup.")
@@ -1090,7 +1137,8 @@ def dashboard():
         nodes=nodes, 
         fail_count=fail_count, 
         db_error=db_error or settings_db_error, # Show error from either query
-        settings=settings
+        settings=settings,
+        passkey_enabled=app.config.get('PASSKEY_ENABLED', False)
     )
 
 @app.route('/api/health')
@@ -1204,8 +1252,33 @@ def login():
             flash('Invalid credentials.', 'danger')
             return redirect(url_for('login')) # Redirect back on failure
 
-    # For GET requests, just render the login page.
-    return render_template('login.html', oidc_enabled=app.config.get('OIDC_ENABLED'), local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'))
+    # For GET requests, determine if passkey login should be offered.
+    has_passkeys = False
+    if app.config.get('PASSKEY_ENABLED'):
+        conn = None
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            with conn.cursor() as cur:
+                # Check if table exists first to avoid errors on a fresh install before migrations run
+                cur.execute("SELECT to_regclass('public.passkey_credentials')")
+                table_exists = cur.fetchone()[0]
+                if table_exists:
+                    cur.execute("SELECT 1 FROM passkey_credentials LIMIT 1")
+                    has_passkeys = cur.fetchone() is not None
+        except psycopg2.Error as e:
+            print(f"Database error while checking for passkeys: {e}", file=sys.stderr)
+            # If DB isn't ready, we can't show passkey login anyway.
+            has_passkeys = False
+        finally:
+            if conn:
+                conn.close()
+
+    return render_template('login.html', 
+                         oidc_enabled=app.config.get('OIDC_ENABLED'), 
+                         local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'),
+                         passkey_enabled=app.config.get('PASSKEY_ENABLED'),
+                         has_passkeys=has_passkeys,
+                         oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'))
 
 @app.route('/login/oidc')
 def login_oidc():
@@ -1234,6 +1307,282 @@ def logout():
         if logout_url:
             return redirect(logout_url)
     return redirect(url_for('login'))
+
+# --- Passkey/WebAuthn API Endpoints ---
+
+@app.route('/api/auth/passkey/register/challenge', methods=['POST'])
+def passkey_register_challenge():
+    """Generates a challenge for passkey registration."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    # Must be authenticated already to register a passkey
+    if 'user' not in session:
+        return jsonify(error="Must be logged in to register a passkey"), 401
+    
+    try:
+        from webauthn import generate_registration_options, options_to_json
+        from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+        
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        
+        # Get existing credentials for this user to prevent duplicate registrations
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT credential_id FROM passkey_credentials WHERE user_id = %s", (user_id,))
+            existing_creds = cur.fetchall()
+            exclude_credentials = [
+                PublicKeyCredentialDescriptor(id=base64.urlsafe_b64decode((cred['credential_id'] + '=' * (-len(cred['credential_id']) % 4)).encode()))
+                for cred in existing_creds
+            ]
+        
+        # Generate registration options
+        options = generate_registration_options(
+            rp_id=app.config['WEBAUTHN_RP_ID'],
+            rp_name=app.config['WEBAUTHN_RP_NAME'],
+            user_id=user_id.encode(),
+            user_name=user_id,
+            user_display_name=user_id,
+            exclude_credentials=exclude_credentials if existing_creds else None
+        )
+        
+        # Store challenge in session for verification
+        session['passkey_challenge'] = base64.urlsafe_b64encode(options.challenge).decode('utf-8')
+        
+        return app.response_class(options_to_json(options), mimetype='application/json')
+    except Exception as e:
+        print(f"Error generating passkey registration challenge: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/register/verify', methods=['POST'])
+def passkey_register_verify():
+    """Verifies and stores a newly registered passkey."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session or 'passkey_challenge' not in session:
+        return jsonify(error="Invalid session"), 401
+    
+    try:
+        from webauthn import verify_registration_response
+        
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        device_name = request.json.get('device_name', 'Unnamed Device')
+        
+        # Verify the credential
+        verification = verify_registration_response(
+            credential=request.json,
+            expected_challenge=base64.urlsafe_b64decode(session['passkey_challenge'].encode()),
+            expected_origin=app.config['WEBAUTHN_ORIGIN'],
+            expected_rp_id=app.config['WEBAUTHN_RP_ID']
+        )
+        
+        # Store credential in database
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute(
+                """INSERT INTO passkey_credentials 
+                   (user_id, credential_id, public_key, sign_count, device_name) 
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (
+                    user_id,
+                    base64.urlsafe_b64encode(verification.credential_id).decode('utf-8').rstrip('='),
+                    base64.urlsafe_b64encode(verification.credential_public_key).decode('utf-8').rstrip('='),
+                    verification.sign_count,
+                    device_name
+                )
+            )
+        db.commit()
+        
+        # Clear the challenge from session
+        session.pop('passkey_challenge', None)
+        
+        return jsonify(success=True, message="Passkey registered successfully.")
+    except Exception as e:
+        print(f"Error verifying passkey registration: {e}")
+        return jsonify(success=False, error=str(e)), 400
+
+@app.route('/api/auth/passkey/auth/challenge', methods=['POST'])
+def passkey_auth_challenge():
+    """Generates a challenge for passkey authentication."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    try:
+        from webauthn import generate_authentication_options, options_to_json
+        from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+        
+        # Get all registered credentials to allow any user to authenticate
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT credential_id FROM passkey_credentials")
+            all_creds = cur.fetchall()
+            allow_credentials = [
+                PublicKeyCredentialDescriptor(id=base64.urlsafe_b64decode((cred['credential_id'] + '=' * (-len(cred['credential_id']) % 4)).encode()))
+                for cred in all_creds
+            ]
+        
+        if not allow_credentials:
+            return jsonify(error="No passkeys registered in the system."), 404
+        
+        # Generate authentication options
+        options = generate_authentication_options(
+            rp_id=app.config['WEBAUTHN_RP_ID'],
+            allow_credentials=allow_credentials
+        )
+        
+        # Store challenge in session for verification
+        session['passkey_auth_challenge'] = base64.urlsafe_b64encode(options.challenge).decode('utf-8')
+        
+        return app.response_class(options_to_json(options), mimetype='application/json')
+    except Exception as e:
+        print(f"Error generating passkey authentication challenge: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/auth/verify', methods=['POST'])
+def passkey_auth_verify():
+    """Verifies a passkey authentication and creates user session."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'passkey_auth_challenge' not in session:
+        return jsonify(error="Invalid session"), 401
+    
+    try:
+        from webauthn import verify_authentication_response
+        
+        credential_id = request.json.get('id')
+        
+        # Retrieve the credential from database
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM passkey_credentials WHERE credential_id = %s",
+                (credential_id,)
+            )
+            credential = cur.fetchone()
+        
+        if not credential:
+            return jsonify(success=False, error="Credential not found"), 404
+        
+        # Verify the authentication
+        verification = verify_authentication_response(
+            credential=request.json,
+            expected_challenge=base64.urlsafe_b64decode(session['passkey_auth_challenge'].encode()),
+            expected_origin=app.config['WEBAUTHN_ORIGIN'],
+            expected_rp_id=app.config['WEBAUTHN_RP_ID'],
+            credential_public_key=base64.urlsafe_b64decode((credential['public_key'] + '=' * (-len(credential['public_key']) % 4)).encode()),
+            credential_current_sign_count=credential['sign_count']
+        )
+        
+        # Update sign count and last used timestamp
+        with db.cursor() as cur:
+            cur.execute(
+                """UPDATE passkey_credentials 
+                   SET sign_count = %s, last_used_at = CURRENT_TIMESTAMP 
+                   WHERE credential_id = %s""",
+                (verification.new_sign_count, credential_id)
+            )
+        db.commit()
+        
+        # Create user session
+        session['user'] = {'name': credential['user_id'], 'auth_method': 'passkey'}
+        
+        # Clear the challenge from session
+        session.pop('passkey_auth_challenge', None)
+        
+        return jsonify(success=True, message="Authentication successful.")
+    except Exception as e:
+        print(f"Error verifying passkey authentication: {e}")
+        return jsonify(success=False, error=str(e)), 400
+
+@app.route('/api/auth/passkey/credentials', methods=['GET'])
+def list_passkey_credentials():
+    """Lists all passkey credentials for the current user."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session:
+        return jsonify(error="Must be logged in"), 401
+    
+    try:
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, device_name, created_at, last_used_at 
+                   FROM passkey_credentials 
+                   WHERE user_id = %s 
+                   ORDER BY created_at DESC""",
+                (user_id,)
+            )
+            credentials = cur.fetchall()
+        
+        # Format timestamps
+        for cred in credentials:
+            if cred['created_at']:
+                cred['created_at'] = cred['created_at'].isoformat()
+            if cred['last_used_at']:
+                cred['last_used_at'] = cred['last_used_at'].isoformat()
+        
+        return jsonify(credentials=credentials)
+    except Exception as e:
+        print(f"Error listing passkey credentials: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/credentials/<int:credential_id>', methods=['DELETE'])
+def delete_passkey_credential(credential_id):
+    """Deletes a passkey credential."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session:
+        return jsonify(error="Must be logged in"), 401
+    
+    try:
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        
+        db = get_db()
+        with db.cursor() as cur:
+            # Only allow users to delete their own credentials
+            cur.execute(
+                "DELETE FROM passkey_credentials WHERE id = %s AND user_id = %s",
+                (credential_id, user_id)
+            )
+        db.commit()
+        
+        return jsonify(success=True, message="Passkey deleted successfully.")
+    except Exception as e:
+        print(f"Error deleting passkey credential: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/credentials/<int:credential_id>/rename', methods=['POST'])
+def rename_passkey_credential(credential_id):
+    """Renames a passkey credential."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session:
+        return jsonify(error="Must be logged in"), 401
+    
+    try:
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        new_name = request.json.get('device_name', 'Unnamed Device')
+        
+        db = get_db()
+        with db.cursor() as cur:
+            # Only allow users to rename their own credentials
+            cur.execute(
+                "UPDATE passkey_credentials SET device_name = %s WHERE id = %s AND user_id = %s",
+                (new_name, credential_id, user_id)
+            )
+        db.commit()
+        
+        return jsonify(success=True, message="Passkey renamed successfully.")
+    except Exception as e:
+        print(f"Error renaming passkey credential: {e}")
+        return jsonify(error=str(e)), 500
 
 @app.route('/options', methods=['POST'])
 def options():
@@ -3574,9 +3923,12 @@ def run_cleanup_scan():
     """
     if not cleanup_scanner_lock.acquire(blocking=False):
         print(f"[{datetime.now()}] Cleanup scan trigger ignored: A scan is already in progress.")
+        scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
         return
 
     try:
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing cleanup scan...", "total_steps": 0, "progress": 0, "scan_source": "cleanup", "scan_type": "cleanup"})
+        
         with app.app_context():
             settings, _ = get_worker_settings()
             plex_url = settings.get('plex_url', {}).get('setting_value')
@@ -3588,10 +3940,12 @@ def run_cleanup_scan():
 
             if not all([plex_url, plex_token, plex_libraries]):
                 print(f"[{datetime.now()}] Cleanup scan skipped: Plex integration is not fully configured.")
+                scan_progress_state["current_step"] = "Cleanup scan skipped: Plex integration is not fully configured."
                 return
 
             # Get the root paths from the monitored Plex libraries
             scan_paths = set()
+            scan_progress_state["current_step"] = "Connecting to Plex to get library paths..."
             try:
                 plex = PlexServer(plex_url, plex_token)
                 for section in plex.library.sections():
@@ -3609,20 +3963,28 @@ def run_cleanup_scan():
                             scan_paths.add(local_path)
             except Exception as e:
                 print(f"[{datetime.now()}] Cleanup scan failed: Could not connect to Plex to get library paths. Error: {e}")
+                scan_progress_state["current_step"] = f"Error: Could not connect to Plex. {e}"
                 return
 
             if not scan_paths:
                 print(f"[{datetime.now()}] Cleanup scan finished: No valid library paths found to scan.")
+                scan_progress_state["current_step"] = "No valid library paths found to scan."
                 return
 
             print(f"[{datetime.now()}] Cleanup Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+            
+            # Set total steps to the number of paths to scan
+            scan_progress_state["total_steps"] = len(scan_paths)
+            
             jobs_created = 0
             db = get_db()
             with db.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute("SELECT filepath FROM jobs")
                 existing_jobs = {row['filepath'] for row in cur.fetchall()}
 
-                for path in scan_paths:
+                for idx, path in enumerate(scan_paths):
+                    scan_progress_state.update({"current_step": f"Scanning: {path}", "progress": idx})
+                    
                     if not os.path.isdir(path): continue
                     # Scan for files ending in .lock or starting with tmp_
                     for root, _, files in os.walk(path):
@@ -3634,12 +3996,19 @@ def run_cleanup_scan():
                                         "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'awaiting_approval')",
                                         (full_path,))
                                     jobs_created += 1
+                
+                # Mark the last path as complete
+                scan_progress_state["progress"] = len(scan_paths)
+                
             db.commit()
             print(f"[{datetime.now()}] Cleanup scan complete. Created {jobs_created} cleanup jobs.")
+            scan_progress_state["current_step"] = f"Scan complete. Created {jobs_created} cleanup jobs."
     except Exception as e:
         print(f"[{datetime.now()}] Error during cleanup scan: {e}")
+        scan_progress_state["current_step"] = f"Error: {e}"
     finally:
         cleanup_scanner_lock.release()
+        scan_progress_state.update({"is_running": False})
 
 @app.route('/api/jobs/release', methods=['POST'])
 def release_jobs():

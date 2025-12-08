@@ -43,8 +43,104 @@
                         {% endif %}
                     </a>
                 {% endif %}
+
+                {% if passkey_enabled and has_passkeys and (oidc_enabled or local_login_enabled) %}<hr>{% endif %}
+
+                {% if passkey_enabled and has_passkeys %}
+                    <button type="button" id="passkey-login-btn" class="btn btn-outline-info w-100">
+                        <span class="mdi mdi-fingerprint"></span> Login with Passkey
+                    </button>
+                    <div id="passkey-status" class="mt-2"></div>
+                {% endif %}
             </div>
         </div>
     </div>
 </div>
+
+{% if passkey_enabled and has_passkeys %}
+<script>
+// WebAuthn helper functions
+function base64urlToBuffer(base64url) {
+    if (!base64url) {
+        throw new Error('base64url parameter is required');
+    }
+    const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(base64);
+    return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
+
+function bufferToBase64url(buffer) {
+    const binary = String.fromCharCode(...new Uint8Array(buffer));
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+// Passkey login flow
+document.getElementById('passkey-login-btn').addEventListener('click', async () => {
+    const statusDiv = document.getElementById('passkey-status');
+    statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Authenticating...';
+    
+    try {
+        // Get challenge from server
+        const challengeResponse = await fetch('/api/auth/passkey/auth/challenge', {
+            method: 'POST'
+        });
+        
+        if (!challengeResponse.ok) {
+            const error = await challengeResponse.json();
+            throw new Error(error.error || 'Failed to get authentication challenge');
+        }
+        
+        const options = await challengeResponse.json();
+        
+        // Convert base64url strings to ArrayBuffers
+        options.challenge = base64urlToBuffer(options.challenge);
+        if (options.allowCredentials) {
+            options.allowCredentials = options.allowCredentials.map(cred => ({
+                ...cred,
+                id: base64urlToBuffer(cred.id)
+            }));
+        }
+        
+        // Get credential from authenticator
+        const credential = await navigator.credentials.get({
+            publicKey: options
+        });
+        
+        // Convert credential to JSON format
+        const credentialJSON = {
+            id: credential.id,
+            rawId: bufferToBase64url(credential.rawId),
+            response: {
+                authenticatorData: bufferToBase64url(credential.response.authenticatorData),
+                clientDataJSON: bufferToBase64url(credential.response.clientDataJSON),
+                signature: bufferToBase64url(credential.response.signature),
+                userHandle: credential.response.userHandle ? bufferToBase64url(credential.response.userHandle) : null
+            },
+            type: credential.type
+        };
+        
+        // Send to server for verification
+        const verifyResponse = await fetch('/api/auth/passkey/auth/verify', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(credentialJSON)
+        });
+        
+        const result = await verifyResponse.json();
+        
+        if (result.success) {
+            statusDiv.innerHTML = '<div class="alert alert-success">Authentication successful! Redirecting...</div>';
+            setTimeout(() => {
+                window.location.href = '{{ url_for("dashboard") }}';
+            }, 1000);
+        } else {
+            throw new Error(result.error || 'Authentication failed');
+        }
+    } catch (error) {
+        console.error('Passkey login error:', error);
+        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+});
+</script>
+{% endif %}
 {% endblock %}

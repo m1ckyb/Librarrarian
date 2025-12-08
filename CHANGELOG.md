@@ -1,3 +1,25 @@
+## [0.13.2] - 2025-12-08 - Patch Release
+
+### Added
+- **Cleanup Scan Progress Bar**: Cleanup scans now display a real-time progress bar showing the current path being scanned and the percentage complete, replacing the static "Check logs for progress" message.
+- **Passkey/WebAuthn Authentication Support**: Added support for passwordless authentication using passkeys (FIDO2/WebAuthn). Users can register and manage multiple passkeys through a new management UI accessible from the navbar. Passkeys work with biometric authentication, security keys, and platform authenticators.
+- **User Settings Modal**: Added a new user settings modal accessible via a settings icon in the navbar, providing a centralized location for managing user preferences including passkeys and password changes.
+- **Passkey Environment Variables**: Added `PASSKEY_ENABLED`, `WEBAUTHN_RP_ID`, `WEBAUTHN_RP_NAME`, and `WEBAUTHN_ORIGIN` environment variables to docker-compose files for proper passkey configuration.
+
+### Changed
+- **UI Tweak**: Moved the User Settings icon in the navbar to be between the 'View Errors' and 'Logout' buttons for a more logical grouping.
+- **UI Tweak**: Added 4px spacing between the 'edit' and 'delete' buttons in the passkey management modal for better visual separation.
+- Cleanup scan progress is now tracked using the existing `scan_progress_state` mechanism for consistency with other scan operations.
+- Login page now displays a "Login with Passkey" option when passkey authentication is enabled.
+- **Passkey Management UI Relocated**: Moved "Manage Passkeys" button from the Options tab to a new user settings modal in the navbar for better accessibility and organization.
+- **Passkey Login**: The "Login with Passkey" button is now hidden on the login page if the feature is enabled but no passkeys have been registered in the database yet. This prevents user confusion on a fresh installation.
+
+### Fixed
+- **Database Initialization**: Fixed missing `passkey_credentials` table error on fresh installations. The table is now properly created during initial database setup instead of only being defined in a migration that would never run.
+- **Worker Registration**: Fixed incorrect DASHBOARD_URL in docker-compose.yml (was `http://dashboard:5000`, now `http://librarrarian:5000` to match the actual service name). Workers may fail to register if `API_KEY` is not properly set in the `.env` file - ensure it matches between dashboard and worker configurations.
+- **Passkey Authentication JavaScript Error**: Fixed "can't access property 'replace', base64url is undefined" error by adding defensive null checking to the `base64urlToBuffer()` function. The function now throws a clear error message if called with null or undefined values.
+- **API Key Authentication Error Messages**: Improved error messages when API_KEY environment variable is not set. The dashboard now returns a 500 error with a clear message indicating server misconfiguration instead of silently failing with 401 errors.
+
 ## [0.13.1] - 2025-12-08 - Patch Release
 
 ### Fixed

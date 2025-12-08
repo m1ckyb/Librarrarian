@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   librarrarian:
-    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.13.1 #latest production version
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.13.2 #latest production version
     #image: ghcr.io/m1ckyb/librarrarian-dashboard:develop #latest develop version
     container_name: librarrarian
     restart: unless-stopped
@@ -35,6 +35,11 @@ services:
       # --- SSL/TLS Verification ---
       - OIDC_SSL_VERIFY=${OIDC_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
       - ARR_SSL_VERIFY=${ARR_SSL_VERIFY:-true} # Disable only for dev with self-signed certs
+      # --- Passkey/WebAuthn Authentication (Optional) ---
+      - PASSKEY_ENABLED=${PASSKEY_ENABLED}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME}
+      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN}
       # --- Force print() statements to appear in logs immediately ---
       - PYTHONUNBUFFERED=1
     depends_on:
@@ -53,7 +58,7 @@ services:
 
   # The transcoding worker service
   librarrarian-worker-1:
-    image: ghcr.io/m1ckyb/librarrarian-worker:0.13.1 #latest production version
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.13.2 #latest production version
     #image: ghcr.io/m1ckyb/librarrarian-worker:develop #latest develop version
     container_name: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker
     hostname: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker   
@@ -83,7 +88,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - API_KEY=${API_KEY} # For authenticating with the dashboard
-      - DASHBOARD_URL=http://dashboard:5000
+      - DASHBOARD_URL=http://librarrarian:5000
       # --- General Settings ---
       - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
       # --- Worker Behavior ---

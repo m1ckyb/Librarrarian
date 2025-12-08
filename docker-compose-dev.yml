@@ -37,6 +37,10 @@ services:
       - DEVMODE=${DEVMODE:-false} # Set to 'true' to bypass auth for local IPs
       # --- Force print() statements to appear in logs immediately ---
       - PYTHONUNBUFFERED=1
+      - PASSKEY_ENABLED=${PASSKEY_ENABLED:-true}
+      - WEBAUTHN_RP_ID=${WEBAUTHN_RP_ID:-localhost}
+      - WEBAUTHN_RP_NAME=${WEBAUTHN_RP_NAME:-Librarrarian}
+      - WEBAUTHN_ORIGIN=${WEBAUTHN_ORIGIN:-http://localhost:5000}
     depends_on:
       db:
         condition: service_healthy

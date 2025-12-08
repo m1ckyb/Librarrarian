@@ -79,7 +79,10 @@
                 </button>
             </div>
             {% if auth_enabled and user_name and not devmode %}
-                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-3">Logout</a>
+                <button type="button" class="btn btn-outline-secondary me-2" data-bs-toggle="modal" data-bs-target="#userSettingsModal" title="User Settings">
+                    <span class="mdi mdi-cog"></span>
+                </button>
+                <a href="{{ url_for('logout') }}" class="btn btn-outline-secondary me-2">Logout</a>
                 <span class="navbar-text">{{ greeting }}, <strong>{{ user_name }}</strong></span>
             {% endif %}
         </div>
@@ -957,6 +960,12 @@
     {% include 'modals/jellyfin_login_modal.html' %}
     {% include 'modals/changelog_modal.html' %}
     {% include 'modals/backup_modal.html' %}
+    {% if auth_enabled and user_name and not devmode %}
+    {% include 'modals/user_settings_modal.html' %}
+    {% endif %}
+    {% if passkey_enabled %}
+    {% include 'modals/passkey_management_modal.html' %}
+    {% endif %}
     {% if devmode %}
     {% include 'modals/debug_settings_modal.html' %}
     {% endif %}

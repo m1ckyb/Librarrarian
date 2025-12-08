@@ -1,0 +1,266 @@
+<!-- Passkey Management Modal -->
+<div class="modal fade" id="passkeyManagementModal" tabindex="-1" aria-labelledby="passkeyManagementModalLabel" aria-hidden="true">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h5 class="modal-title" id="passkeyManagementModalLabel"><span class="mdi mdi-fingerprint"></span> Manage Passkeys</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <p class="text-muted">Passkeys allow you to log in using biometrics, security keys, or device authentication instead of passwords.</p>
+                
+                <!-- Register New Passkey -->
+                <div class="mb-3">
+                    <button type="button" class="btn btn-outline-success w-100" id="register-passkey-btn">
+                        <span class="mdi mdi-plus-circle"></span> Register a New Passkey
+                    </button>
+                    <div id="passkey-register-status" class="mt-2"></div>
+                </div>
+                
+                <hr>
+                
+                <!-- List of Registered Passkeys -->
+                <h6>Your Registered Passkeys</h6>
+                <div id="passkey-list" class="mb-3">
+                    <div class="text-center">
+                        <div class="spinner-border spinner-border-sm" role="status"></div> Loading...
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Close</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+// Passkey management functions
+let passkeyModal = null;
+
+document.addEventListener('DOMContentLoaded', () => {
+    const modalElement = document.getElementById('passkeyManagementModal');
+    if (modalElement) {
+        passkeyModal = new bootstrap.Modal(modalElement);
+        
+        // Load passkeys when modal is shown
+        modalElement.addEventListener('shown.bs.modal', loadPasskeys);
+    }
+});
+
+// WebAuthn helper functions (reused from login.html)
+function base64urlToBuffer(base64url) {
+    if (!base64url) {
+        throw new Error('base64url parameter is required');
+    }
+    const base64 = base64url.replace(/-/g, '+').replace(/_/g, '/');
+    const binary = atob(base64);
+    return Uint8Array.from(binary, c => c.charCodeAt(0));
+}
+
+function bufferToBase64url(buffer) {
+    const binary = String.fromCharCode(...new Uint8Array(buffer));
+    return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '');
+}
+
+async function loadPasskeys() {
+    const listDiv = document.getElementById('passkey-list');
+    listDiv.innerHTML = '<div class="text-center"><div class="spinner-border spinner-border-sm" role="status"></div> Loading...</div>';
+    
+    try {
+        const response = await fetch('/api/auth/passkey/credentials');
+        const data = await response.json();
+        
+        if (!response.ok) {
+            throw new Error(data.error || 'Failed to load passkeys');
+        }
+        
+        if (data.credentials.length === 0) {
+            listDiv.innerHTML = '<p class="text-muted text-center">No passkeys registered yet.</p>';
+            return;
+        }
+        
+        let html = '<div class="list-group">';
+        for (const cred of data.credentials) {
+            const createdDate = new Date(cred.created_at).toLocaleDateString();
+            const lastUsed = cred.last_used_at ? new Date(cred.last_used_at).toLocaleDateString() : 'Never';
+            
+            // Escape HTML to prevent XSS
+            const escapeHtml = (text) => {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            };
+            
+            html += `
+                <div class="list-group-item">
+                    <div class="d-flex justify-content-between align-items-center">
+                        <div>
+                            <strong>${escapeHtml(cred.device_name || 'Unnamed Device')}</strong>
+                            <br>
+                            <small class="text-muted">Created: ${createdDate} | Last used: ${lastUsed}</small>
+                        </div>
+                        <div>
+                            <button class="btn btn-sm btn-outline-primary passkey-rename-btn" style="margin-right: 4px;" data-cred-id="${cred.id}" data-cred-name="${escapeHtml(cred.device_name || '')}">
+                                <span class="mdi mdi-pencil"></span>
+                            </button>
+                            <button class="btn btn-sm btn-outline-danger passkey-delete-btn" data-cred-id="${cred.id}">
+                                <span class="mdi mdi-delete"></span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+        html += '</div>';
+        listDiv.innerHTML = html;
+        
+        // Attach event listeners to dynamically created buttons
+        document.querySelectorAll('.passkey-rename-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const credId = parseInt(btn.dataset.credId);
+                const credName = btn.dataset.credName;
+                renamePasskey(credId, credName);
+            });
+        });
+        
+        document.querySelectorAll('.passkey-delete-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const credId = parseInt(btn.dataset.credId);
+                deletePasskey(credId);
+            });
+        });
+    } catch (error) {
+        console.error('Error loading passkeys:', error);
+        listDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+    }
+}
+
+async function renamePasskey(credentialId, currentName) {
+    const newName = prompt('Enter a new name for this passkey:', currentName || 'My Device');
+    if (!newName) return;
+    
+    try {
+        const response = await fetch(`/api/auth/passkey/credentials/${credentialId}/rename`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({device_name: newName})
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            loadPasskeys(); // Reload the list
+        } else {
+            alert('Error: ' + (result.error || 'Failed to rename passkey'));
+        }
+    } catch (error) {
+        console.error('Error renaming passkey:', error);
+        alert('Error: ' + error.message);
+    }
+}
+
+async function deletePasskey(credentialId) {
+    if (!confirm('Are you sure you want to delete this passkey?')) return;
+    
+    try {
+        const response = await fetch(`/api/auth/passkey/credentials/${credentialId}`, {
+            method: 'DELETE'
+        });
+        
+        const result = await response.json();
+        
+        if (result.success) {
+            loadPasskeys(); // Reload the list
+        } else {
+            alert('Error: ' + (result.error || 'Failed to delete passkey'));
+        }
+    } catch (error) {
+        console.error('Error deleting passkey:', error);
+        alert('Error: ' + error.message);
+    }
+}
+
+// Register new passkey
+const registerPasskeyBtn = document.getElementById('register-passkey-btn');
+if (registerPasskeyBtn) {
+    registerPasskeyBtn.addEventListener('click', async () => {
+        const statusDiv = document.getElementById('passkey-register-status');
+        statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Preparing registration...';
+        
+        try {
+            // Prompt for device name
+            const deviceName = prompt('Enter a name for this passkey (e.g., "iPhone", "YubiKey"):', 'My Device');
+            if (!deviceName) {
+                statusDiv.innerHTML = '';
+                return;
+            }
+            
+            // Get challenge from server
+            const challengeResponse = await fetch('/api/auth/passkey/register/challenge', {
+                method: 'POST'
+            });
+            
+            if (!challengeResponse.ok) {
+                const error = await challengeResponse.json();
+                throw new Error(error.error || 'Failed to get registration challenge');
+            }
+            
+            const options = await challengeResponse.json();
+            
+            // Convert base64url strings to ArrayBuffers
+            options.challenge = base64urlToBuffer(options.challenge);
+            options.user.id = base64urlToBuffer(options.user.id);
+            if (options.excludeCredentials) {
+                options.excludeCredentials = options.excludeCredentials.map(cred => ({
+                    ...cred,
+                    id: base64urlToBuffer(cred.id)
+                }));
+            }
+            
+            statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Follow your device\'s instructions...';
+            
+            // Create credential
+            const credential = await navigator.credentials.create({
+                publicKey: options
+            });
+            
+            // Convert credential to JSON format
+            const credentialJSON = {
+                id: credential.id,
+                rawId: bufferToBase64url(credential.rawId),
+                response: {
+                    attestationObject: bufferToBase64url(credential.response.attestationObject),
+                    clientDataJSON: bufferToBase64url(credential.response.clientDataJSON)
+                },
+                type: credential.type,
+                device_name: deviceName
+            };
+            
+            statusDiv.innerHTML = '<div class="spinner-border spinner-border-sm" role="status"></div> Verifying...';
+            
+            // Send to server for verification
+            const verifyResponse = await fetch('/api/auth/passkey/register/verify', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify(credentialJSON)
+            });
+            
+            const result = await verifyResponse.json();
+            
+            if (result.success) {
+                statusDiv.innerHTML = '<div class="alert alert-success">Passkey registered successfully!</div>';
+                setTimeout(() => {
+                    statusDiv.innerHTML = '';
+                    loadPasskeys(); // Reload the list
+                }, 2000);
+            } else {
+                throw new Error(result.error || 'Registration failed');
+            }
+        } catch (error) {
+            console.error('Passkey registration error:', error);
+            statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        }
+    });
+}
+</script>
