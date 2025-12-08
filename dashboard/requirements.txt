@@ -5,3 +5,4 @@ plexapi
 authlib
 requests
 Werkzeug
+webauthn>=2.0.0

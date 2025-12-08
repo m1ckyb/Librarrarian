@@ -105,12 +105,18 @@ def setup_auth(app):
     app.config['LOCAL_LOGIN_ENABLED'] = os.environ.get('LOCAL_LOGIN_ENABLED', 'false').lower() == 'true'
     app.config['OIDC_PROVIDER_NAME'] = os.environ.get('OIDC_PROVIDER_NAME')
     app.config['DEVMODE'] = os.environ.get('DEVMODE', 'false').lower() == 'true'
+    
+    # Passkey/WebAuthn configuration
+    app.config['PASSKEY_ENABLED'] = os.environ.get('PASSKEY_ENABLED', 'false').lower() == 'true'
+    app.config['WEBAUTHN_RP_ID'] = os.environ.get('WEBAUTHN_RP_ID', 'localhost')
+    app.config['WEBAUTHN_RP_NAME'] = os.environ.get('WEBAUTHN_RP_NAME', 'Librarrarian')
+    app.config['WEBAUTHN_ORIGIN'] = os.environ.get('WEBAUTHN_ORIGIN', 'http://localhost:5000')
 
     if not app.config['AUTH_ENABLED']:
         return # Do nothing if auth is disabled
 
     # If auth is on, but no methods are enabled, disable auth to prevent a lockout.
-    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED']:
+    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED'] and not app.config['PASSKEY_ENABLED']:
         print("⚠️ WARNING: AUTH_ENABLED is true, but no authentication methods are enabled. Disabling authentication.")
         app.config['AUTH_ENABLED'] = False
         return
@@ -153,7 +159,9 @@ def setup_auth(app):
             return
 
         # If the user is logged in, allow access.
-        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health']:
+        # Also allow passkey authentication endpoints
+        passkey_endpoints = ['passkey_auth_challenge', 'passkey_auth_verify']
+        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health'] + passkey_endpoints:
             return
 
         # Block all unauthenticated API access.
@@ -271,7 +279,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 16
+TARGET_SCHEMA_VERSION = 17
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -381,6 +389,27 @@ MIGRATIONS = {
     16: [
         # Use INSERT ON CONFLICT to handle both fresh installations and existing ones
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('enable_multi_server', 'false') ON CONFLICT (setting_name) DO UPDATE SET setting_value = 'false';"
+    ],
+    # Version 17: Add passkey/WebAuthn support
+    17: [
+        """
+        CREATE TABLE IF NOT EXISTS passkey_credentials (
+            id SERIAL PRIMARY KEY,
+            user_id VARCHAR(255) NOT NULL,
+            credential_id TEXT NOT NULL UNIQUE,
+            public_key TEXT NOT NULL,
+            sign_count BIGINT NOT NULL DEFAULT 0,
+            created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+            last_used_at TIMESTAMP WITH TIME ZONE,
+            device_name VARCHAR(255),
+            UNIQUE(user_id, credential_id)
+        );
+        """,
+        # Grant permissions dynamically
+        f"GRANT ALL PRIVILEGES ON TABLE passkey_credentials TO {DB_CONFIG['user']};",
+        f"GRANT USAGE, SELECT ON SEQUENCE passkey_credentials_id_seq TO {DB_CONFIG['user']};",
+        # Add passkey settings
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('passkey_enabled', 'false') ON CONFLICT (setting_name) DO NOTHING;",
     ],
 }
 
@@ -1090,7 +1119,8 @@ def dashboard():
         nodes=nodes, 
         fail_count=fail_count, 
         db_error=db_error or settings_db_error, # Show error from either query
-        settings=settings
+        settings=settings,
+        passkey_enabled=app.config.get('PASSKEY_ENABLED', False)
     )
 
 @app.route('/api/health')
@@ -1205,7 +1235,11 @@ def login():
             return redirect(url_for('login')) # Redirect back on failure
 
     # For GET requests, just render the login page.
-    return render_template('login.html', oidc_enabled=app.config.get('OIDC_ENABLED'), local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'))
+    return render_template('login.html', 
+                         oidc_enabled=app.config.get('OIDC_ENABLED'), 
+                         local_login_enabled=app.config.get('LOCAL_LOGIN_ENABLED'),
+                         passkey_enabled=app.config.get('PASSKEY_ENABLED'),
+                         oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'))
 
 @app.route('/login/oidc')
 def login_oidc():
@@ -1234,6 +1268,282 @@ def logout():
         if logout_url:
             return redirect(logout_url)
     return redirect(url_for('login'))
+
+# --- Passkey/WebAuthn API Endpoints ---
+
+@app.route('/api/auth/passkey/register/challenge', methods=['POST'])
+def passkey_register_challenge():
+    """Generates a challenge for passkey registration."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    # Must be authenticated already to register a passkey
+    if 'user' not in session:
+        return jsonify(error="Must be logged in to register a passkey"), 401
+    
+    try:
+        from webauthn import generate_registration_options, options_to_json
+        from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+        
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        
+        # Get existing credentials for this user to prevent duplicate registrations
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT credential_id FROM passkey_credentials WHERE user_id = %s", (user_id,))
+            existing_creds = cur.fetchall()
+            exclude_credentials = [
+                PublicKeyCredentialDescriptor(id=base64.b64decode(cred['credential_id'].encode()))
+                for cred in existing_creds
+            ]
+        
+        # Generate registration options
+        options = generate_registration_options(
+            rp_id=app.config['WEBAUTHN_RP_ID'],
+            rp_name=app.config['WEBAUTHN_RP_NAME'],
+            user_id=user_id.encode(),
+            user_name=user_id,
+            user_display_name=user_id,
+            exclude_credentials=exclude_credentials if existing_creds else None
+        )
+        
+        # Store challenge in session for verification
+        session['passkey_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
+        
+        return jsonify(options_to_json(options))
+    except Exception as e:
+        print(f"Error generating passkey registration challenge: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/register/verify', methods=['POST'])
+def passkey_register_verify():
+    """Verifies and stores a newly registered passkey."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session or 'passkey_challenge' not in session:
+        return jsonify(error="Invalid session"), 401
+    
+    try:
+        from webauthn import verify_registration_response
+        
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        device_name = request.json.get('device_name', 'Unnamed Device')
+        
+        # Verify the credential
+        verification = verify_registration_response(
+            credential=request.json,
+            expected_challenge=base64.b64decode(session['passkey_challenge'].encode()),
+            expected_origin=app.config['WEBAUTHN_ORIGIN'],
+            expected_rp_id=app.config['WEBAUTHN_RP_ID']
+        )
+        
+        # Store credential in database
+        db = get_db()
+        with db.cursor() as cur:
+            cur.execute(
+                """INSERT INTO passkey_credentials 
+                   (user_id, credential_id, public_key, sign_count, device_name) 
+                   VALUES (%s, %s, %s, %s, %s)""",
+                (
+                    user_id,
+                    base64.b64encode(verification.credential_id).decode('utf-8'),
+                    base64.b64encode(verification.credential_public_key).decode('utf-8'),
+                    verification.sign_count,
+                    device_name
+                )
+            )
+        db.commit()
+        
+        # Clear the challenge from session
+        session.pop('passkey_challenge', None)
+        
+        return jsonify(success=True, message="Passkey registered successfully.")
+    except Exception as e:
+        print(f"Error verifying passkey registration: {e}")
+        return jsonify(success=False, error=str(e)), 400
+
+@app.route('/api/auth/passkey/auth/challenge', methods=['POST'])
+def passkey_auth_challenge():
+    """Generates a challenge for passkey authentication."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    try:
+        from webauthn import generate_authentication_options, options_to_json
+        from webauthn.helpers.structs import PublicKeyCredentialDescriptor
+        
+        # Get all registered credentials to allow any user to authenticate
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute("SELECT credential_id FROM passkey_credentials")
+            all_creds = cur.fetchall()
+            allow_credentials = [
+                PublicKeyCredentialDescriptor(id=base64.b64decode(cred['credential_id'].encode()))
+                for cred in all_creds
+            ]
+        
+        if not allow_credentials:
+            return jsonify(error="No passkeys registered in the system."), 404
+        
+        # Generate authentication options
+        options = generate_authentication_options(
+            rp_id=app.config['WEBAUTHN_RP_ID'],
+            allow_credentials=allow_credentials
+        )
+        
+        # Store challenge in session for verification
+        session['passkey_auth_challenge'] = base64.b64encode(options.challenge).decode('utf-8')
+        
+        return jsonify(options_to_json(options))
+    except Exception as e:
+        print(f"Error generating passkey authentication challenge: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/auth/verify', methods=['POST'])
+def passkey_auth_verify():
+    """Verifies a passkey authentication and creates user session."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'passkey_auth_challenge' not in session:
+        return jsonify(error="Invalid session"), 401
+    
+    try:
+        from webauthn import verify_authentication_response
+        
+        credential_id = request.json.get('id')
+        
+        # Retrieve the credential from database
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                "SELECT * FROM passkey_credentials WHERE credential_id = %s",
+                (credential_id,)
+            )
+            credential = cur.fetchone()
+        
+        if not credential:
+            return jsonify(success=False, error="Credential not found"), 404
+        
+        # Verify the authentication
+        verification = verify_authentication_response(
+            credential=request.json,
+            expected_challenge=base64.b64decode(session['passkey_auth_challenge'].encode()),
+            expected_origin=app.config['WEBAUTHN_ORIGIN'],
+            expected_rp_id=app.config['WEBAUTHN_RP_ID'],
+            credential_public_key=base64.b64decode(credential['public_key'].encode()),
+            credential_current_sign_count=credential['sign_count']
+        )
+        
+        # Update sign count and last used timestamp
+        with db.cursor() as cur:
+            cur.execute(
+                """UPDATE passkey_credentials 
+                   SET sign_count = %s, last_used_at = CURRENT_TIMESTAMP 
+                   WHERE credential_id = %s""",
+                (verification.new_sign_count, credential_id)
+            )
+        db.commit()
+        
+        # Create user session
+        session['user'] = {'name': credential['user_id'], 'auth_method': 'passkey'}
+        
+        # Clear the challenge from session
+        session.pop('passkey_auth_challenge', None)
+        
+        return jsonify(success=True, message="Authentication successful.")
+    except Exception as e:
+        print(f"Error verifying passkey authentication: {e}")
+        return jsonify(success=False, error=str(e)), 400
+
+@app.route('/api/auth/passkey/credentials', methods=['GET'])
+def list_passkey_credentials():
+    """Lists all passkey credentials for the current user."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session:
+        return jsonify(error="Must be logged in"), 401
+    
+    try:
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        
+        db = get_db()
+        with db.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """SELECT id, device_name, created_at, last_used_at 
+                   FROM passkey_credentials 
+                   WHERE user_id = %s 
+                   ORDER BY created_at DESC""",
+                (user_id,)
+            )
+            credentials = cur.fetchall()
+        
+        # Format timestamps
+        for cred in credentials:
+            if cred['created_at']:
+                cred['created_at'] = cred['created_at'].isoformat()
+            if cred['last_used_at']:
+                cred['last_used_at'] = cred['last_used_at'].isoformat()
+        
+        return jsonify(credentials=credentials)
+    except Exception as e:
+        print(f"Error listing passkey credentials: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/credentials/<int:credential_id>', methods=['DELETE'])
+def delete_passkey_credential(credential_id):
+    """Deletes a passkey credential."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session:
+        return jsonify(error="Must be logged in"), 401
+    
+    try:
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        
+        db = get_db()
+        with db.cursor() as cur:
+            # Only allow users to delete their own credentials
+            cur.execute(
+                "DELETE FROM passkey_credentials WHERE id = %s AND user_id = %s",
+                (credential_id, user_id)
+            )
+        db.commit()
+        
+        return jsonify(success=True, message="Passkey deleted successfully.")
+    except Exception as e:
+        print(f"Error deleting passkey credential: {e}")
+        return jsonify(error=str(e)), 500
+
+@app.route('/api/auth/passkey/credentials/<int:credential_id>/rename', methods=['POST'])
+def rename_passkey_credential(credential_id):
+    """Renames a passkey credential."""
+    if not app.config.get('PASSKEY_ENABLED'):
+        return jsonify(error="Passkey authentication is not enabled."), 404
+    
+    if 'user' not in session:
+        return jsonify(error="Must be logged in"), 401
+    
+    try:
+        user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
+        new_name = request.json.get('device_name', 'Unnamed Device')
+        
+        db = get_db()
+        with db.cursor() as cur:
+            # Only allow users to rename their own credentials
+            cur.execute(
+                "UPDATE passkey_credentials SET device_name = %s WHERE id = %s AND user_id = %s",
+                (new_name, credential_id, user_id)
+            )
+        db.commit()
+        
+        return jsonify(success=True, message="Passkey renamed successfully.")
+    except Exception as e:
+        print(f"Error renaming passkey credential: {e}")
+        return jsonify(error=str(e)), 500
 
 @app.route('/options', methods=['POST'])
 def options():
