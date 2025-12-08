@@ -202,10 +202,8 @@ def setup_auth(app):
                 return # API key is valid, allow access
             
             # API key is missing or invalid
-            if not api_key:
-                return jsonify(error="Authentication required. Missing X-API-Key header."), 401
-            else:
-                return jsonify(error="Authentication required. Invalid API Key."), 401
+            error_msg = "Authentication required. Missing X-API-Key header." if not api_key else "Authentication required. Invalid API Key."
+            return jsonify(error=error_msg), 401
 
         return redirect(url_for('login'))
 
