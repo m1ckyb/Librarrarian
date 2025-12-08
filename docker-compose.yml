@@ -88,7 +88,7 @@ services:
       - DB_PASSWORD=${DB_PASSWORD}
       - DB_NAME=${DB_NAME}
       - API_KEY=${API_KEY} # For authenticating with the dashboard
-      - DASHBOARD_URL=http://dashboard:5000
+      - DASHBOARD_URL=http://librarrarian:5000
       # --- General Settings ---
       - TZ=${TZ:-UTC} # Set the container timezone, e.g., 'Australia/Sydney'
       # --- Worker Behavior ---
