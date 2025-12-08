@@ -1344,11 +1344,9 @@ def options():
                 """, (source_name, media_type, is_hidden))
 
             # 3. Process library links for multi-server sync mode
-            # Clear existing links first
+            # Clear existing links first to ensure clean state
             cur.execute("DELETE FROM library_links;")
             
-            # Get the primary server
-            primary_server = request.form.get('primary_media_server', 'plex')
             enable_multi_server = 'enable_multi_server' in request.form
             
             # Only process links if multi-server sync is enabled
