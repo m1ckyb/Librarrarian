@@ -2359,7 +2359,7 @@ def scan_stray_files():
 
     # Trigger the background thread to run the scan
     stray_scan_now_event.set()
-    return jsonify(success=True, message="Stray file scan has been triggered. Check the progress below.")
+    return jsonify({"success": True, "message": "Stray file scan has been triggered. Check the progress below."})
 
 @app.route('/api/plex/login', methods=['POST'])
 def plex_login():
