@@ -68,14 +68,22 @@ let scanStartTime = null;
 
 /**
  * Formats elapsed time in seconds to a human-readable string.
- * e.g., 64 seconds becomes "1m 04s", 120 seconds becomes "2m 00s"
+ * e.g., 64 seconds becomes "1m 04s", 120 seconds becomes "2m 00s", 
+ * 3661 seconds becomes "1h 1m 01s"
  */
 function formatElapsedTime(totalSeconds) {
     if (totalSeconds < 60) {
         return `${totalSeconds}s`;
     }
-    const minutes = Math.floor(totalSeconds / 60);
+    
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
     const seconds = totalSeconds % 60;
+    
+    if (hours > 0) {
+        return `${hours}h ${minutes}m ${seconds.toString().padStart(2, '0')}s`;
+    }
+    
     return `${minutes}m ${seconds.toString().padStart(2, '0')}s`;
 }
 
@@ -1033,6 +1041,82 @@ if (createCleanupJobsBtn) {
         } else {
             const alertClass = result.success ? 'alert-success' : 'alert-danger';
             statusDiv.innerHTML = `<div class="alert ${alertClass}" role="alert">${result.message || result.error}</div>`;
+        }
+    });
+}
+
+// --- Stray File Scanner Logic ---
+let isPollingForStray = false;
+let strayStartTime = null;
+
+async function pollStrayProgress() {
+    if (!isPollingForStray) return;
+    
+    try {
+        const response = await fetch('/api/scan/progress');
+        const data = await response.json();
+        
+        if (data.scan_source === 'stray' && data.is_running) {
+            const containerEl = document.getElementById('stray-scan-container');
+            const progressBarEl = containerEl.querySelector('.progress-bar');
+            const progressTextEl = document.getElementById('stray-scan-progress-text');
+            const timeEl = document.getElementById('stray-scan-time');
+            const feedbackEl = document.getElementById('stray-scan-feedback');
+            
+            containerEl.style.display = 'block';
+            progressTextEl.textContent = data.current_step;
+            
+            if (data.total_steps > 0) {
+                const percent = Math.round((data.progress / data.total_steps) * 100);
+                progressBarEl.style.width = percent + '%';
+                progressBarEl.textContent = percent + '%';
+            }
+            
+            const elapsed = Math.round((Date.now() - strayStartTime) / 1000);
+            if (timeEl) timeEl.textContent = `Elapsed: ${formatElapsedTime(elapsed)}`;
+            
+            setTimeout(pollStrayProgress, 1000);
+        } else if (data.scan_source === 'stray' && !data.is_running && data.current_step) {
+            // Scan completed
+            const containerEl = document.getElementById('stray-scan-container');
+            const feedbackEl = document.getElementById('stray-scan-feedback');
+            const progressContainer = document.getElementById('stray-scan-progress');
+            
+            feedbackEl.innerHTML = `<strong>✓ ${data.current_step}</strong>`;
+            progressContainer.style.display = 'none';
+            isPollingForStray = false;
+        }
+    } catch (error) {
+        console.error("Error polling for stray scan progress:", error);
+        isPollingForStray = false;
+    }
+}
+
+const scanStrayFilesBtn = document.getElementById('scan-stray-files-btn');
+if (scanStrayFilesBtn) {
+    scanStrayFilesBtn.addEventListener('click', async () => {
+        const containerEl = document.getElementById('stray-scan-container');
+        const feedbackEl = document.getElementById('stray-scan-feedback');
+        const progressContainer = document.getElementById('stray-scan-progress');
+        
+        containerEl.style.display = 'block';
+        feedbackEl.innerHTML = `<div class="spinner-border spinner-border-sm" role="status"></div> Initializing stray file scan...`;
+        progressContainer.style.display = 'block';
+        
+        const response = await fetch('/api/jobs/scan_stray_files', { method: 'POST' });
+        if (!response.ok) {
+            feedbackEl.innerHTML = `<div class="alert alert-danger" role="alert">Error communicating with server.</div>`;
+            return;
+        }
+        const result = await response.json();
+        if (result.success) {
+            // Start polling for progress
+            isPollingForStray = true;
+            strayStartTime = Date.now();
+            pollStrayProgress();
+        } else {
+            feedbackEl.innerHTML = `<div class="alert alert-danger" role="alert">${result.message || result.error}</div>`;
+            progressContainer.style.display = 'none';
         }
     });
 }

@@ -289,7 +289,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 17
+TARGET_SCHEMA_VERSION = 18
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -420,6 +420,12 @@ MIGRATIONS = {
         f"GRANT USAGE, SELECT ON SEQUENCE passkey_credentials_id_seq TO {DB_CONFIG['user']};",
         # Add passkey settings
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('passkey_enabled', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+    ],
+    # Version 18: Add stray file scanner settings
+    18: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('stray_scan_enabled', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('stray_scan_mode', 'glob') ON CONFLICT (setting_name) DO NOTHING;",
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('stray_scan_directory', '') ON CONFLICT (setting_name) DO NOTHING;"
     ],
 }
 
@@ -692,7 +698,10 @@ def initialize_database_if_needed():
                         ('hide_job_requests', 'false'),
                         ('hide_plex_updates', 'false'),
                         ('hide_jellyfin_updates', 'false'),
-                        ('passkey_enabled', 'false')
+                        ('passkey_enabled', 'false'),
+                        ('stray_scan_enabled', 'false'),
+                        ('stray_scan_mode', 'glob'),
+                        ('stray_scan_directory', '')
                     ON CONFLICT (setting_name) DO NOTHING;
                 """)
                 
@@ -2332,12 +2341,25 @@ def create_cleanup_jobs():
     """Triggers the background thread to scan for stale files."""
     if cleanup_scanner_lock.locked():
         return jsonify({"success": False, "message": "A cleanup scan is already in progress."})
-    
+
     print(f"[{datetime.now()}] Manual cleanup scan requested via API.")
-    
+
     # Trigger the background thread to run the scan
     cleanup_scan_now_event.set()
-    return jsonify(success=True, message="Cleanup scan has been triggered. Check logs for progress.")
+
+    return jsonify({"success": True, "message": "Cleanup scan initiated."})
+
+@app.route('/api/jobs/scan_stray_files', methods=['POST'])
+def scan_stray_files():
+    """Triggers the background thread to scan for stray files."""
+    if stray_scanner_lock.locked():
+        return jsonify({"success": False, "message": "A stray file scan is already in progress."})
+
+    print(f"[{datetime.now()}] Manual stray file scan requested via API.")
+
+    # Trigger the background thread to run the scan
+    stray_scan_now_event.set()
+    return jsonify(success=True, message="Stray file scan has been triggered. Check the progress below.")
 
 @app.route('/api/plex/login', methods=['POST'])
 def plex_login():
@@ -2886,6 +2908,9 @@ lidarr_rename_scan_event = threading.Event()
 scan_cancel_event = threading.Event()
 cleanup_scanner_lock = threading.Lock()
 cleanup_scan_now_event = threading.Event()
+
+stray_scanner_lock = threading.Lock()
+stray_scan_now_event = threading.Event()
 
 # --- Global state for scan progress ---
 scan_progress_state = {
@@ -4010,6 +4035,90 @@ def run_cleanup_scan():
         cleanup_scanner_lock.release()
         scan_progress_state.update({"is_running": False})
 
+def run_stray_scan():
+    """
+    Scans the media directory for stray files (files that don't match allowed patterns).
+    This function is designed to be called ONLY by a background thread.
+    """
+    import fnmatch
+    
+    if not stray_scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Stray file scan trigger ignored: A scan is already in progress.")
+        scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "stray", "scan_type": "stray"})
+        return
+
+    try:
+        scan_progress_state.update({"is_running": True, "current_step": "Initializing stray file scan...", "total_steps": 0, "progress": 0, "scan_source": "stray", "scan_type": "stray"})
+        
+        # Static list of metadata/support files allowed (case-insensitive glob patterns)
+        ALLOWED_FILES_METADATA = [
+            ".plexmatch",
+            "banner.jpg",
+            "fanart.jpg",
+            "poster.jpg",
+            "tvshow.nfo",
+            "season*-poster.jpg",
+            "clearlogo.png",
+            "*.nfo",
+            "*-thumb.jpg",
+            "season-specials-banner.jpg",
+            "season*-banner.jpg",
+        ]
+        
+        # Video/subtitle files
+        ALLOWED_FILES_VIDEO = [
+            "*.mp4", "*.mkv", "*.avi", "*.mov", "*.wmv", "*.flv", "*.webm",
+            "*.mpeg", "*.mpg", "*.m4v", "*.divx", "*.srt",
+        ]
+        
+        def is_allowed_glob(filename, glob_list):
+            """Checks if a filename matches any pattern in a case-insensitive glob list."""
+            fn_lower = filename.lower()
+            for pattern in glob_list:
+                if fnmatch.fnmatch(fn_lower, pattern):
+                    return True
+            return False
+        
+        with app.app_context():
+            settings, _ = get_worker_settings()
+            stray_scan_directory = settings.get('stray_scan_directory', {}).get('setting_value', '')
+            
+            if not stray_scan_directory or not os.path.isdir(stray_scan_directory):
+                print(f"[{datetime.now()}] Stray file scan skipped: Scan directory is not configured or does not exist.")
+                scan_progress_state["current_step"] = "Stray file scan skipped: Scan directory is not configured or does not exist."
+                return
+
+            print(f"[{datetime.now()}] Stray Scanner: Starting scan of: {stray_scan_directory}")
+            scan_progress_state["current_step"] = f"Scanning directory: {stray_scan_directory}"
+            
+            # Combine allowed patterns for glob mode
+            allowed_globs = ALLOWED_FILES_METADATA + ALLOWED_FILES_VIDEO
+            
+            stray_files = []
+            stray_dirs = set()
+            
+            # Scan the directory
+            for root, _, files in os.walk(stray_scan_directory):
+                for filename in files:
+                    file_path = os.path.join(root, filename)
+                    
+                    # Check if file matches allowed patterns
+                    if not is_allowed_glob(filename, allowed_globs):
+                        stray_files.append(file_path)
+                        stray_dirs.add(root)
+            
+            print(f"[{datetime.now()}] Stray file scan complete. Found {len(stray_files)} stray files in {len(stray_dirs)} directories.")
+            scan_progress_state["current_step"] = f"Scan complete. Found {len(stray_files)} stray files in {len(stray_dirs)} directories."
+            scan_progress_state["total_steps"] = len(stray_files)
+            scan_progress_state["progress"] = len(stray_files)
+            
+    except Exception as e:
+        print(f"[{datetime.now()}] Error during stray file scan: {e}")
+        scan_progress_state["current_step"] = f"Error: {e}"
+    finally:
+        stray_scanner_lock.release()
+        scan_progress_state.update({"is_running": False})
+
 @app.route('/api/jobs/release', methods=['POST'])
 def release_jobs():
     """Changes the status of cleanup or Rename jobs from 'awaiting_approval' to 'pending'."""
@@ -4544,6 +4653,18 @@ def cleanup_scanner_thread():
         cleanup_scan_now_event.clear() # Reset the event
         run_cleanup_scan()
 
+def stray_scanner_thread():
+    """Waits for a trigger to scan for stray files."""
+    # This thread now waits for the db_ready_event before starting its loop.
+    db_ready_event.wait()
+    print("Stray File Scanner thread is now active.")
+    while True:
+        # Wait indefinitely until the event is set
+        stray_scan_now_event.wait()
+        print(f"[{datetime.now()}] Manual stray file scan trigger received.")
+        stray_scan_now_event.clear() # Reset the event
+        run_stray_scan()
+
 def arr_job_processor_thread():
     """
     This background thread periodically checks for and processes internal jobs
@@ -4873,6 +4994,8 @@ arr_background_scanner = threading.Thread(target=arr_background_thread, daemon=T
 arr_background_scanner.start()
 cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
 cleanup_thread.start()
+stray_thread = threading.Thread(target=stray_scanner_thread, daemon=True)
+stray_thread.start()
 arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
 arr_job_processor.start()
 backup_thread = threading.Thread(target=database_backup_thread, daemon=True)

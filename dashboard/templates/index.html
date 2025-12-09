@@ -705,6 +705,13 @@
                                     <p class="form-text text-body-secondary">If specified, move original files here instead of deleting them. Requires "Keep Original" to be off.</p>
                                     <input type="text" class="form-control" id="backup_directory" name="backup_directory" value="{{ settings.get('backup_directory', {}).get('setting_value', '') }}" placeholder="/path/to/backups">
                                 </div>
+                                <div class="mb-3 p-3 border rounded">
+                                    <h5>Stray File Scanner</h5>
+                                    <p class="form-text text-body-secondary">Configure the stray file scanner to identify files that don't match expected media or metadata patterns.</p>
+                                    <label for="stray_scan_directory" class="form-label"><strong>Scan Directory</strong></label>
+                                    <p class="form-text text-body-secondary">The directory to scan for stray files (e.g., /media/TVEps).</p>
+                                    <input type="text" class="form-control" id="stray_scan_directory" name="stray_scan_directory" value="{{ settings.get('stray_scan_directory', {}).get('setting_value', '') }}" placeholder="/media/TVEps">
+                                </div>
                             </div>
                             <!-- Right Column -->
                             <div class="col-md-6">
@@ -939,6 +946,25 @@
                         <p class="form-text text-body-secondary">This tool creates jobs for workers to clean up stale files left behind by crashed or improperly stopped workers. This includes temporary encode files (<code>.tmp_*</code>) and file locks (<code>.lock</code>).</p>
                         <button class="btn btn-outline-danger" id="create-cleanup-jobs-btn"><span class="mdi mdi-broom"></span> Queue Stale File Cleanup</button>
                         <div id="cleanup-status" class="mt-3"></div>
+                    </div>
+
+                    <!-- Stray File Finder Section -->
+                    <div class="p-3 border rounded mb-4">
+                        <h5>Stray File Finder</h5>
+                        <p class="form-text text-body-secondary">Scan a directory to find files that don't match expected media or metadata patterns. This helps identify unwanted or leftover files in your media library.</p>
+                        <button class="btn btn-outline-primary" id="scan-stray-files-btn"><span class="mdi mdi-file-search"></span> Scan for Stray Files</button>
+                        
+                        <!-- Feedback & Progress for Stray File Scan -->
+                        <div id="stray-scan-container" class="alert alert-info mt-3" style="display: none;">
+                            <div id="stray-scan-feedback" class="mb-2"></div>
+                            <div id="stray-scan-progress">
+                                <p id="stray-scan-progress-text" class="mb-1">Scanning for stray files...</p>
+                                <div class="progress" style="height: 20px;">
+                                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: 0%;">0%</div>
+                                </div>
+                                <small id="stray-scan-time" class="text-muted"></small>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- Data Export Section -->
