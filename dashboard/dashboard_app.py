@@ -289,7 +289,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 17
+TARGET_SCHEMA_VERSION = 18
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -420,6 +420,10 @@ MIGRATIONS = {
         f"GRANT USAGE, SELECT ON SEQUENCE passkey_credentials_id_seq TO {DB_CONFIG['user']};",
         # Add passkey settings
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('passkey_enabled', 'false') ON CONFLICT (setting_name) DO NOTHING;",
+    ],
+    # Version 18: Add rate limiting for Arr rename operations to prevent API overload and worker timeouts
+    18: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('arr_rename_delay_seconds', '60') ON CONFLICT (setting_name) DO NOTHING;",
     ],
 }
 
@@ -4554,6 +4558,7 @@ def arr_job_processor_thread():
     print("Arr Job Processor thread is now active.")
 
     while True:
+        jobs_processed = False  # Track whether we processed any jobs in this iteration
         try:
             with app.app_context():
                 conn = get_db()
@@ -4564,12 +4569,17 @@ def arr_job_processor_thread():
                 cur = conn.cursor(cursor_factory=RealDictCursor)
                 settings, _ = get_worker_settings()
                 
+                # Get the delay setting (default to 60 seconds if not set)
+                rename_delay = int(settings.get('arr_rename_delay_seconds', {}).get('setting_value', '60'))
+                
+                # Process only 1 job per iteration to avoid worker timeout issues
                 # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
-                cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 10 FOR UPDATE SKIP LOCKED")
+                cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 1 FOR UPDATE SKIP LOCKED")
                 jobs_to_process = cur.fetchall()
                 
                 if jobs_to_process:
-                    print(f"Found {len(jobs_to_process)} rename jobs to process.")
+                    jobs_processed = True
+                    print(f"Found {len(jobs_to_process)} rename job(s) to process.")
                     
                     for job in jobs_to_process:
                         metadata = job.get('metadata', {})
@@ -4677,14 +4687,22 @@ def arr_job_processor_thread():
                 
                 conn.commit()
                 cur.close()
+                
+                # If we processed a job, wait the configured delay before checking for the next one
+                # This prevents API overload and gives the Arr application time to process
+                if jobs_processed:
+                    print(f"Waiting {rename_delay} seconds before processing next rename job...")
+                    time.sleep(rename_delay)
 
         except Exception as e:
             print(f"CRITICAL ERROR in arr_job_processor_thread: {e}")
             # Avoid a tight loop on critical error
             time.sleep(300)
         
-        # Wait 60 seconds before checking for new internal jobs
-        time.sleep(60)
+        # If no jobs were processed, wait 10 seconds before checking again
+        # (if jobs were processed, we already waited the configured delay above)
+        if not jobs_processed:
+            time.sleep(10)
 
 def perform_database_backup():
     """
