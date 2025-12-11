@@ -3593,6 +3593,32 @@ document.addEventListener('DOMContentLoaded', () => {
         // Update on change
         pollIntervalSlider.addEventListener('input', updatePollIntervalDisplay);
     }
+    
+    // Arr Rename Delay slider
+    const arrRenameDelaySlider = document.getElementById('arr_rename_delay_seconds');
+    const arrRenameDelayValue = document.getElementById('arr_rename_delay_seconds_value');
+    
+    if (arrRenameDelaySlider && arrRenameDelayValue) {
+        // Function to update display value
+        function updateArrRenameDelayDisplay() {
+            const seconds = parseInt(arrRenameDelaySlider.value);
+            if (seconds === 0) {
+                arrRenameDelayValue.textContent = 'No delay';
+            } else if (seconds === 60) {
+                arrRenameDelayValue.textContent = '1 min';
+            } else if (seconds % 60 === 0) {
+                arrRenameDelayValue.textContent = `${seconds / 60} mins`;
+            } else {
+                arrRenameDelayValue.textContent = `${seconds}s`;
+            }
+        }
+        
+        // Set initial value
+        updateArrRenameDelayDisplay();
+        
+        // Update on change
+        arrRenameDelaySlider.addEventListener('input', updateArrRenameDelayDisplay);
+    }
 }); // End of main DOMContentLoaded block
 
 // --- Debug Settings Modal (DEVMODE only) ---
