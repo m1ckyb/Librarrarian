@@ -3031,9 +3031,10 @@ def run_sonarr_rename_scan():
                     if send_to_queue:
                         # Create one job per season with metadata containing all episode file IDs
                         job_status = 'awaiting_approval'
-                        # Use a UUID-based identifier to ensure uniqueness and avoid conflicts
-                        # Using 16 characters provides sufficient entropy while keeping identifier readable
-                        season_identifier = f"sonarr-season-{series['id']}-{season_number}-{uuid.uuid4().hex[:16]}"
+                        # Use a human-readable identifier with UUID for uniqueness
+                        # Format: (Series Title) - Season (Number) [unique-id]
+                        season_display = "Specials" if season_number == 0 else str(season_number)
+                        season_identifier = f"{series['title']} - Season {season_display} [{uuid.uuid4().hex[:8]}]"
                         
                         metadata = {
                             'source': 'sonarr',
