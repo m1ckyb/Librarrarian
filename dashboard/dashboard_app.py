@@ -3033,8 +3033,10 @@ def run_sonarr_rename_scan():
                         job_status = 'awaiting_approval'
                         # Use a human-readable identifier with UUID for uniqueness
                         # Format: (Series Title) - Season (Number) [unique-id]
+                        # Sanitize series title to remove characters that could cause issues
+                        safe_title = re.sub(r'[^\w\s\-\.]', '', series['title'])
                         season_display = "Specials" if season_number == 0 else str(season_number)
-                        season_identifier = f"{series['title']} - Season {season_display} [{uuid.uuid4().hex[:8]}]"
+                        season_identifier = f"{safe_title} - Season {season_display} [{uuid.uuid4().hex[:8]}]"
                         
                         metadata = {
                             'source': 'sonarr',
