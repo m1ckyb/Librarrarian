@@ -2937,13 +2937,10 @@ def run_sonarr_rename_scan():
     Handles Sonarr integration. Can either trigger Sonarr's API directly
     or add 'rename' jobs to the local queue for a worker to process.
     
-    NOTE: Currently processes individual episode files. Future enhancement could
-    group episodes by season and create season-level rename jobs to reduce
-    the number of API calls and improve efficiency when renaming entire seasons.
-    This would require:
-    - Grouping episodes by series/season before creating jobs
-    - Modifying the job metadata to support season-level operations
-    - Updating the arr_job_processor_thread to handle bulk season renames
+    Episodes are grouped by series and season to reduce the number of jobs
+    created and API calls made. Each job represents all episodes in a season
+    that need renaming, with metadata containing all episode file IDs for
+    bulk processing via the Sonarr API.
     """
     with app.app_context():
         # Clear the cancel event first, before trying to acquire the lock
@@ -3002,36 +2999,57 @@ def run_sonarr_rename_scan():
                 requests.post(f"{base_url}/api/v3/command", headers=headers, json={'name': 'RescanSeries', 'seriesId': series['id']}, timeout=10, verify=get_arr_ssl_verify())
                 time.sleep(2) # Give Sonarr a moment to process before we query
                 rename_res = requests.get(f"{base_url}/api/v3/rename?seriesId={series['id']}", headers=headers, timeout=10, verify=get_arr_ssl_verify())
+                
+                # Group episodes by season for bulk processing
+                episodes_by_season = {}
                 for episode in rename_res.json():
                     filepath = episode.get('existingPath')
                     if filepath:
-                        # Determine job status or perform direct rename based on 'send_to_queue' setting
-                        if send_to_queue:
-                            job_status = 'awaiting_approval' # New behavior: if selected, awaiting approval
-                            metadata = {
-                                'source': 'sonarr',
-                                'seriesTitle': series['title'],
-                                'seasonNumber': episode.get('seasonNumber'),
-                                'episodeNumber': episode.get('episodeNumbers', [0])[0],
-                                'episodeTitle': "Episode", 'quality': "N/A",
-                                'episodeFileId': episode.get('episodeFileId'),
-                                'seriesId': series.get('id')
-                            }
-                            cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (filepath, job_status, json.dumps(metadata)))
-                            if cur.rowcount > 0: new_jobs_found += 1
-                        else:
-                            # New behavior: if not selected, perform rename directly via Sonarr API
-                            print(f"  -> Auto-renaming episode file {filepath} via Sonarr API.")
-                            payload = {"name": "RenameFiles", "seriesId": series['id'], "files": [episode.get('episodeFileId')]}
-                            rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
-                            rename_cmd_res.raise_for_status() 
-                            renames_performed += 1
+                        season_number = episode.get('seasonNumber', 0)
+                        if season_number not in episodes_by_season:
+                            episodes_by_season[season_number] = []
+                        episodes_by_season[season_number].append({
+                            'filepath': filepath,
+                            'episodeFileId': episode.get('episodeFileId'),
+                            'episodeNumbers': episode.get('episodeNumbers', []),
+                            'seasonNumber': season_number
+                        })
+                
+                # Process episodes grouped by season
+                for season_number, episodes in episodes_by_season.items():
+                    if send_to_queue:
+                        # Create one job per season with metadata containing all episode file IDs
+                        job_status = 'awaiting_approval'
+                        episode_file_ids = [ep['episodeFileId'] for ep in episodes]
+                        # Use the first file's path as the job filepath identifier, but mark it as a season job
+                        first_filepath = episodes[0]['filepath']
+                        season_identifier = f"{first_filepath}::season-{season_number}"
+                        
+                        metadata = {
+                            'source': 'sonarr',
+                            'seriesTitle': series['title'],
+                            'seasonNumber': season_number,
+                            'episodeFileIds': episode_file_ids,  # List of all file IDs in this season
+                            'episodeCount': len(episodes),
+                            'seriesId': series.get('id'),
+                            'isBulkSeason': True  # Flag to identify season-level jobs
+                        }
+                        cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'Rename Job', %s, %s) ON CONFLICT (filepath) DO NOTHING", (season_identifier, job_status, json.dumps(metadata)))
+                        if cur.rowcount > 0: new_jobs_found += 1
+                    else:
+                        # Perform bulk rename for all episodes in the season via Sonarr API
+                        episode_file_ids = [ep['episodeFileId'] for ep in episodes]
+                        print(f"  -> Auto-renaming {len(episodes)} episode file(s) in Season {season_number} via Sonarr API.")
+                        payload = {"name": "RenameFiles", "seriesId": series['id'], "files": episode_file_ids}
+                        rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
+                        rename_cmd_res.raise_for_status() 
+                        renames_performed += len(episodes)
     
             conn.commit()
             if send_to_queue:
-                message = f"Sonarr deep scan complete. Found {new_jobs_found} new files to rename. Added to queue for approval."
+                message = f"Sonarr deep scan complete. Found {new_jobs_found} season(s) with files to rename. Added to queue for approval."
             else:
-                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic renames." 
+                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic rename(s)." 
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
 
@@ -4682,29 +4700,61 @@ def arr_job_processor_thread():
                                 print(f"Sonarr is not configured. Skipping job {job['id']}.")
                                 continue
 
-                            file_id = metadata.get('episodeFileId')
                             series_id = metadata.get('seriesId')
-
-                            if not file_id or not series_id:
-                                print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                                continue
                             
-                            try:
-                                base_url = host.rstrip('/')
-                                headers = {'X-Api-Key': api_key}
-                                print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
-                                payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
-                                res.raise_for_status()
+                            # Check if this is a bulk season job or a single episode job
+                            is_bulk_season = metadata.get('isBulkSeason', False)
+                            
+                            if is_bulk_season:
+                                # Handle season-level bulk rename
+                                file_ids = metadata.get('episodeFileIds', [])
+                                season_number = metadata.get('seasonNumber', 'Unknown')
+                                episode_count = metadata.get('episodeCount', len(file_ids))
                                 
-                                # Mark job as completed
-                                print(f"Sonarr rename job {job['id']} completed successfully.")
-                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                if not file_ids or not series_id:
+                                    print(f"Failing job {job['id']}: Missing 'episodeFileIds' or 'seriesId' in metadata.")
+                                    cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                    continue
+                                
+                                try:
+                                    base_url = host.rstrip('/')
+                                    headers = {'X-Api-Key': api_key}
+                                    print(f"Processing Sonarr bulk season rename for job {job['id']} (Season {season_number}, {episode_count} episode(s))")
+                                    payload = {"name": "RenameFiles", "seriesId": series_id, "files": file_ids}
+                                    res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
+                                    res.raise_for_status()
+                                    
+                                    # Mark job as completed
+                                    print(f"Sonarr bulk season rename job {job['id']} completed successfully ({episode_count} episode(s)).")
+                                    cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
 
-                            except requests.exceptions.RequestException as e:
-                                print(f"Error processing Sonarr rename job {job['id']}: {e}")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                except requests.exceptions.RequestException as e:
+                                    print(f"Error processing Sonarr bulk season rename job {job['id']}: {e}")
+                                    cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            else:
+                                # Handle single episode job (backward compatibility)
+                                file_id = metadata.get('episodeFileId')
+
+                                if not file_id or not series_id:
+                                    print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
+                                    cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                                    continue
+                                
+                                try:
+                                    base_url = host.rstrip('/')
+                                    headers = {'X-Api-Key': api_key}
+                                    print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
+                                    payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
+                                    res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
+                                    res.raise_for_status()
+                                    
+                                    # Mark job as completed
+                                    print(f"Sonarr rename job {job['id']} completed successfully.")
+                                    cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+
+                                except requests.exceptions.RequestException as e:
+                                    print(f"Error processing Sonarr rename job {job['id']}: {e}")
+                                    cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
                 
                 conn.commit()
                 cur.close()
