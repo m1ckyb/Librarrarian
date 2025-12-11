@@ -1,3 +1,11 @@
+## [0.13.4] - 2025-12-11 - Patch Release
+
+### Added
+
+### Changed
+
+### Fixed
+
 ## [0.13.3] - 2025-12-11 - Patch Release
 
 ### Added

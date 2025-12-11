@@ -3,7 +3,7 @@ version: '3.8'
 services:
   # The Flask web dashboard service
   librarrarian:
-    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.13.3 #latest production version
+    image: ghcr.io/m1ckyb/librarrarian-dashboard:0.13.4 #latest production version
     #image: ghcr.io/m1ckyb/librarrarian-dashboard:develop #latest develop version
     container_name: librarrarian
     restart: unless-stopped
@@ -58,7 +58,7 @@ services:
 
   # The transcoding worker service
   librarrarian-worker-1:
-    image: ghcr.io/m1ckyb/librarrarian-worker:0.13.3 #latest production version
+    image: ghcr.io/m1ckyb/librarrarian-worker:0.13.4 #latest production version
     #image: ghcr.io/m1ckyb/librarrarian-worker:develop #latest develop version
     container_name: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker
     hostname: librarrarian-worker-1 #only 1 worker, can change to just librarrarian-worker   
