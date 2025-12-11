@@ -729,6 +729,12 @@
                                         <input type="range" class="form-range flex-grow-1 me-3" id="worker_poll_interval" name="worker_poll_interval" value="{{ settings.get('worker_poll_interval', {}).get('setting_value', '30') }}" min="0" max="600" step="5">
                                         <span class="badge badge-outline-primary" id="worker_poll_interval_value" style="min-width: 4rem; text-align: center;">30s</span>
                                     </div>
+                                    <label for="arr_rename_delay_seconds" class="form-label mt-3"><strong>Arr Rename Delay</strong></label>
+                                    <p class="form-text text-body-secondary">Time in seconds to wait between processing Arr rename jobs. Helps prevent API overload and worker timeouts. Applies to Sonarr, Radarr, and Lidarr.</p>
+                                    <div class="d-flex align-items-center mb-2">
+                                        <input type="range" class="form-range flex-grow-1 me-3" id="arr_rename_delay_seconds" name="arr_rename_delay_seconds" value="{{ settings.get('arr_rename_delay_seconds', {}).get('setting_value', '60') }}" min="0" max="300" step="5">
+                                        <span class="badge badge-outline-primary" id="arr_rename_delay_seconds_value" style="min-width: 4rem; text-align: center;">60s</span>
+                                    </div>
                                     <label for="min_length" class="form-label mt-3"><strong>Minimum Video Length</strong></label>
                                     <p class="form-text text-body-secondary">Only transcode videos longer than this duration in minutes.</p>
                                     <input type="number" class="form-control" id="min_length" name="min_length" value="{{ settings.get('min_length', {}).get('setting_value', 0.5) }}" step="0.1">

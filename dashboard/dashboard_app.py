@@ -426,6 +426,9 @@ MIGRATIONS = {
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('stray_scan_enabled', 'false') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('stray_scan_mode', 'glob') ON CONFLICT (setting_name) DO NOTHING;",
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('stray_scan_directory', '') ON CONFLICT (setting_name) DO NOTHING;"
+    # Version 18: Add rate limiting for Arr rename operations to prevent API overload and worker timeouts
+    18: [
+        "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('arr_rename_delay_seconds', '60') ON CONFLICT (setting_name) DO NOTHING;",
     ],
 }
 
@@ -1624,6 +1627,7 @@ def options():
         'enable_multi_server': 'true' if 'enable_multi_server' in request.form else 'false',
         'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
+        'arr_rename_delay_seconds': request.form.get('arr_rename_delay_seconds', '60'),
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
         'backup_time': request.form.get('backup_time', '02:00'),
@@ -2956,6 +2960,14 @@ def run_sonarr_rename_scan():
     """
     Handles Sonarr integration. Can either trigger Sonarr's API directly
     or add 'rename' jobs to the local queue for a worker to process.
+    
+    NOTE: Currently processes individual episode files. Future enhancement could
+    group episodes by season and create season-level rename jobs to reduce
+    the number of API calls and improve efficiency when renaming entire seasons.
+    This would require:
+    - Grouping episodes by series/season before creating jobs
+    - Modifying the job metadata to support season-level operations
+    - Updating the arr_job_processor_thread to handle bulk season renames
     """
     with app.app_context():
         # Clear the cancel event first, before trying to acquire the lock
@@ -4675,6 +4687,7 @@ def arr_job_processor_thread():
     print("Arr Job Processor thread is now active.")
 
     while True:
+        jobs_processed = False  # Track whether we processed any jobs in this iteration
         try:
             with app.app_context():
                 conn = get_db()
@@ -4685,12 +4698,21 @@ def arr_job_processor_thread():
                 cur = conn.cursor(cursor_factory=RealDictCursor)
                 settings, _ = get_worker_settings()
                 
+                # Get the delay setting (default to 60 seconds if not set)
+                # Use defensive approach in case setting doesn't exist yet
+                try:
+                    rename_delay = int(settings.get('arr_rename_delay_seconds', {}).get('setting_value', '60'))
+                except (AttributeError, ValueError, TypeError):
+                    rename_delay = 60  # Default if setting is missing or invalid
+                
+                # Process only 1 job per iteration to avoid worker timeout issues
                 # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
-                cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 10 FOR UPDATE SKIP LOCKED")
+                cur.execute("SELECT * FROM jobs WHERE job_type = 'Rename Job' AND status = 'pending' LIMIT 1 FOR UPDATE SKIP LOCKED")
                 jobs_to_process = cur.fetchall()
                 
                 if jobs_to_process:
-                    print(f"Found {len(jobs_to_process)} rename jobs to process.")
+                    jobs_processed = True
+                    print(f"Found {len(jobs_to_process)} rename job(s) to process.")
                     
                     for job in jobs_to_process:
                         metadata = job.get('metadata', {})
@@ -4798,14 +4820,22 @@ def arr_job_processor_thread():
                 
                 conn.commit()
                 cur.close()
+                
+                # If we processed a job, wait the configured delay before checking for the next one
+                # This prevents API overload and gives the Arr application time to process
+                if jobs_processed:
+                    print(f"Waiting {rename_delay} seconds before processing next rename job...")
+                    time.sleep(rename_delay)
 
         except Exception as e:
             print(f"CRITICAL ERROR in arr_job_processor_thread: {e}")
             # Avoid a tight loop on critical error
             time.sleep(300)
         
-        # Wait 60 seconds before checking for new internal jobs
-        time.sleep(60)
+        # If no jobs were processed, wait 10 seconds before checking again
+        # (if jobs were processed, we already waited the configured delay above)
+        if not jobs_processed:
+            time.sleep(10)
 
 def perform_database_backup():
     """

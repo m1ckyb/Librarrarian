@@ -25,6 +25,6 @@ This architecture allows for a robust, scalable, and easy-to-manage transcoding 
 *   **System Cleanup**: Queue jobs for workers to find and remove stale `.lock` and `.tmp_*` files left behind by crashed processes.
 *   **Automated Database Backups**: Built-in automated daily backups of the PostgreSQL database with configurable retention and manual backup options.
 
-*   **Secure Access**: A production-ready, optional authentication system supporting both local user/password and OIDC providers to protect the dashboard.
+*   **Secure Access**: A production-ready, optional authentication system supporting local user/password, Passkeys (WebAuthn), and OIDC providers to protect the dashboard.
 *   **Hardware Acceleration**: Automatically utilizes NVIDIA (NVENC), Intel (QSV), and Apple (VideoToolbox) for fast transcoding.
 *   **Version Mismatch Detection**: The dashboard and workers automatically detect and flag version inconsistencies to ensure cluster stability.
