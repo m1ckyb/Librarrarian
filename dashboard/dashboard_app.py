@@ -4561,18 +4561,26 @@ def arr_job_processor_thread():
     """
     This background thread periodically checks for and processes internal jobs
     that are not meant for workers, such as Sonarr/Radarr/Lidarr rename commands.
+    
+    Uses event-based waiting to avoid blocking the Gunicorn worker process.
     """
     # This thread now waits for the db_ready_event before starting its loop.
     db_ready_event.wait()
     print("Arr Job Processor thread is now active.")
+    
+    # Create a shutdown event for graceful termination
+    shutdown_event = threading.Event()
 
-    while True:
+    while not shutdown_event.is_set():
         jobs_processed = False  # Track whether we processed any jobs in this iteration
+        rename_delay = 60  # Default delay
+        
         try:
             with app.app_context():
                 conn = get_db()
                 if not conn:
-                    time.sleep(60) # Wait and retry if DB is down
+                    # Wait 60 seconds using event.wait() for interruptibility
+                    shutdown_event.wait(timeout=60)
                     continue
 
                 cur = conn.cursor(cursor_factory=RealDictCursor)
@@ -4700,22 +4708,22 @@ def arr_job_processor_thread():
                 
                 conn.commit()
                 cur.close()
-                
-                # If we processed a job, wait the configured delay before checking for the next one
-                # This prevents API overload and gives the Arr application time to process
-                if jobs_processed:
-                    print(f"Waiting {rename_delay} seconds before processing next rename job...")
-                    time.sleep(rename_delay)
 
         except Exception as e:
             print(f"CRITICAL ERROR in arr_job_processor_thread: {e}")
-            # Avoid a tight loop on critical error
-            time.sleep(300)
+            # Avoid a tight loop on critical error - use event.wait() instead of time.sleep()
+            shutdown_event.wait(timeout=300)
+            continue
         
-        # If no jobs were processed, wait 10 seconds before checking again
-        # (if jobs were processed, we already waited the configured delay above)
-        if not jobs_processed:
-            time.sleep(10)
+        # Determine wait time based on whether we processed jobs
+        if jobs_processed:
+            # Wait the configured delay before checking for the next job
+            # This prevents API overload and gives the Arr application time to process
+            print(f"Waiting {rename_delay} seconds before processing next rename job...")
+            shutdown_event.wait(timeout=rename_delay)
+        else:
+            # If no jobs were processed, wait 10 seconds before checking again
+            shutdown_event.wait(timeout=10)
 
 def perform_database_backup():
     """
