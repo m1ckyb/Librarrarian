@@ -1619,6 +1619,7 @@ def options():
         'enable_multi_server': 'true' if 'enable_multi_server' in request.form else 'false',
         'rescan_delay_minutes': rescan_minutes,
         'worker_poll_interval': request.form.get('worker_poll_interval', '30'),
+        'arr_rename_delay_seconds': request.form.get('arr_rename_delay_seconds', '60'),
         'min_length': request.form.get('min_length', '0.5'),
         'backup_directory': request.form.get('backup_directory', ''),
         'backup_time': request.form.get('backup_time', '02:00'),
@@ -2935,6 +2936,14 @@ def run_sonarr_rename_scan():
     """
     Handles Sonarr integration. Can either trigger Sonarr's API directly
     or add 'rename' jobs to the local queue for a worker to process.
+    
+    NOTE: Currently processes individual episode files. Future enhancement could
+    group episodes by season and create season-level rename jobs to reduce
+    the number of API calls and improve efficiency when renaming entire seasons.
+    This would require:
+    - Grouping episodes by series/season before creating jobs
+    - Modifying the job metadata to support season-level operations
+    - Updating the arr_job_processor_thread to handle bulk season renames
     """
     with app.app_context():
         # Clear the cancel event first, before trying to acquire the lock
