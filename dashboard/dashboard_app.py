@@ -3005,7 +3005,13 @@ def run_sonarr_rename_scan():
                 for episode in rename_res.json():
                     filepath = episode.get('existingPath')
                     if filepath:
-                        season_number = episode.get('seasonNumber', 0)
+                        # Use None for missing season numbers to handle them separately
+                        season_number = episode.get('seasonNumber')
+                        if season_number is None:
+                            # Skip episodes with no season information
+                            print(f"  Warning: Skipping episode with no season number: {filepath}")
+                            continue
+                        
                         if season_number not in episodes_by_season:
                             episodes_by_season[season_number] = []
                         episodes_by_season[season_number].append({
@@ -3017,20 +3023,22 @@ def run_sonarr_rename_scan():
                 
                 # Process episodes grouped by season
                 for season_number, episodes in episodes_by_season.items():
+                    # Extract episode file IDs once for reuse
+                    episode_file_ids = [ep['episodeFileId'] for ep in episodes]
+                    episode_count = len(episodes)
+                    
                     if send_to_queue:
                         # Create one job per season with metadata containing all episode file IDs
                         job_status = 'awaiting_approval'
-                        episode_file_ids = [ep['episodeFileId'] for ep in episodes]
-                        # Use the first file's path as the job filepath identifier, but mark it as a season job
-                        first_filepath = episodes[0]['filepath']
-                        season_identifier = f"{first_filepath}::season-{season_number}"
+                        # Use a UUID-based identifier to ensure uniqueness and avoid conflicts
+                        season_identifier = f"sonarr-season-{series['id']}-{season_number}-{uuid.uuid4().hex[:8]}"
                         
                         metadata = {
                             'source': 'sonarr',
                             'seriesTitle': series['title'],
                             'seasonNumber': season_number,
                             'episodeFileIds': episode_file_ids,  # List of all file IDs in this season
-                            'episodeCount': len(episodes),
+                            'episodeCount': episode_count,
                             'seriesId': series.get('id'),
                             'isBulkSeason': True  # Flag to identify season-level jobs
                         }
@@ -3038,18 +3046,17 @@ def run_sonarr_rename_scan():
                         if cur.rowcount > 0: new_jobs_found += 1
                     else:
                         # Perform bulk rename for all episodes in the season via Sonarr API
-                        episode_file_ids = [ep['episodeFileId'] for ep in episodes]
-                        print(f"  -> Auto-renaming {len(episodes)} episode file(s) in Season {season_number} via Sonarr API.")
+                        print(f"  -> Auto-renaming {episode_count} episode file(s) in Season {season_number} via Sonarr API.")
                         payload = {"name": "RenameFiles", "seriesId": series['id'], "files": episode_file_ids}
                         rename_cmd_res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
                         rename_cmd_res.raise_for_status() 
-                        renames_performed += len(episodes)
+                        renames_performed += episode_count
     
             conn.commit()
             if send_to_queue:
-                message = f"Sonarr deep scan complete. Found {new_jobs_found} season(s) with files to rename. Added to queue for approval."
+                message = f"Sonarr deep scan complete. Created {new_jobs_found} season-level rename job(s) and added to queue for approval."
             else:
-                message = f"Sonarr deep scan complete. Performed {renames_performed} automatic rename(s)." 
+                message = f"Sonarr deep scan complete. Renamed {renames_performed} episode file(s) directly via Sonarr API." 
             scan_progress_state["current_step"] = message
             print(f"[{datetime.now()}] {message}")
 
