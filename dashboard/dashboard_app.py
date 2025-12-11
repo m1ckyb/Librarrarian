@@ -4579,7 +4579,11 @@ def arr_job_processor_thread():
                 settings, _ = get_worker_settings()
                 
                 # Get the delay setting (default to 60 seconds if not set)
-                rename_delay = int(settings.get('arr_rename_delay_seconds', {}).get('setting_value', '60'))
+                # Use defensive approach in case setting doesn't exist yet
+                try:
+                    rename_delay = int(settings.get('arr_rename_delay_seconds', {}).get('setting_value', '60'))
+                except (AttributeError, ValueError, TypeError):
+                    rename_delay = 60  # Default if setting is missing or invalid
                 
                 # Process only 1 job per iteration to avoid worker timeout issues
                 # Use FOR UPDATE SKIP LOCKED to ensure multiple dashboard replicas don't grab the same job.
