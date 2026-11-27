@@ -1,4 +1,4 @@
-## [0.13.5-dev] - 2026-11-28 - Dev Release
+## [0.13.5] - 2026-11-28 - Patch Release
 
 ### Added
 - **Dependabot Configuration**: Added `.github/dependabot.yml` for automated weekly dependency updates across dashboard/worker Python (`pip`), Dockerfiles (`docker`), Docker Compose (`docker-compose`), and GitHub Actions (`github-actions`).
@@ -7,6 +7,7 @@
 - **Database Migration v19**: Converted naive timestamp columns (`nodes.last_heartbeat`, `failed_files.failed_at`, `encoded_files.encoded_at`) to `TIMESTAMPTZ` and added composite indexes on `jobs`, `encoded_files`, and `nodes`.
 
 ### Changed
+- **Dependency & CI Upgrades**: Updated Python dependencies (`flask`, `werkzeug`, `gunicorn`, `webauthn`, `authlib`, `plexapi`, `requests`, `psycopg2-binary`) and GitHub Actions (`actions/checkout` v7, `docker/login-action` v4, `docker/metadata-action` v6, `docker/build-push-action` v7).
 - **Gunicorn Concurrency**: Updated `dashboard/Dockerfile` to run Gunicorn with `--workers 1 --worker-class gthread --threads 8 --timeout 120`, installed `ffmpeg` for internal scanner `ffprobe`, and configured both dashboard and worker containers to run as non-root users.
 - **Database Connection Pooling & Worker Heartbeats**: Added `ThreadedConnectionPool` to the dashboard, persistent DB connection reuse + 2-second heartbeat throttling + bounded `deque(maxlen=500)` FFmpeg log buffer to the worker, and advisory locking around DB migrations.
 - **Asynchronous Post-Transcode Hooks**: Moved Plex/Jellyfin library refreshes and Sonarr/Radarr rescan/rename hooks out of the `/api/update_job` DB transaction into a dedicated background queue thread.
