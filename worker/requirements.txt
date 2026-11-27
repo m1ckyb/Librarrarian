@@ -1,2 +1,2 @@
 psycopg2-binary>=2.9.9,<3.0
-requests>=2.32.0,<3.0
+requests>=2.34.2,<3.0
