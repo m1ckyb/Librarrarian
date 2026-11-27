@@ -6,6 +6,11 @@ import uuid
 import base64
 import json
 import re
+import hmac
+import secrets
+import ipaddress
+import functools
+import queue
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 import logging
@@ -19,6 +24,7 @@ from flask import Flask, render_template, g, request, flash, redirect, url_for, 
 try:
     from plexapi.server import PlexServer
     import psycopg2
+    from psycopg2 import pool as pg_pool
     from psycopg2.extras import RealDictCursor
     from authlib.integrations.flask_client import OAuth
     from werkzeug.middleware.proxy_fix import ProxyFix
@@ -36,9 +42,59 @@ app = Flask(__name__)
 # --- Thread Synchronization Event ---
 db_ready_event = threading.Event() # This will be set after migrations are complete
 
-# A secret key is required for session management (e.g., for flash messages)
-# It's recommended to set this as an environment variable in production.
-app.secret_key = os.environ.get("FLASK_SECRET_KEY", "a-super-secret-key-for-dev")
+# A secret key is required for session management (e.g., for flash messages and signed cookies).
+_env_secret_key = os.environ.get("FLASK_SECRET_KEY", "").strip()
+_auth_enabled_env = os.environ.get("AUTH_ENABLED", "false").lower() == "true"
+if _auth_enabled_env and (not _env_secret_key or _env_secret_key in ("a-super-secret-key-for-dev", "your_random_flask_secret_key", "your_flask_secret_key")):
+    raise RuntimeError("FLASK_SECRET_KEY must be set to a strong random value when AUTH_ENABLED=true")
+app.secret_key = _env_secret_key or secrets.token_hex(32)
+
+# Hardened session cookie defaults
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_SECURE'] = os.environ.get('SESSION_COOKIE_SECURE', 'false').lower() == 'true'
+
+# Keys in worker_settings that contain sensitive credentials and must never be exposed to workers or exports
+SENSITIVE_SETTING_KEYS = {
+    'plex_token', 'jellyfin_api_key', 'sonarr_api_key', 'radarr_api_key', 'lidarr_api_key'
+}
+
+# Explicit allowlist of API endpoints that machine workers may call with X-API-Key
+WORKER_API_ENDPOINTS = {
+    'register_worker', 'api_settings', 'request_job', 'update_job', 'api_health'
+}
+
+
+def get_csrf_token():
+    """Returns or generates a per-session CSRF token."""
+    token = session.get('_csrf_token')
+    if not token:
+        token = secrets.token_urlsafe(32)
+        session['_csrf_token'] = token
+    return token
+
+
+def is_safe_service_url(url_str: str) -> Tuple[bool, Optional[str]]:
+    """Validates external service URLs (Plex/Jellyfin/*Arr) against SSRF to link-local/metadata IPs."""
+    if not url_str or not isinstance(url_str, str):
+        return False, "URL is required."
+    try:
+        parsed = urlparse(url_str.strip())
+    except Exception:
+        return False, "Invalid URL format."
+    if parsed.scheme not in ('http', 'https'):
+        return False, "URL must use http or https."
+    if not parsed.hostname:
+        return False, "URL must include a valid hostname."
+    try:
+        ip = ipaddress.ip_address(parsed.hostname)
+        if ip.is_link_local or ip.is_multicast or ip.is_unspecified:
+            return False, "URL targets a disallowed IP range."
+    except ValueError:
+        # Hostname is a domain name; block well-known cloud metadata hostnames
+        if parsed.hostname.lower() in ('metadata.google.internal', 'metadata'):
+            return False, "URL targets a disallowed metadata host."
+    return True, None
 
 
 # --- Custom Logging Filter ---
@@ -48,10 +104,14 @@ class HealthCheckFilter(logging.Filter):
     SUPPRESSED_ENDPOINTS = ['/api/scan/progress', '/api/status', '/api/health']
 
     def filter(self, record):
-        # The log message for an access log is in record.args
-        if record.args and len(record.args) >= 3 and isinstance(record.args[2], str):
+        # Werkzeug passes a tuple for record.args; Gunicorn passes a SafeAtoms dict.
+        if isinstance(record.args, (tuple, list)) and len(record.args) >= 3 and isinstance(record.args[2], str):
             log_path = record.args[2]
             return not any(endpoint in log_path for endpoint in self.SUPPRESSED_ENDPOINTS)
+        if isinstance(record.args, dict):
+            log_path = str(record.args.get('U', '') or record.args.get('r', ''))
+            if log_path:
+                return not any(endpoint in log_path for endpoint in self.SUPPRESSED_ENDPOINTS)
         return True
 
 # Apply the filter to Werkzeug's logger (used by Flask's dev server and Gunicorn)
@@ -83,13 +143,21 @@ def set_security_headers(response):
 
 # Use the same DB config as the worker script
 # It is recommended to use environment variables for sensitive data
+_db_user = os.environ.get("DB_USER", "librarrarian")
+if not re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', _db_user):
+    raise RuntimeError(f"Invalid DB_USER format: {_db_user}")
+
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "host": os.environ.get("DB_HOST", "db"),
     "port": int(os.environ.get("DB_PORT", "5432")),
-    "user": os.environ.get("DB_USER", "librarrarian"),
+    "user": _db_user,
     "password": os.environ.get("DB_PASSWORD"),
     "dbname": os.environ.get("DB_NAME", "librarrarian")
 }
+
+# Connection pool (initialized lazily after DB is ready)
+_db_pool = None
+_db_pool_lock = threading.Lock()
 
 # Worker session configuration
 WORKER_SESSION_TIMEOUT_SECONDS = 300  # 5 minutes - time before a worker is considered stale
@@ -112,16 +180,13 @@ def setup_auth(app):
     app.config['WEBAUTHN_RP_NAME'] = os.environ.get('WEBAUTHN_RP_NAME', 'Librarrarian')
     app.config['WEBAUTHN_ORIGIN'] = os.environ.get('WEBAUTHN_ORIGIN', 'http://localhost:5000')
 
-    if not app.config['AUTH_ENABLED']:
-        return # Do nothing if auth is disabled
+    if app.config['AUTH_ENABLED']:
+        # If auth is on, but no methods are enabled, disable auth to prevent a lockout.
+        if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED'] and not app.config['PASSKEY_ENABLED']:
+            print("⚠️ WARNING: AUTH_ENABLED is true, but no authentication methods are enabled. Disabling authentication.")
+            app.config['AUTH_ENABLED'] = False
 
-    # If auth is on, but no methods are enabled, disable auth to prevent a lockout.
-    if not app.config['OIDC_ENABLED'] and not app.config['LOCAL_LOGIN_ENABLED'] and not app.config['PASSKEY_ENABLED']:
-        print("⚠️ WARNING: AUTH_ENABLED is true, but no authentication methods are enabled. Disabling authentication.")
-        app.config['AUTH_ENABLED'] = False
-        return
-
-    if app.config['OIDC_ENABLED']:
+    if app.config['AUTH_ENABLED'] and app.config['OIDC_ENABLED']:
         oauth = OAuth(app)
         # Allow SSL verification to be disabled for development (e.g., with self-signed certs)
         ssl_verify = os.environ.get('OIDC_SSL_VERIFY', 'true').lower() == 'true'
@@ -130,10 +195,8 @@ def setup_auth(app):
             name='oidc_provider',
             client_id=os.environ.get('OIDC_CLIENT_ID'),
             client_secret=os.environ.get('OIDC_CLIENT_SECRET'),
-            # Use a session that respects the SSL_VERIFY setting for fetching metadata
-            fetch_token=lambda: oauth.fetch_access_token(verify=ssl_verify),
             server_metadata_url=f"{os.environ.get('OIDC_ISSUER_URL')}/.well-known/openid-configuration",
-            client_kwargs={'scope': 'openid email profile'},
+            client_kwargs={'scope': 'openid email profile', 'verify': ssl_verify},
             # Explicitly define the supported signing algorithms for the ID token.
             # Authlib defaults to just 'RS256', but many providers use others.
             server_metadata_options={
@@ -145,23 +208,39 @@ def setup_auth(app):
 
     @app.before_request
     def require_login():
-        """Protects all routes by requiring login if authentication is enabled."""
+        """Protects all routes by requiring login and CSRF validation for browser mutations."""
+        # --- CSRF Validation for state-changing browser requests ---
+        is_api_key_request = bool(request.headers.get('X-API-Key'))
+        if request.method in ('POST', 'PUT', 'PATCH', 'DELETE') and not is_api_key_request:
+            # Skip CSRF for worker machine endpoints when auth is disabled (workers don't hold browser sessions)
+            if request.endpoint not in WORKER_API_ENDPOINTS and not app.config.get('TESTING_SKIP_CSRF', False):
+                expected_csrf = session.get('_csrf_token')
+                provided_csrf = request.headers.get('X-CSRFToken') or request.form.get('csrf_token')
+                if not expected_csrf or not provided_csrf or not hmac.compare_digest(str(expected_csrf), str(provided_csrf)):
+                    if request.path.startswith('/api/'):
+                        return jsonify(error="CSRF token missing or invalid."), 403
+                    return "CSRF token missing or invalid.", 403
+
         # --- Dev Mode Bypass ---
-        # If dev mode is on, bypass authentication for local network requests.
+        # If dev mode is on, bypass authentication for genuine RFC1918/loopback local requests.
         if app.config.get('DEVMODE'):
             remote_ip = request.remote_addr
-            if remote_ip and (remote_ip == '127.0.0.1' or remote_ip.startswith('192.168.') or remote_ip.startswith('172.')):
-                # In dev mode, we can create a dummy session for a better UI experience
-                if 'user' not in session:
-                    session['user'] = {'name': 'Dev User'}
-                return # Bypass further auth checks
+            try:
+                ip_obj = ipaddress.ip_address(remote_ip) if remote_ip else None
+                if ip_obj and (ip_obj.is_loopback or ip_obj.is_private):
+                    if 'user' not in session:
+                        session['user'] = {'name': 'Dev User'}
+                    return # Bypass further auth checks
+            except ValueError:
+                pass
+
         if not app.config.get('AUTH_ENABLED'):
             return
 
         # If the user is logged in, allow access.
         # Also allow passkey authentication endpoints
         passkey_endpoints = ['passkey_auth_challenge', 'passkey_auth_verify']
-        if 'user' in session or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health'] + passkey_endpoints:
+        if isinstance(session.get('user'), dict) or request.path.startswith('/static') or request.endpoint in ['login', 'logout', 'authorize', 'login_oidc', 'api_health'] + passkey_endpoints:
             return
 
         # Block all unauthenticated API access.
@@ -175,18 +254,21 @@ def setup_auth(app):
                 app.logger.warning("API_KEY environment variable is not set. API endpoints will not be accessible.")
                 return jsonify(error="Server configuration error. Please contact the administrator."), 500
             
-            if api_key and api_key == expected_api_key:
-                # API key is valid, now validate worker session for worker-specific endpoints
-                # These are endpoints that ONLY workers should call
+            if api_key and hmac.compare_digest(api_key, expected_api_key):
+                # Restrict worker API key strictly to worker endpoints (prevent privilege escalation to admin APIs)
+                if request.endpoint not in WORKER_API_ENDPOINTS:
+                    return jsonify(error="Forbidden: Worker API key is not authorized for administrative endpoints."), 403
+
+                # Validate worker session for worker-specific endpoints
                 if request.endpoint in WORKER_PROTECTED_ENDPOINTS:
-                    # These endpoints require session validation
                     hostname = None
                     session_token = None
                     
                     # Extract hostname and session_token from request
                     if request.method == 'POST' and request.is_json:
-                        hostname = request.json.get('hostname')
-                        session_token = request.json.get('session_token')
+                        payload = request.get_json(silent=True) or {}
+                        hostname = payload.get('hostname')
+                        session_token = payload.get('session_token')
                     elif request.method == 'GET':
                         hostname = request.args.get('hostname')
                         session_token = request.args.get('session_token')
@@ -209,10 +291,11 @@ def setup_auth(app):
 
     @app.context_processor
     def inject_auth_status():
-        """Makes auth status available to all templates."""
+        """Makes auth status and CSRF token available to all templates."""
         greeting = "Welcome"
         user_name = None
-        if 'user' in session:
+        user_info = session.get('user')
+        if isinstance(user_info, dict):
             # Determine a dynamic greeting based on the time of day.
             current_hour = datetime.now().hour
             if 5 <= current_hour < 12:
@@ -223,7 +306,6 @@ def setup_auth(app):
                 greeting = "Good evening"
 
             # OIDC providers might use 'name', 'email', or 'preferred_username'.
-            user_info = session['user']
             user_name = user_info.get('name') or user_info.get('email') or user_info.get('preferred_username')
         return dict(
             auth_enabled=app.config.get('AUTH_ENABLED', False), 
@@ -231,7 +313,8 @@ def setup_auth(app):
             greeting=greeting,
             oidc_provider_name=app.config.get('OIDC_PROVIDER_NAME'),
             version=get_project_version(),
-            devmode=app.config.get('DEVMODE', False)
+            devmode=app.config.get('DEVMODE', False),
+            csrf_token=get_csrf_token
         )
 
 # Initialize authentication
@@ -245,16 +328,19 @@ def get_arr_ssl_verify():
     """
     return os.environ.get('ARR_SSL_VERIFY', 'true').lower() == 'true'
 
+@functools.lru_cache(maxsize=1)
 def get_project_version():
-    """Reads the version from the root VERSION.txt file."""
+    """Reads and caches the version from the root VERSION.txt file."""
     try:
         # The Dockerfile copies VERSION.txt to the workdir /app
-        return open('VERSION.txt', 'r').read().strip()
+        with open('VERSION.txt', 'r', encoding='utf-8') as f:
+            return f.read().strip()
     except FileNotFoundError:
         # Fallback for local development where CWD might be different
         try:
             version_file = os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt')
-            return open(version_file, 'r').read().strip()
+            with open(version_file, 'r', encoding='utf-8') as f:
+                return f.read().strip()
         except FileNotFoundError:
             return "unknown"
 
@@ -289,7 +375,7 @@ print(f"\nLibrarrarian Web Dashboard v{get_project_version()}\n")
 # ===========================
 # Database Migrations
 # ===========================
-TARGET_SCHEMA_VERSION = 18
+TARGET_SCHEMA_VERSION = 19
 
 MIGRATIONS = {
     # Version 2: Add uptime tracking
@@ -425,17 +511,29 @@ MIGRATIONS = {
     18: [
         "INSERT INTO worker_settings (setting_name, setting_value) VALUES ('arr_rename_delay_seconds', '60') ON CONFLICT (setting_name) DO NOTHING;",
     ],
+    # Version 19: Convert naive timestamps to TIMESTAMPTZ and add performance indexes
+    19: [
+        "ALTER TABLE nodes ALTER COLUMN last_heartbeat TYPE TIMESTAMP WITH TIME ZONE USING last_heartbeat AT TIME ZONE 'UTC';",
+        "ALTER TABLE failed_files ALTER COLUMN failed_at TYPE TIMESTAMP WITH TIME ZONE USING failed_at AT TIME ZONE 'UTC';",
+        "ALTER TABLE encoded_files ALTER COLUMN encoded_at TYPE TIMESTAMP WITH TIME ZONE USING encoded_at AT TIME ZONE 'UTC';",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_assigned_status_id ON jobs (assigned_to, status, id);",
+        "CREATE INDEX IF NOT EXISTS idx_jobs_status_created ON jobs (status, created_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_encoded_files_status_at ON encoded_files (status, encoded_at DESC);",
+        "CREATE INDEX IF NOT EXISTS idx_nodes_last_heartbeat ON nodes (last_heartbeat);",
+    ],
 }
 
 def run_migrations():
-    """Checks the current DB schema version and applies any necessary migrations."""
-    # This function is now called before the app starts serving requests.
+    """Checks the current DB schema version and applies any necessary migrations safely under an advisory lock."""
     print("Checking database schema version...")
     conn = None
     cur = None
     try:
         conn = psycopg2.connect(**DB_CONFIG)
         cur = conn.cursor()
+
+        # Acquire a cluster-wide PostgreSQL advisory lock so concurrent replicas don't race on migrations
+        cur.execute("SELECT pg_advisory_lock(84729104);")
 
         # Check if the schema_version table exists. If not, this is a pre-migration database.
         cur.execute("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'schema_version')")
@@ -476,7 +574,6 @@ def run_migrations():
                     cur.execute(statement)
                 
                 # Update the version - use TRUNCATE + INSERT to maintain atomicity within transaction
-                # TRUNCATE is transaction-safe and faster than DELETE for single-row tables
                 cur.execute("TRUNCATE TABLE schema_version;")
                 cur.execute("INSERT INTO schema_version (version) VALUES (%s);", (version,))
                 conn.commit()
@@ -490,7 +587,12 @@ def run_migrations():
             conn.rollback()
         sys.exit(1)
     finally:
-        # Ensure resources are always cleaned up
+        if cur and conn and conn.closed == 0:
+            try:
+                cur.execute("SELECT pg_advisory_unlock(84729104);")
+                conn.commit()
+            except Exception:
+                pass
         if cur:
             cur.close()
         if conn:
@@ -499,22 +601,53 @@ def run_migrations():
 # ===========================
 # Database Layer
 # ===========================
+def _get_db_pool():
+    """Lazily initializes and returns the shared ThreadedConnectionPool."""
+    global _db_pool
+    if _db_pool is None:
+        with _db_pool_lock:
+            if _db_pool is None:
+                _db_pool = pg_pool.ThreadedConnectionPool(minconn=1, maxconn=20, **DB_CONFIG)
+    return _db_pool
+
+
 def get_db():
-    """Opens a new database connection if there is none yet for the current application context."""
-    db_ready_event.wait() # Ensure no DB operations happen until migrations are done.
+    """Acquires a pooled database connection for the current application context."""
+    if not db_ready_event.wait(timeout=15):
+        return None
     if 'db' not in g:
         try:
-            g.db = psycopg2.connect(**DB_CONFIG)
-        except psycopg2.OperationalError:
+            conn = _get_db_pool().getconn()
+            # Discard broken connections if Postgres restarted
+            if conn.closed != 0:
+                _get_db_pool().putconn(conn, close=True)
+                conn = _get_db_pool().getconn()
+            g.db = conn
+        except Exception:
             g.db = None # Fail gracefully if DB is down
     return g.db
 
 
 @app.teardown_appcontext
 def close_db(error):
-    """Closes the database again at the end of the request."""
-    if hasattr(g, 'db') and g.db is not None:
-        g.db.close()
+    """Returns the database connection to the pool at the end of the request."""
+    db = g.pop('db', None)
+    if db is not None:
+        try:
+            if error or db.info.transaction_status == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
+                db.rollback()
+        except Exception:
+            pass
+        try:
+            if _db_pool is not None:
+                _db_pool.putconn(db, close=(db.closed != 0))
+            else:
+                db.close()
+        except Exception:
+            try:
+                db.close()
+            except Exception:
+                pass
 
 
 def initialize_database_if_needed():
@@ -777,20 +910,25 @@ def get_cluster_status():
             stuck_count = cur.fetchone()['cnt']
             failures += stuck_count
     except Exception as e:
+        db.rollback()
         db_error = f"Database query failed: {e}"
 
     # --- Server-Side Version Mismatch Check ---
     # The dashboard should be the source of truth for version mismatches.
     # This ensures that if the dashboard is updated, it will flag old workers.
     dashboard_version = get_project_version()
-    if db is not None and dashboard_version != "unknown":
-        with db.cursor() as cur:
-            for node in nodes:
-                is_mismatched = node['version'] != dashboard_version
-                if node['version_mismatch'] != is_mismatched:
-                    cur.execute("UPDATE nodes SET version_mismatch = %s WHERE hostname = %s", (is_mismatched, node['hostname']))
-                    node['version_mismatch'] = is_mismatched # Update the live data
-        db.commit()
+    if db is not None and not db_error and dashboard_version != "unknown":
+        try:
+            with db.cursor() as cur:
+                for node in nodes:
+                    is_mismatched = node['version'] != dashboard_version
+                    if node['version_mismatch'] != is_mismatched:
+                        cur.execute("UPDATE nodes SET version_mismatch = %s WHERE hostname = %s", (is_mismatched, node['hostname']))
+                        node['version_mismatch'] = is_mismatched # Update the live data
+            db.commit()
+        except Exception as e:
+            db.rollback()
+            db_error = f"Database update failed: {e}"
 
     return nodes, failures, db_error
 
@@ -838,10 +976,16 @@ def get_failed_files_list():
             stuck_jobs = cur.fetchall()
             files.extend(stuck_jobs)
             
-            # Sort all files by reported_at descending
-            files = sorted(files, key=lambda x: x['reported_at'], reverse=True)
+            # Sort all files by reported_at descending, normalizing naive/aware datetimes to UTC
+            def _sort_ts(item):
+                ts = item.get('reported_at')
+                if ts is None:
+                    return datetime.min.replace(tzinfo=timezone.utc)
+                return ts.replace(tzinfo=timezone.utc) if ts.tzinfo is None else ts.astimezone(timezone.utc)
+            files = sorted(files, key=_sort_ts, reverse=True)
             
     except Exception as e:
+        db.rollback()
         db_error = f"Database query failed: {e}"
 
     return files, db_error
@@ -1015,7 +1159,7 @@ def update_worker_settings_batch(settings_dict):
     return True, None
 
 def set_node_status(hostname, status):
-    """Sets the status of a specific node (e.g., to 'running')."""
+    """Sets the command of an existing node without forging its last_heartbeat."""
     db = get_db()
     db_error = None
     if db is None:
@@ -1024,23 +1168,15 @@ def set_node_status(hostname, status):
     try:
         with db.cursor() as cur:
             cur.execute(
-                "UPDATE nodes SET command = %s, last_heartbeat = NOW() WHERE hostname = %s;",
+                "UPDATE nodes SET command = %s WHERE hostname = %s;",
                 (status, hostname)
             )
-            # The above command will not fail if the node doesn't exist, but it also won't update anything.
-            # We check rowcount to see if a change was made.
             if cur.rowcount == 0:
-                # If no rows were updated, it means the node isn't in the table yet.
-                # This can happen if a worker is controlled before its first heartbeat.
-                # We'll insert it with the desired status.
-                # Corrected to insert into the 'nodes' table
-                cur.execute("""
-                    INSERT INTO nodes (hostname, status, command, last_heartbeat) VALUES (%s, %s, %s, NOW())
-                    -- The connected_at column will be set to its default value (CURRENT_TIMESTAMP)
-                    ON CONFLICT (hostname) DO NOTHING;
-                """, (hostname, status, status))
+                db.rollback()
+                return False, f"Node '{hostname}' not found."
         db.commit()
     except Exception as e:
+        db.rollback()
         db_error = f"Database query failed: {e}"
         return False, db_error
     return True, None
@@ -1103,7 +1239,7 @@ def validate_worker_session(hostname, session_token):
             # but we'll allow it for backward compatibility
             return True, None
         
-        if stored_token != session_token:
+        if not hmac.compare_digest(str(stored_token), str(session_token)):
             # Session token mismatch - reject this worker
             return False, f"Worker '{hostname}' is already registered with a different session. Another worker with the same hostname is active."
         
@@ -1159,7 +1295,7 @@ def register_worker():
     Endpoint for workers to register themselves with a unique session token.
     This prevents multiple workers with the same hostname from operating simultaneously.
     """
-    data = request.json
+    data = request.get_json(silent=True) or {}
     hostname = data.get('hostname')
     session_token = data.get('session_token')
     version = data.get('version', 'unknown')
@@ -1173,33 +1309,38 @@ def register_worker():
     if not conn:
         return jsonify({"error": "Database connection failed"}), 500
     
+    cur = None
     try:
         cur = conn.cursor(cursor_factory=RealDictCursor)
         
-        # Check if a node with this hostname already exists
-        cur.execute("SELECT session_token, status, last_heartbeat FROM nodes WHERE hostname = %s", (hostname,))
+        # Lock row for update to prevent concurrent registration races, and compute elapsed seconds in Postgres
+        cur.execute("""
+            SELECT session_token, status, EXTRACT(EPOCH FROM (NOW() - last_heartbeat)) AS seconds_since_heartbeat
+            FROM nodes
+            WHERE hostname = %s
+            FOR UPDATE
+        """, (hostname,))
         existing_node = cur.fetchone()
         
         if existing_node:
             stored_token = existing_node.get('session_token')
-            last_heartbeat = existing_node.get('last_heartbeat')
+            time_since_heartbeat = existing_node.get('seconds_since_heartbeat')
             
             # If there's already a session token and it's different, reject the registration
-            if stored_token and stored_token != session_token:
+            if stored_token and not hmac.compare_digest(str(stored_token), str(session_token)):
                 # Check if the existing worker is still active (heartbeat within last 5 minutes)
-                if last_heartbeat:
-                    time_since_heartbeat = (datetime.now(timezone.utc) - last_heartbeat.replace(tzinfo=timezone.utc)).total_seconds()
-                    
-                    if time_since_heartbeat < WORKER_SESSION_TIMEOUT_SECONDS:
-                        print(f"[{datetime.now()}] Registration rejected: Worker '{hostname}' is already active")
-                        return jsonify({
-                            "error": f"A worker with hostname '{hostname}' is already active in the cluster.",
-                            "message": "Please stop the existing worker or choose a different hostname.",
-                            "rejected": True
-                        }), 409  # 409 Conflict
-                    else:
-                        # Old worker is stale, allow the new one to take over
-                        print(f"[{datetime.now()}] Existing worker '{hostname}' is stale (last heartbeat {int(time_since_heartbeat)}s ago). Allowing new worker to register.")
+                if time_since_heartbeat is not None and time_since_heartbeat < WORKER_SESSION_TIMEOUT_SECONDS:
+                    print(f"[{datetime.now()}] Registration rejected: Worker '{hostname}' is already active")
+                    conn.rollback()
+                    return jsonify({
+                        "error": f"A worker with hostname '{hostname}' is already active in the cluster.",
+                        "message": "Please stop the existing worker or choose a different hostname.",
+                        "rejected": True
+                    }), 409  # 409 Conflict
+                else:
+                    # Old worker is stale, allow the new one to take over
+                    stale_secs = int(time_since_heartbeat) if time_since_heartbeat is not None else 0
+                    print(f"[{datetime.now()}] Existing worker '{hostname}' is stale (last heartbeat {stale_secs}s ago). Allowing new worker to register.")
                 
             # If the session token matches or there's no token, update it
             cur.execute("""
@@ -1221,9 +1362,10 @@ def register_worker():
     except Exception as e:
         conn.rollback()
         print(f"[{datetime.now()}] Worker registration error: {e}")
-        return jsonify({"error": f"Registration failed: {str(e)}"}), 500
+        return jsonify({"error": "Registration failed due to a server error."}), 500
     finally:
-        cur.close()
+        if cur:
+            cur.close()
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -1249,8 +1391,12 @@ def login():
             flash('Server configuration error for local login.', 'danger')
             return redirect(url_for('login'))
 
-        if local_user and local_pass and username == local_user and password == local_pass:
+        if (local_user and local_pass and username and password
+                and hmac.compare_digest(username, local_user)
+                and hmac.compare_digest(password, local_pass)):
+            session.clear()
             session['user'] = {'email': local_user, 'name': 'Local Admin'}
+            get_csrf_token()
             return redirect(url_for('dashboard'))
         else:
             flash('Invalid credentials.', 'danger')
@@ -1298,9 +1444,22 @@ def authorize():
     """Callback route for the OIDC provider."""
     if not hasattr(app, 'oauth') or 'oidc_provider' not in app.oauth._clients:
         return "OIDC provider not configured.", 500
-    token = app.oauth.oidc_provider.authorize_access_token()
-    session['user'] = token.get('userinfo')
-    return redirect(url_for('dashboard'))
+    try:
+        token = app.oauth.oidc_provider.authorize_access_token()
+        userinfo = token.get('userinfo') if isinstance(token, dict) else None
+        if not isinstance(userinfo, dict):
+            userinfo = app.oauth.oidc_provider.userinfo(token=token)
+        if not isinstance(userinfo, dict) or not userinfo:
+            flash('OIDC login failed: provider did not return user information.', 'danger')
+            return redirect(url_for('login'))
+        session.clear()
+        session['user'] = userinfo
+        get_csrf_token()
+        return redirect(url_for('dashboard'))
+    except Exception as e:
+        app.logger.error("OIDC authorization error: %s", e)
+        flash('OIDC authentication failed. Please try again.', 'danger')
+        return redirect(url_for('login'))
 
 @app.route('/logout')
 def logout():
@@ -1350,13 +1509,14 @@ def passkey_register_challenge():
             exclude_credentials=exclude_credentials if existing_creds else None
         )
         
-        # Store challenge in session for verification
+        # Store challenge and expiration timestamp in session for verification
         session['passkey_challenge'] = base64.urlsafe_b64encode(options.challenge).decode('utf-8')
+        session['passkey_challenge_exp'] = time.time() + 300
         
         return app.response_class(options_to_json(options), mimetype='application/json')
     except Exception as e:
         print(f"Error generating passkey registration challenge: {e}")
-        return jsonify(error=str(e)), 500
+        return jsonify(error="Failed to generate passkey challenge."), 500
 
 @app.route('/api/auth/passkey/register/verify', methods=['POST'])
 def passkey_register_verify():
@@ -1366,23 +1526,33 @@ def passkey_register_verify():
     
     if 'user' not in session or 'passkey_challenge' not in session:
         return jsonify(error="Invalid session"), 401
+
+    # Always consume challenge immediately so failed attempts cannot be replayed
+    expected_challenge_b64 = session.pop('passkey_challenge', None)
+    challenge_exp = session.pop('passkey_challenge_exp', 0)
+    if not expected_challenge_b64 or time.time() > challenge_exp:
+        return jsonify(success=False, error="Registration challenge expired. Please try again."), 400
+
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Database unavailable."), 503
     
     try:
         from webauthn import verify_registration_response
         
         user_id = session['user'].get('email') or session['user'].get('name') or session['user'].get('sub', 'user')
-        device_name = request.json.get('device_name', 'Unnamed Device')
+        device_name = payload.get('device_name', 'Unnamed Device')
         
         # Verify the credential
         verification = verify_registration_response(
-            credential=request.json,
-            expected_challenge=base64.urlsafe_b64decode(session['passkey_challenge'].encode()),
+            credential=payload,
+            expected_challenge=base64.urlsafe_b64decode(expected_challenge_b64.encode()),
             expected_origin=app.config['WEBAUTHN_ORIGIN'],
             expected_rp_id=app.config['WEBAUTHN_RP_ID']
         )
         
         # Store credential in database
-        db = get_db()
         with db.cursor() as cur:
             cur.execute(
                 """INSERT INTO passkey_credentials 
@@ -1398,13 +1568,11 @@ def passkey_register_verify():
             )
         db.commit()
         
-        # Clear the challenge from session
-        session.pop('passkey_challenge', None)
-        
         return jsonify(success=True, message="Passkey registered successfully.")
     except Exception as e:
+        db.rollback()
         print(f"Error verifying passkey registration: {e}")
-        return jsonify(success=False, error=str(e)), 400
+        return jsonify(success=False, error="Passkey registration verification failed."), 400
 
 @app.route('/api/auth/passkey/auth/challenge', methods=['POST'])
 def passkey_auth_challenge():
@@ -1418,6 +1586,8 @@ def passkey_auth_challenge():
         
         # Get all registered credentials to allow any user to authenticate
         db = get_db()
+        if db is None:
+            return jsonify(error="Database unavailable."), 503
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SELECT credential_id FROM passkey_credentials")
             all_creds = cur.fetchall()
@@ -1435,13 +1605,14 @@ def passkey_auth_challenge():
             allow_credentials=allow_credentials
         )
         
-        # Store challenge in session for verification
+        # Store challenge and TTL in session for verification
         session['passkey_auth_challenge'] = base64.urlsafe_b64encode(options.challenge).decode('utf-8')
+        session['passkey_auth_challenge_exp'] = time.time() + 300
         
         return app.response_class(options_to_json(options), mimetype='application/json')
     except Exception as e:
         print(f"Error generating passkey authentication challenge: {e}")
-        return jsonify(error=str(e)), 500
+        return jsonify(error="Failed to generate authentication challenge."), 500
 
 @app.route('/api/auth/passkey/auth/verify', methods=['POST'])
 def passkey_auth_verify():
@@ -1451,14 +1622,24 @@ def passkey_auth_verify():
     
     if 'passkey_auth_challenge' not in session:
         return jsonify(error="Invalid session"), 401
+
+    # Consume challenge immediately to prevent replay attacks
+    expected_challenge_b64 = session.pop('passkey_auth_challenge', None)
+    challenge_exp = session.pop('passkey_auth_challenge_exp', 0)
+    if not expected_challenge_b64 or time.time() > challenge_exp:
+        return jsonify(success=False, error="Authentication challenge expired. Please try again."), 400
+
+    payload = request.get_json(silent=True) or {}
+    db = get_db()
+    if db is None:
+        return jsonify(success=False, error="Database unavailable."), 503
     
     try:
         from webauthn import verify_authentication_response
         
-        credential_id = request.json.get('id')
+        credential_id = payload.get('id')
         
         # Retrieve the credential from database
-        db = get_db()
         with db.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 "SELECT * FROM passkey_credentials WHERE credential_id = %s",
@@ -1471,12 +1652,13 @@ def passkey_auth_verify():
         
         # Verify the authentication
         verification = verify_authentication_response(
-            credential=request.json,
-            expected_challenge=base64.urlsafe_b64decode(session['passkey_auth_challenge'].encode()),
+            credential=payload,
+            expected_challenge=base64.urlsafe_b64decode(expected_challenge_b64.encode()),
             expected_origin=app.config['WEBAUTHN_ORIGIN'],
             expected_rp_id=app.config['WEBAUTHN_RP_ID'],
             credential_public_key=base64.urlsafe_b64decode((credential['public_key'] + '=' * (-len(credential['public_key']) % 4)).encode()),
-            credential_current_sign_count=credential['sign_count']
+            credential_current_sign_count=credential['sign_count'],
+            require_user_verification=True
         )
         
         # Update sign count and last used timestamp
@@ -1489,16 +1671,16 @@ def passkey_auth_verify():
             )
         db.commit()
         
-        # Create user session
+        # Regenerate session to prevent session fixation
+        session.clear()
         session['user'] = {'name': credential['user_id'], 'auth_method': 'passkey'}
-        
-        # Clear the challenge from session
-        session.pop('passkey_auth_challenge', None)
+        get_csrf_token()
         
         return jsonify(success=True, message="Authentication successful.")
     except Exception as e:
+        db.rollback()
         print(f"Error verifying passkey authentication: {e}")
-        return jsonify(success=False, error=str(e)), 400
+        return jsonify(success=False, error="Passkey authentication failed."), 400
 
 @app.route('/api/auth/passkey/credentials', methods=['GET'])
 def list_passkey_credentials():
@@ -1747,20 +1929,21 @@ def options():
 
 @app.route('/api/settings', methods=['GET'])
 def api_settings():
-    """Returns all worker settings as JSON."""
+    """Returns non-sensitive worker settings as JSON (redacting API keys and tokens)."""
     settings, db_error = get_worker_settings()
     if db_error:
         return jsonify(settings={}, error=db_error), 500
     
-    # Flatten the nested structure for the debug modal
-    # get_worker_settings returns {setting_name: {'setting_value': value}}
-    # but we want {setting_name: value} for display
+    # Flatten the nested structure and redact sensitive credentials so workers and debug views never expose secrets
     flat_settings = {}
     for key, value_dict in settings.items():
+        if key in SENSITIVE_SETTING_KEYS:
+            val = value_dict.get('setting_value', '') if isinstance(value_dict, dict) else value_dict
+            flat_settings[key] = '***REDACTED***' if val else ''
+            continue
         if isinstance(value_dict, dict) and 'setting_value' in value_dict:
             flat_settings[key] = value_dict['setting_value']
         else:
-            # Fallback if structure is different
             flat_settings[key] = value_dict
     
     return jsonify(settings=flat_settings, dashboard_version=get_project_version())
@@ -1777,6 +1960,22 @@ def api_backup_now():
     except Exception as e:
         return jsonify(success=False, error=str(e)), 500
 
+BACKUP_FILENAME_RE = re.compile(r'^(?:\d{8}\.\d{6}\.(?:tar\.gz|sql\.gz)|librarrarian_backup_\d{8}_\d{6}\.sql\.gz)$')
+
+
+def _resolve_safe_backup_path(filename: str, backup_dir: str = '/data/backup') -> Optional[str]:
+    """Validates backup filename against strict whitelist and verifies realpath containment."""
+    if not filename or not BACKUP_FILENAME_RE.match(filename):
+        return None
+    base_real = os.path.realpath(backup_dir)
+    candidate = os.path.realpath(os.path.join(base_real, filename))
+    if not candidate.startswith(base_real + os.sep):
+        return None
+    if os.path.islink(os.path.join(base_real, filename)):
+        return None
+    return candidate
+
+
 @app.route('/api/backup/files', methods=['GET'])
 def api_backup_files():
     """
@@ -1792,9 +1991,12 @@ def api_backup_files():
         
         backup_files = []
         for filename in os.listdir(backup_dir):
-            if filename.endswith('.tar.gz') or (filename.startswith('librarrarian_backup_') and filename.endswith('.sql.gz')):
+            if BACKUP_FILENAME_RE.match(filename):
                 filepath = os.path.join(backup_dir, filename)
-                stat = os.stat(filepath)
+                try:
+                    stat = os.stat(filepath)
+                except OSError:
+                    continue
                 
                 backup_files.append({
                     'filename': filename,
@@ -1813,7 +2015,8 @@ def api_backup_files():
         
         return jsonify(success=True, files=backup_files)
     except Exception as e:
-        return jsonify(success=False, error=str(e)), 500
+        app.logger.error("Error listing backup files: %s", e)
+        return jsonify(success=False, error="Failed to list backup files."), 500
 
 @app.route('/api/backup/download/<filename>', methods=['GET'])
 def api_backup_download(filename):
@@ -1822,23 +2025,18 @@ def api_backup_download(filename):
     Note: Authentication is enforced by the @app.before_request hook.
     """
     try:
-        # Sanitize filename to prevent directory traversal
-        if '..' in filename or '/' in filename or '\\' in filename:
+        filepath = _resolve_safe_backup_path(filename)
+        if not filepath:
             return jsonify(success=False, error="Invalid filename"), 400
         
-        # Database backups are stored in a fixed location, not the user-configurable backup_directory
-        backup_dir = '/data/backup'
-        
-        filepath = os.path.join(backup_dir, filename)
-        
-        if not os.path.exists(filepath):
+        if not os.path.isfile(filepath):
             return jsonify(success=False, error="File not found"), 404
         
-        # Send file for download
         from flask import send_file
         return send_file(filepath, as_attachment=True, download_name=filename)
     except Exception as e:
-        return jsonify(success=False, error=str(e)), 500
+        app.logger.error("Error downloading backup: %s", e)
+        return jsonify(success=False, error="Failed to download backup file."), 500
 
 @app.route('/api/backup/delete/<filename>', methods=['POST'])
 def api_backup_delete(filename):
@@ -1847,16 +2045,11 @@ def api_backup_delete(filename):
     Note: Authentication is enforced by the @app.before_request hook.
     """
     try:
-        # Sanitize filename to prevent directory traversal
-        if '..' in filename or '/' in filename or '\\' in filename:
+        filepath = _resolve_safe_backup_path(filename)
+        if not filepath:
             return jsonify(success=False, error="Invalid filename"), 400
         
-        # Database backups are stored in a fixed location, not the user-configurable backup_directory
-        backup_dir = '/data/backup'
-        
-        filepath = os.path.join(backup_dir, filename)
-        
-        if not os.path.exists(filepath):
+        if not os.path.isfile(filepath):
             return jsonify(success=False, error="File not found"), 404
         
         os.remove(filepath)
@@ -1864,7 +2057,8 @@ def api_backup_delete(filename):
         
         return jsonify(success=True, message=f"Backup file {filename} deleted successfully")
     except Exception as e:
-        return jsonify(success=False, error=str(e)), 500
+        app.logger.error("Error deleting backup: %s", e)
+        return jsonify(success=False, error="Failed to delete backup file."), 500
 
 @app.route('/api/jobs/clear', methods=['POST'])
 def api_clear_jobs():
@@ -2551,11 +2745,16 @@ def plex_test_connection():
 @app.route('/api/jellyfin/login', methods=['POST'])
 def jellyfin_login():
     """Links a Jellyfin server by saving the host URL and API key."""
-    jellyfin_host = request.json.get('host')
-    jellyfin_api_key = request.json.get('api_key')
+    payload = request.get_json(silent=True) or {}
+    jellyfin_host = payload.get('host')
+    jellyfin_api_key = payload.get('api_key')
 
     if not jellyfin_host or not jellyfin_api_key:
         return jsonify(success=False, error="Server URL and API key are required."), 400
+
+    safe_url, url_err = is_safe_service_url(jellyfin_host)
+    if not safe_url:
+        return jsonify(success=False, error=url_err), 400
 
     # Normalize the URL
     jellyfin_host = normalize_server_url(jellyfin_host)
@@ -2563,7 +2762,7 @@ def jellyfin_login():
     # Validate the connection by attempting to fetch libraries
     try:
         headers = {'X-Emby-Token': jellyfin_api_key}
-        response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10)
+        response = requests.get(f"{jellyfin_host}/Users", headers=headers, timeout=10, allow_redirects=False)
         
         if response.status_code == 401:
             return jsonify(success=False, error="Invalid API key. Please check your Jellyfin API key."), 401
@@ -2576,11 +2775,12 @@ def jellyfin_login():
             'jellyfin_api_key': jellyfin_api_key
         })
         if not success:
-            return jsonify(success=False, error=f"Failed to save settings: {error}"), 500
+            return jsonify(success=False, error="Failed to save settings."), 500
         return jsonify(success=True, message="Jellyfin server linked successfully!")
         
     except requests.exceptions.RequestException as e:
-        return jsonify(success=False, error=f"Failed to connect to Jellyfin: {e}"), 503
+        app.logger.error("Failed to connect to Jellyfin: %s", e)
+        return jsonify(success=False, error="Failed to connect to Jellyfin server."), 503
 
 @app.route('/api/jellyfin/logout', methods=['POST'])
 def jellyfin_logout():
@@ -2599,20 +2799,28 @@ def jellyfin_logout():
 @app.route('/api/jellyfin/update-config', methods=['POST'])
 def jellyfin_update_config():
     """Updates the Jellyfin server configuration (URL and/or API key)."""
-    jellyfin_host = request.json.get('host')
-    jellyfin_api_key = request.json.get('api_key')  # Optional - if not provided, keeps existing
+    payload = request.get_json(silent=True) or {}
+    jellyfin_host = payload.get('host')
+    jellyfin_api_key = payload.get('api_key')  # Optional - if not provided, keeps existing only for same host
     
     if not jellyfin_host:
         return jsonify(success=False, error="Server URL is required."), 400
+
+    safe_url, url_err = is_safe_service_url(jellyfin_host)
+    if not safe_url:
+        return jsonify(success=False, error=url_err), 400
     
     # Normalize the URL
     jellyfin_host = normalize_server_url(jellyfin_host)
     
-    # If no API key provided, use the existing one
+    # If no API key provided, only reuse the existing key if the host has NOT changed (prevents credential exfiltration)
     if not jellyfin_api_key:
         settings, db_error = get_worker_settings()
         if db_error:
             return jsonify(success=False, error=db_error), 500
+        saved_host = normalize_server_url(settings.get('jellyfin_host', {}).get('setting_value', '') or '')
+        if saved_host and saved_host != jellyfin_host:
+            return jsonify(success=False, error="Please provide the API key when changing the Jellyfin server URL."), 400
         jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
         if not jellyfin_api_key:
             return jsonify(success=False, error="No existing API key found. Please provide an API key."), 400
@@ -2620,7 +2828,7 @@ def jellyfin_update_config():
     # Test if the server is reachable with the credentials
     try:
         headers = {'X-Emby-Token': jellyfin_api_key}
-        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10, allow_redirects=False)
         
         if response.status_code == 401:
             return jsonify(success=False, error="Invalid API key."), 401
@@ -2636,36 +2844,46 @@ def jellyfin_update_config():
         if success:
             return jsonify(success=True, message="Jellyfin server configuration updated successfully!")
         else:
-            return jsonify(success=False, error=error), 500
+            return jsonify(success=False, error="Failed to save settings."), 500
             
     except requests.exceptions.Timeout:
         return jsonify(success=False, error="Connection timed out."), 503
     except requests.exceptions.ConnectionError:
         return jsonify(success=False, error="Could not connect to server."), 503
     except Exception as e:
-        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+        app.logger.error("Jellyfin update-config error: %s", e)
+        return jsonify(success=False, error="Connection test failed."), 503
 
 @app.route('/api/jellyfin/test-connection', methods=['POST'])
 def jellyfin_test_connection():
-    """Tests connectivity to a Jellyfin server without full authentication."""
-    jellyfin_host = request.json.get('host')
-    jellyfin_api_key = request.json.get('api_key')
+    """Tests connectivity to a Jellyfin server without leaking stored credentials to arbitrary hosts."""
+    payload = request.get_json(silent=True) or {}
+    jellyfin_host = payload.get('host')
+    jellyfin_api_key = payload.get('api_key')
     
     if not jellyfin_host:
         return jsonify(success=False, error="Jellyfin Server URL is required."), 400
+
+    safe_url, url_err = is_safe_service_url(jellyfin_host)
+    if not safe_url:
+        return jsonify(success=False, error=url_err), 400
+    jellyfin_host = normalize_server_url(jellyfin_host)
     
-    # If no API key provided, try to use the existing one from settings
+    # Only reuse stored API key if testing the currently saved host
     if not jellyfin_api_key:
         settings, db_error = get_worker_settings()
         if db_error:
             return jsonify(success=False, error=db_error), 500
+        saved_host = normalize_server_url(settings.get('jellyfin_host', {}).get('setting_value', '') or '')
+        if saved_host and saved_host != jellyfin_host:
+            return jsonify(success=False, error="API key is required when testing a new Jellyfin host."), 400
         jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
         if not jellyfin_api_key:
             return jsonify(success=False, error="API key is required for testing connection."), 400
     
     try:
         headers = {'X-Emby-Token': jellyfin_api_key}
-        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10)
+        response = requests.get(f"{jellyfin_host}/System/Info", headers=headers, timeout=10, allow_redirects=False)
         
         if response.status_code == 401:
             return jsonify(success=False, error="Invalid API key."), 401
@@ -2674,7 +2892,7 @@ def jellyfin_test_connection():
                 data = response.json()
                 server_name = data.get('ServerName', 'Unknown')
                 return jsonify(success=True, message=f"Successfully connected to Jellyfin server: {server_name}")
-            except:
+            except (ValueError, KeyError):
                 return jsonify(success=True, message="Successfully connected to Jellyfin server!")
         else:
             return jsonify(success=False, error=f"Server returned status code: {response.status_code}"), 503
@@ -2683,7 +2901,8 @@ def jellyfin_test_connection():
     except requests.exceptions.ConnectionError:
         return jsonify(success=False, error="Could not connect to server. Please verify the URL is correct."), 503
     except Exception as e:
-        return jsonify(success=False, error=f"Connection test failed: {e}"), 503
+        app.logger.error("Jellyfin test-connection error: %s", e)
+        return jsonify(success=False, error="Connection test failed."), 503
 
 @app.route('/api/jellyfin/libraries', methods=['GET'])
 def jellyfin_get_libraries():
@@ -2904,31 +3123,28 @@ force_scan_flag_lock = threading.Lock()
 def arr_background_thread():
     """Waits for triggers to run Sonarr/Radarr/Lidarr scans (rename, quality, etc.)."""
     while True:
-        # Check all events without blocking using is_set() first
-        # This prevents the sequential blocking that was causing delays
-        if sonarr_rename_scan_event.is_set():
-            sonarr_rename_scan_event.clear()
-            print(f"[{datetime.now()}] Triggering Sonarr rename scan in background thread.")
-            scan_thread = threading.Thread(target=run_sonarr_rename_scan)
-            scan_thread.start()
+        try:
+            if sonarr_rename_scan_event.is_set():
+                sonarr_rename_scan_event.clear()
+                print(f"[{datetime.now()}] Triggering Sonarr rename scan in background thread.")
+                threading.Thread(target=run_sonarr_rename_scan, daemon=True).start()
 
-        if sonarr_quality_scan_event.is_set():
-            sonarr_quality_scan_event.clear()
-            print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
-            scan_thread = threading.Thread(target=run_sonarr_quality_scan)
-            scan_thread.start()
+            if sonarr_quality_scan_event.is_set():
+                sonarr_quality_scan_event.clear()
+                print(f"[{datetime.now()}] Triggering Sonarr quality scan in background thread.")
+                threading.Thread(target=run_sonarr_quality_scan, daemon=True).start()
 
-        if radarr_rename_scan_event.is_set():
-            radarr_rename_scan_event.clear()
-            print(f"[{datetime.now()}] Triggering Radarr rename scan in background thread.")
-            scan_thread = threading.Thread(target=run_radarr_rename_scan)
-            scan_thread.start()
+            if radarr_rename_scan_event.is_set():
+                radarr_rename_scan_event.clear()
+                print(f"[{datetime.now()}] Triggering Radarr rename scan in background thread.")
+                threading.Thread(target=run_radarr_rename_scan, daemon=True).start()
 
-        if lidarr_rename_scan_event.is_set():
-            lidarr_rename_scan_event.clear()
-            print(f"[{datetime.now()}] Triggering Lidarr rename scan in background thread.")
-            scan_thread = threading.Thread(target=run_lidarr_rename_scan)
-            scan_thread.start()
+            if lidarr_rename_scan_event.is_set():
+                lidarr_rename_scan_event.clear()
+                print(f"[{datetime.now()}] Triggering Lidarr rename scan in background thread.")
+                threading.Thread(target=run_lidarr_rename_scan, daemon=True).start()
+        except Exception as e:
+            print(f"[{datetime.now()}] Error in arr_background_thread: {e}")
 
         time.sleep(0.5)  # Check events every 500ms for good responsiveness without high CPU usage
 
@@ -2946,15 +3162,10 @@ def run_sonarr_rename_scan():
     - Updating the arr_job_processor_thread to handle bulk season renames
     """
     with app.app_context():
-        # Clear the cancel event first, before trying to acquire the lock
-        scan_cancel_event.clear()
-        
-        # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Rename scan trigger ignored: Another scan is already in progress.")
-            # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
+        scan_cancel_event.clear()
 
         scan_progress_state.update({"is_running": True, "current_step": "Initializing rename scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "rename"})
 
@@ -3060,14 +3271,10 @@ def run_sonarr_quality_scan():
     4. If file quality doesn't meet cutoff, create a quality mismatch job
     """
     with app.app_context():
-        # Clear the cancel event first, before trying to acquire the lock
-        scan_cancel_event.clear()
-        
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Quality scan trigger ignored: Another scan is already in progress.")
-            # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
+        scan_cancel_event.clear()
 
         scan_progress_state.update({"is_running": True, "current_step": "Initializing quality scan...", "total_steps": 0, "progress": 0, "scan_source": "sonarr", "scan_type": "quality"})
         
@@ -3200,15 +3407,10 @@ def run_radarr_rename_scan():
     or add 'rename' jobs to the local queue for a worker to process.
     """
     with app.app_context():
-        # Clear the cancel event first, before trying to acquire the lock
-        scan_cancel_event.clear()
-        
-        # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Radarr rename scan trigger ignored: Another scan is already in progress.")
-            # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
+        scan_cancel_event.clear()
 
         scan_progress_state.update({"is_running": True, "current_step": "Initializing Radarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "radarr", "scan_type": "rename"})
 
@@ -3305,15 +3507,10 @@ def run_lidarr_rename_scan():
     Uses Lidarr API v1: https://lidarr.audio/docs/api/
     """
     with app.app_context():
-        # Clear the cancel event first, before trying to acquire the lock
-        scan_cancel_event.clear()
-        
-        # This function is now fully self-contained and runs in its own thread.
         if not scanner_lock.acquire(blocking=False):
             print(f"[{datetime.now()}] Lidarr rename scan trigger ignored: Another scan is already in progress.")
-            # Reset the progress state since the API endpoint set it optimistically
-            scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
             return
+        scan_cancel_event.clear()
 
         scan_progress_state.update({"is_running": True, "current_step": "Initializing Lidarr rename scan...", "total_steps": 0, "progress": 0, "scan_source": "lidarr", "scan_type": "rename"})
 
@@ -3408,28 +3605,54 @@ def run_lidarr_rename_scan():
             if scanner_lock.locked():
                 scanner_lock.release()
 
+def _resolve_safe_media_path(folder: str, base_dir: str = '/media') -> Optional[str]:
+    """Resolves a relative folder under /media and rejects path traversal."""
+    if not folder or not isinstance(folder, str):
+        return None
+    base_real = os.path.realpath(base_dir)
+    # Strip leading slashes so os.path.join cannot discard base_real
+    candidate = os.path.realpath(os.path.join(base_real, folder.lstrip('/\\')))
+    if candidate == base_real or candidate.startswith(base_real + os.sep):
+        return candidate
+    return None
+
+
 def run_internal_scan(force_scan=False):
     """
     The core logic for scanning local directories.
     """
-    with app.app_context():
-        # Update progress state at the start
-        scan_progress_state.update({"is_running": True, "current_step": "Initializing internal scan...", "total_steps": 0, "progress": 0, "scan_source": "internal", "scan_type": "media"})
-        
-        try:
+    if not scanner_lock.acquire(blocking=False):
+        print(f"[{datetime.now()}] Internal scan trigger ignored: A scan is already in progress.")
+        return {"success": False, "message": "Scan trigger ignored: A scan is already in progress."}
+
+    try:
+        with app.app_context():
+            # Update progress state at the start
+            scan_progress_state.update({"is_running": True, "current_step": "Initializing internal scan...", "total_steps": 0, "progress": 0, "scan_source": "internal", "scan_type": "media"})
+            
             settings, db_error = get_worker_settings()
             if db_error:
                 scan_progress_state.update({"current_step": "Error: Database not available."})
                 return {"success": False, "message": "Database not available."}
 
             scan_paths_str = settings.get('internal_scan_paths', {}).get('setting_value', '')
-            scan_paths = [path.strip() for path in scan_paths_str.split(',') if path.strip()]
+            raw_scan_paths = [path.strip() for path in scan_paths_str.split(',') if path.strip()]
+            scan_paths = []
+            for folder in raw_scan_paths:
+                safe_path = _resolve_safe_media_path(folder)
+                if safe_path:
+                    scan_paths.append((folder, safe_path))
+                else:
+                    print(f"[{datetime.now()}] ⚠️ WARNING: Rejected unsafe internal scan path: {folder}")
 
             if not scan_paths:
-                scan_progress_state.update({"current_step": "Error: No paths configured."})
-                return {"success": False, "message": "Internal scanner is enabled, but no paths are configured to be scanned."}
+                scan_progress_state.update({"current_step": "Error: No valid paths configured."})
+                return {"success": False, "message": "Internal scanner is enabled, but no valid paths are configured to be scanned."}
 
             conn = get_db()
+            if conn is None:
+                scan_progress_state.update({"current_step": "Error: Database not available."})
+                return {"success": False, "message": "Database not available."}
             cur = conn.cursor(cursor_factory=RealDictCursor)
 
             if force_scan:
@@ -3442,7 +3665,6 @@ def run_internal_scan(force_scan=False):
                 encoded_history = {row['filename'] for row in cur.fetchall()}
             
             # Build list of codecs to skip based on settings
-            # By default, we skip hevc/h265. If allow_hevc is true, we re-encode them.
             skip_codecs = []
             if settings.get('allow_hevc', {}).get('setting_value', 'false') != 'true':
                 skip_codecs.extend(['hevc', 'h265'])
@@ -3453,12 +3675,11 @@ def run_internal_scan(force_scan=False):
 
             new_files_found = 0
             valid_extensions = ('.mkv', '.mp4', '.avi', '.mov', '.wmv', '.flv', '.webm')
-            print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(scan_paths)}")
+            print(f"[{datetime.now()}] Internal Scanner: Starting scan of paths: {', '.join(f for f, _ in scan_paths)}")
 
             # First pass: count total files to scan for progress tracking
             total_files = 0
-            for folder in scan_paths:
-                full_scan_path = os.path.join('/media', folder)
+            for _, full_scan_path in scan_paths:
                 for root, _, files in os.walk(full_scan_path):
                     for file in files:
                         if file.lower().endswith(valid_extensions):
@@ -3467,8 +3688,7 @@ def run_internal_scan(force_scan=False):
             scan_progress_state.update({"total_steps": total_files})
             files_processed = 0
 
-            for folder in scan_paths:
-                full_scan_path = os.path.join('/media', folder)
+            for folder, full_scan_path in scan_paths:
                 print(f"[{datetime.now()}] Internal Scanner: Scanning '{full_scan_path}'...")
                 scan_progress_state.update({"current_step": f"Scanning: {folder}"})
                 
@@ -3485,29 +3705,24 @@ def run_internal_scan(force_scan=False):
                             continue
 
                         try:
-                            # Check if file is a symbolic link
                             is_symlink = os.path.islink(filepath)
-                            
-                            # Use ffprobe to get the video codec
                             ffprobe_cmd = ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=codec_name", "-of", "default=noprint_wrappers=1:nokey=1", filepath]
-                            codec = subprocess.check_output(ffprobe_cmd, text=True).strip().lower()
+                            codec = subprocess.check_output(ffprobe_cmd, text=True, timeout=30, stderr=subprocess.DEVNULL).strip().lower()
                             
                             print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec or 'N/A'}{', Symlink' if is_symlink else ''})")
                             if codec and codec not in skip_codecs:
                                 if is_symlink:
-                                    # Add symbolic links with 'awaiting_approval' status and metadata warning
                                     print(f"    -> Adding symbolic link to queue with approval required (codec: {codec}).")
                                     metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
                                     cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
                                     if cur.rowcount > 0:
                                         new_files_found += 1
                                 else:
-                                    # Add regular files as pending
                                     print(f"    -> Adding file to queue (codec: {codec}).")
                                     cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                                     if cur.rowcount > 0:
                                         new_files_found += 1
-                        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                        except (subprocess.CalledProcessError, subprocess.TimeoutExpired, FileNotFoundError) as e:
                             print(f"    -> Could not probe file '{filepath}'. Error: {e}")
 
             conn.commit()
@@ -3515,10 +3730,11 @@ def run_internal_scan(force_scan=False):
             scan_progress_state.update({"current_step": message})
             cur.close()
             return {"success": True, "message": message}
-        finally:
-            # Clear progress state after a brief delay to let UI catch the final message
-            time.sleep(2)
-            scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
+    finally:
+        # Clear progress state after a brief delay to let UI catch the final message
+        time.sleep(2)
+        scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
+        scanner_lock.release()
 
 def run_plex_scan(force_scan=False):
     """
@@ -3596,24 +3812,40 @@ def run_plex_scan(force_scan=False):
             items_processed = 0
             
             for lib_name in plex_libraries:
-                library = plex_server.library.section(title=lib_name)
+                try:
+                    library = plex_server.library.section(title=lib_name)
+                except Exception as e:
+                    print(f"[{datetime.now()}] Plex Scanner: Skipping unavailable library '{lib_name}': {e}")
+                    continue
+
                 print(f"[{datetime.now()}] Plex Scanner: Scanning '{library.title}'...")
                 scan_progress_state.update({"current_step": f"Scanning library: {library.title}"})
                 
-                for video in library.all():
+                # ShowSection.all() returns Show objects (which lack .media); use searchEpisodes() for TV libraries
+                try:
+                    videos = library.searchEpisodes() if getattr(library, 'type', None) == 'show' else library.all()
+                except Exception as e:
+                    print(f"[{datetime.now()}] Plex Scanner: Failed to list items in '{library.title}': {e}")
+                    continue
+
+                for video in videos:
                     items_processed += 1
-                    
-                    # Must reload to get all media part and stream details
-                    video.reload()
-                    
-                    # Use the primary media object's codec for simplicity and reliability
-                    if not hasattr(video, 'media') or not video.media:
+                    try:
+                        # Avoid N+1 reload calls when media/parts are already populated
+                        if not getattr(video, 'media', None) or not video.media[0].parts:
+                            video.reload()
+                        if not getattr(video, 'media', None) or not video.media[0].parts:
+                            continue
+
+                        codec = video.media[0].videoCodec
+                        filepath = video.media[0].parts[0].file
+                        if not filepath:
+                            continue
+                    except Exception as e:
+                        print(f"[{datetime.now()}] Plex Scanner: Skipping item due to error: {e}")
                         continue
 
-                    codec = video.media[0].videoCodec
-                    filepath = video.media[0].parts[0].file
                     codec_lower = codec.lower() if codec else ''
-                    
                     scan_progress_state.update({"current_step": f"Checking: {os.path.basename(filepath)}", "progress": items_processed})
 
                     # Check if file is a symbolic link
@@ -3622,14 +3854,12 @@ def run_plex_scan(force_scan=False):
                     print(f"  - Checking: {os.path.basename(filepath)} (Codec: {codec_lower or 'N/A'}{', Symlink' if is_symlink else ''})")
                     if codec and codec_lower not in skip_codecs and filepath not in existing_jobs and filepath not in encoded_history:
                         if is_symlink:
-                            # Add symbolic links with 'awaiting_approval' status and metadata warning
                             print(f"    -> Adding symbolic link to queue with approval required (codec: {codec_lower}).")
                             metadata = json.dumps({"is_symlink": True, "warning": SYMLINK_WARNING})
                             cur.execute("INSERT INTO jobs (filepath, job_type, status, metadata) VALUES (%s, 'transcode', 'awaiting_approval', %s) ON CONFLICT (filepath) DO NOTHING", (filepath, metadata))
                             if cur.rowcount > 0:
                                 new_files_found += 1
                         else:
-                            # Add regular files as pending
                             print(f"    -> Adding file to queue (codec: {codec_lower}).")
                             cur.execute("INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'transcode', 'pending') ON CONFLICT (filepath) DO NOTHING", (filepath,))
                             if cur.rowcount > 0:
@@ -3760,7 +3990,7 @@ def run_jellyfin_scan(force_scan=False):
                         count_response = requests.get(
                             f"{jellyfin_host}/Users/{user_id}/Items",
                             headers=headers,
-                            params={'ParentId': library_id, 'Recursive': 'true', 'IncludeItemTypes': item_types},
+                            params={'ParentId': library_id, 'Recursive': 'true', 'IncludeItemTypes': item_types, 'Limit': 0},
                             timeout=10
                         )
                         count_response.raise_for_status()
@@ -3934,9 +4164,8 @@ def run_cleanup_scan():
     The core logic for scanning the media directory for stale files.
     This function is designed to be called ONLY by a background thread.
     """
-    if not cleanup_scanner_lock.acquire(blocking=False):
+    if not scanner_lock.acquire(blocking=False):
         print(f"[{datetime.now()}] Cleanup scan trigger ignored: A scan is already in progress.")
-        scan_progress_state.update({"is_running": False, "current_step": "Another scan is already in progress.", "progress": 0, "scan_source": "", "scan_type": ""})
         return
 
     try:
@@ -4006,9 +4235,10 @@ def run_cleanup_scan():
                                 full_path = os.path.join(root, file)
                                 if full_path not in existing_jobs:
                                     cur.execute(
-                                        "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'awaiting_approval')",
+                                        "INSERT INTO jobs (filepath, job_type, status) VALUES (%s, 'cleanup', 'awaiting_approval') ON CONFLICT (filepath) DO NOTHING",
                                         (full_path,))
-                                    jobs_created += 1
+                                    if cur.rowcount > 0:
+                                        jobs_created += 1
                 
                 # Mark the last path as complete
                 scan_progress_state["progress"] = len(scan_paths)
@@ -4020,47 +4250,63 @@ def run_cleanup_scan():
         print(f"[{datetime.now()}] Error during cleanup scan: {e}")
         scan_progress_state["current_step"] = f"Error: {e}"
     finally:
-        cleanup_scanner_lock.release()
-        scan_progress_state.update({"is_running": False})
+        scanner_lock.release()
+        scan_progress_state.update({"is_running": False, "current_step": "", "progress": 0, "scan_source": "", "scan_type": ""})
 
 @app.route('/api/jobs/release', methods=['POST'])
 def release_jobs():
-    """Changes the status of cleanup or Rename jobs from 'awaiting_approval' to 'pending'."""
-    data = request.get_json()
+    """Changes the status of awaiting_approval jobs (cleanup, Rename Job, or symlink transcode) to 'pending'."""
+    data = request.get_json(silent=True) or {}
     job_ids = data.get('job_ids')
     release_all = data.get('release_all', False)
     job_type = data.get('job_type', 'cleanup')  # Default to cleanup for backwards compatibility
 
     # Allow both single job_type and list of job_types
     if isinstance(job_type, str):
-        job_types = (job_type,)
+        job_types = (job_type,) if job_type else ()
+    elif isinstance(job_type, list):
+        job_types = tuple(t for t in job_type if t)
     else:
-        job_types = tuple(job_type)
+        job_types = ()
 
     try:
         db = get_db()
+        if db is None:
+            return jsonify(success=False, error="Database unavailable."), 503
         with db.cursor() as cur:
             if release_all:
+                if not job_types:
+                    return jsonify(success=False, error="job_type is required when release_all is true."), 400
                 cur.execute("UPDATE jobs SET status = 'pending' WHERE job_type IN %s AND status = 'awaiting_approval'", (job_types,))
-            elif job_ids:
-                # The '%s' placeholder will be correctly formatted by psycopg2 for the IN clause
-                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND job_type IN %s AND status = 'awaiting_approval'", (tuple(job_ids), job_types))
+            elif job_ids and isinstance(job_ids, list):
+                # When explicit job_ids are selected, release any awaiting_approval job (including symlink transcode jobs)
+                cur.execute("UPDATE jobs SET status = 'pending' WHERE id IN %s AND status = 'awaiting_approval'", (tuple(job_ids),))
+            else:
+                return jsonify(success=False, error="No job IDs provided."), 400
         db.commit()
         return jsonify(success=True, message="Selected jobs have been released to the queue.")
     except Exception as e:
+        if db is not None:
+            db.rollback()
         print(f"Error releasing jobs: {e}")
-        return jsonify(success=False, error=str(e)), 500
+        return jsonify(success=False, error="Failed to release jobs."), 500
 
 @app.route('/api/arr/test', methods=['POST'])
 def api_arr_test():
     """Tests the connection to a Sonarr/Radarr/Lidarr instance."""
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     arr_type = data.get('arr_type')
     host = data.get('host')
     api_key = data.get('api_key')
 
     if not all([arr_type, host, api_key]):
         return jsonify(success=False, message="Missing required parameters."), 400
+    if arr_type not in ('sonarr', 'radarr', 'lidarr'):
+        return jsonify(success=False, message="Invalid arr_type."), 400
+
+    safe_url, url_err = is_safe_service_url(host)
+    if not safe_url:
+        return jsonify(success=False, message=url_err), 400
 
     # Use /api/v3/system/status for modern Sonarr/Radarr, /api/v1 for Lidarr
     api_version = 'v1' if arr_type == 'lidarr' else 'v3'
@@ -4068,8 +4314,7 @@ def api_arr_test():
     headers = {'X-Api-Key': api_key}
 
     try:
-        # Make the request with a timeout and without SSL verification for local setups
-        response = requests.get(test_url, headers=headers, timeout=5, verify=get_arr_ssl_verify())
+        response = requests.get(test_url, headers=headers, timeout=5, verify=get_arr_ssl_verify(), allow_redirects=False)
 
         if response.status_code == 200:
             # Check for a valid JSON response as an extra verification step
@@ -4195,10 +4440,13 @@ def api_export_data():
     
     try:
         with db.cursor(cursor_factory=RealDictCursor) as cur:
-            # Export settings
+            # Export settings (redact sensitive API keys/tokens)
             cur.execute("SELECT setting_name, setting_value FROM worker_settings")
             for row in cur.fetchall():
-                export_data["settings"][row['setting_name']] = row['setting_value']
+                if row['setting_name'] in SENSITIVE_SETTING_KEYS:
+                    export_data["settings"][row['setting_name']] = "***REDACTED***" if row['setting_value'] else ""
+                else:
+                    export_data["settings"][row['setting_name']] = row['setting_value']
             
             # Export jobs (pending and awaiting_approval only, not active encoding jobs)
             cur.execute("SELECT filepath, job_type, status, created_at, metadata FROM jobs WHERE status IN ('pending', 'awaiting_approval')")
@@ -4254,7 +4502,8 @@ def toggle_pause_queue():
 @app.route('/api/request_job', methods=['POST'])
 def request_job():
     """Endpoint for workers to request a new job."""
-    worker_hostname = request.json.get('hostname')
+    payload = request.get_json(silent=True) or {}
+    worker_hostname = payload.get('hostname')
     if not worker_hostname:
         return jsonify({"error": "Hostname is required"}), 400
     
@@ -4270,10 +4519,11 @@ def request_job():
         return jsonify({}) # Return empty response as if no jobs are available
 
     conn = get_db()
+    if conn is None:
+        return jsonify({"error": "Database unavailable"}), 503
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
     try:
-        cur.execute("BEGIN;") # Start a transaction
         # This query now explicitly excludes internal job types that are not meant for workers.
         cur.execute("SELECT id, filepath, job_type FROM jobs WHERE status = 'pending' AND job_type NOT IN ('Rename Job', 'Quality Mismatch') ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED")
         job = cur.fetchone()
@@ -4288,7 +4538,8 @@ def request_job():
             return jsonify({}) # No pending jobs
     except Exception as e:
         conn.rollback()
-        return jsonify({"error": str(e)}), 500
+        app.logger.error("Error in request_job: %s", e)
+        return jsonify({"error": "Failed to assign job."}), 500
     finally:
         cur.close()
 
@@ -4347,7 +4598,7 @@ def trigger_arr_rescan_and_rename(filepath, settings):
                                 requests.post(f"{base_url}/api/v3/command", headers=headers, json=rename_payload, timeout=20, verify=get_arr_ssl_verify())
                                 print(f"[{datetime.now()}] Sonarr auto-rename triggered successfully.")
                                 break
-                        break
+                        return
             except Exception as e:
                 print(f"⚠️ Could not trigger Sonarr rescan/rename: {e}")
 
@@ -4397,86 +4648,102 @@ def trigger_arr_rescan_and_rename(filepath, settings):
             except Exception as e:
                 print(f"⚠️ Could not trigger Radarr rescan/rename: {e}")
 
+post_transcode_queue = queue.Queue()
+
+
+def _run_post_transcode_hooks(filepath):
+    """Runs Plex/Jellyfin refresh and *Arr rescan/rename asynchronously after DB commit."""
+    with app.app_context():
+        try:
+            settings, _ = get_worker_settings()
+            plex_url = settings.get('plex_url', {}).get('setting_value')
+            plex_token = settings.get('plex_token', {}).get('setting_value')
+            if plex_url and plex_token:
+                plex = PlexServer(plex_url, plex_token)
+                if settings.get('hide_plex_updates', {}).get('setting_value') != 'true':
+                    print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
+                plex.library.update()
+
+            jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
+            jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
+            if jellyfin_host and jellyfin_api_key:
+                try:
+                    headers = {'X-Emby-Token': jellyfin_api_key}
+                    if settings.get('hide_jellyfin_updates', {}).get('setting_value') != 'true':
+                        print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
+                    response = requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
+                    response.raise_for_status()
+                except requests.exceptions.RequestException as e:
+                    print(f"⚠️ Could not trigger Jellyfin scan: {e}")
+
+            trigger_arr_rescan_and_rename(filepath, settings)
+        except Exception as e:
+            print(f"⚠️ Error in post-transcode hooks for {filepath}: {e}")
+
+
+def post_transcode_worker_thread():
+    """Consumes completed transcode filepaths and runs slow external notifications off the HTTP thread."""
+    db_ready_event.wait()
+    while True:
+        try:
+            filepath = post_transcode_queue.get()
+            _run_post_transcode_hooks(filepath)
+        except Exception as e:
+            print(f"⚠️ Error in post_transcode_worker_thread: {e}")
+
+
 @app.route('/api/update_job/<int:job_id>', methods=['POST'])
 def update_job(job_id):
     """Endpoint for workers to update the status of a job."""
-    data = request.json
+    data = request.get_json(silent=True) or {}
     status = data.get('status')  # 'completed' or 'failed'
 
+    if status not in ('completed', 'failed'):
+        return jsonify({"error": "Invalid job status. Expected 'completed' or 'failed'."}), 400
+
     conn = get_db()
+    if conn is None:
+        return jsonify({"error": "Database unavailable"}), 503
     cur = conn.cursor(cursor_factory=RealDictCursor)
 
-    # Fetch job details to know its type
-    cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
-    job = cur.fetchone()
+    try:
+        cur.execute("SELECT * FROM jobs WHERE id = %s", (job_id,))
+        job = cur.fetchone()
 
-    if not job:
-        return jsonify({"error": "Job not found"}), 404
+        if not job:
+            return jsonify({"error": "Job not found"}), 404
 
-    if status == 'completed':
-        if job['job_type'] == 'transcode':
-            # For transcodes, move to encoded_files history
-            cur.execute(
-                "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, %s, 'completed')",
-                (job_id, job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
-            )
-            
-            # Trigger media server library updates (Plex and/or Jellyfin)
-            try:
-                settings, _ = get_worker_settings()
-                
-                # Trigger Plex library scan if configured
-                plex_url = settings.get('plex_url', {}).get('setting_value')
-                plex_token = settings.get('plex_token', {}).get('setting_value')
-                if plex_url and plex_token:
-                    plex = PlexServer(plex_url, plex_token)
-                    # Log Plex update if not hidden
-                    if settings.get('hide_plex_updates', {}).get('setting_value') != 'true':
-                        print(f"[{datetime.now()}] Post-transcode: Triggering Plex library update to recognize newly encoded file.")
-                    plex.library.update()
-                
-                # Trigger Jellyfin library scan if configured
-                jellyfin_host = settings.get('jellyfin_host', {}).get('setting_value')
-                jellyfin_api_key = settings.get('jellyfin_api_key', {}).get('setting_value')
-                if jellyfin_host and jellyfin_api_key:
-                    try:
-                        headers = {'X-Emby-Token': jellyfin_api_key}
-                        # Log Jellyfin update if not hidden
-                        if settings.get('hide_jellyfin_updates', {}).get('setting_value') != 'true':
-                            print(f"[{datetime.now()}] Post-transcode: Triggering Jellyfin library scan to recognize newly encoded file.")
-                        response = requests.post(f"{jellyfin_host}/Library/Refresh", headers=headers, timeout=10)
-                        response.raise_for_status()
-                    except requests.exceptions.RequestException as e:
-                        print(f"⚠️ Could not trigger Jellyfin scan: {e}")
-            except Exception as e:
-                print(f"⚠️ Could not trigger media server scan: {e}")
+        should_trigger_hooks = False
+        if status == 'completed':
+            if job['job_type'] == 'transcode':
+                cur.execute(
+                    "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, %s, %s, %s, 'completed')",
+                    (job_id, job['filepath'], data.get('original_size'), data.get('new_size'), job['assigned_to'])
+                )
+                should_trigger_hooks = True
+            elif job['job_type'] == 'cleanup':
+                cur.execute(
+                    "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, 0, 0, %s, 'completed')",
+                    (job_id, job['filepath'], job['assigned_to'])
+                )
+            cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
+            message = f"Job {job_id} ({job['job_type']}) completed and removed from queue."
 
-            # Trigger Sonarr/Radarr rescan and auto-rename if enabled
-            try:
-                settings, _ = get_worker_settings()
-                trigger_arr_rescan_and_rename(job['filepath'], settings)
-            except Exception as e:
-                print(f"⚠️ Could not trigger Arr rescan/rename: {e}")
+        else:  # status == 'failed'
+            cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
+            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
+            message = f"Job {job_id} ({job['job_type']}) failed and logged."
 
-        elif job['job_type'] == 'cleanup':
-            # For cleanups, add a simplified entry to the history
-            cur.execute(
-                "INSERT INTO encoded_files (job_id, filename, original_size, new_size, encoded_by, status) VALUES (%s, %s, 0, 0, %s, 'completed')",
-                (job_id, job['filepath'], job['assigned_to'])
-            )
-        # For all completed jobs (transcode or cleanup), delete from the jobs queue
-        cur.execute("DELETE FROM jobs WHERE id = %s", (job_id,))
-        message = f"Job {job_id} ({job['job_type']}) completed and removed from queue."
-
-    elif status == 'failed':
-        # For any failed job, log it and mark as failed in the queue
-        cur.execute("INSERT INTO failed_files (filename, reason, log) VALUES (%s, %s, %s)", (job['filepath'], data.get('reason'), data.get('log')))
-        cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job_id,))
-        message = f"Job {job_id} ({job['job_type']}) failed and logged."
-
-    conn.commit()
-    cur.close()
-    return jsonify({"message": message})
+        conn.commit()
+        if should_trigger_hooks:
+            post_transcode_queue.put(job['filepath'])
+        return jsonify({"message": message})
+    except Exception as e:
+        conn.rollback()
+        app.logger.error("Error updating job %s: %s", job_id, e)
+        return jsonify({"error": "Failed to update job status."}), 500
+    finally:
+        cur.close()
 
 
 # --- Background Threads ---
@@ -4546,16 +4813,17 @@ def plex_scanner_thread():
 
 def cleanup_scanner_thread():
     """Waits for a trigger to scan for stale files."""
-    # This thread now waits for the db_ready_event before starting its loop.
     db_ready_event.wait()
     print("Cleanup Scanner thread is now active.")
     while True:
-
-        # Wait indefinitely until the event is set
-        cleanup_scan_now_event.wait()
-        print(f"[{datetime.now()}] Manual cleanup scan trigger received.")
-        cleanup_scan_now_event.clear() # Reset the event
-        run_cleanup_scan()
+        try:
+            cleanup_scan_now_event.wait()
+            print(f"[{datetime.now()}] Manual cleanup scan trigger received.")
+            cleanup_scan_now_event.clear()
+            run_cleanup_scan()
+        except Exception as e:
+            print(f"[{datetime.now()}] Error in cleanup_scanner_thread: {e}")
+            time.sleep(5)
 
 def arr_job_processor_thread():
     """
@@ -4603,108 +4871,47 @@ def arr_job_processor_thread():
                     print(f"Found {len(jobs_to_process)} rename job(s) to process.")
                     
                     for job in jobs_to_process:
-                        metadata = job.get('metadata', {})
+                        metadata = job.get('metadata') or {}
                         source = metadata.get('source', 'sonarr')  # Default to sonarr for backwards compatibility
-                        
-                        if source == 'radarr':
-                            # Process Radarr rename job
-                            host = settings.get('radarr_host', {}).get('setting_value')
-                            api_key = settings.get('radarr_api_key', {}).get('setting_value')
-                            
-                            if not host or not api_key:
-                                print(f"Radarr is not configured. Skipping job {job['id']}.")
-                                continue
-                            
-                            file_id = metadata.get('movieFileId')
-                            movie_id = metadata.get('movieId')
 
-                            if not file_id or not movie_id:
-                                print(f"Failing job {job['id']}: Missing 'movieFileId' or 'movieId' in metadata.")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                                continue
-                            
-                            try:
-                                base_url = host.rstrip('/')
-                                headers = {'X-Api-Key': api_key}
-                                print(f"Processing Radarr rename for job {job['id']} (File ID: {file_id})")
-                                payload = {"name": "RenameFiles", "movieId": movie_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
-                                res.raise_for_status()
-                                
-                                # Mark job as completed
-                                print(f"Radarr rename job {job['id']} completed successfully.")
-                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        arr_config = {
+                            'radarr': ('radarr_host', 'radarr_api_key', 'movieFileId', 'movieId', 'v3', 'Radarr'),
+                            'lidarr': ('lidarr_host', 'lidarr_api_key', 'trackFileId', 'artistId', 'v1', 'Lidarr'),
+                            'sonarr': ('sonarr_host', 'sonarr_api_key', 'episodeFileId', 'seriesId', 'v3', 'Sonarr'),
+                        }
+                        host_key, api_key_name, file_key, parent_key, api_ver, label = arr_config.get(source, arr_config['sonarr'])
+                        host = settings.get(host_key, {}).get('setting_value')
+                        api_key = settings.get(api_key_name, {}).get('setting_value')
 
-                            except requests.exceptions.RequestException as e:
-                                print(f"Error processing Radarr rename job {job['id']}: {e}")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                        
-                        elif source == 'lidarr':
-                            # Process Lidarr rename job
-                            host = settings.get('lidarr_host', {}).get('setting_value')
-                            api_key = settings.get('lidarr_api_key', {}).get('setting_value')
-                            
-                            if not host or not api_key:
-                                print(f"Lidarr is not configured. Skipping job {job['id']}.")
-                                continue
-                            
-                            file_id = metadata.get('trackFileId')
-                            artist_id = metadata.get('artistId')
+                        if not host or not api_key:
+                            print(f"{label} is not configured. Moving job {job['id']} back to awaiting_approval to avoid starving queue.")
+                            cur.execute("UPDATE jobs SET status = 'awaiting_approval', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            continue
 
-                            if not file_id or not artist_id:
-                                print(f"Failing job {job['id']}: Missing 'trackFileId' or 'artistId' in metadata.")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                                continue
-                            
-                            try:
-                                base_url = host.rstrip('/')
-                                headers = {'X-Api-Key': api_key}
-                                print(f"Processing Lidarr rename for job {job['id']} (File ID: {file_id})")
-                                # Lidarr uses API v1
-                                payload = {"name": "RenameFiles", "artistId": artist_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v1/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
-                                res.raise_for_status()
-                                
-                                # Mark job as completed
-                                print(f"Lidarr rename job {job['id']} completed successfully.")
-                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        file_id = metadata.get(file_key)
+                        parent_id = metadata.get(parent_key)
 
-                            except requests.exceptions.RequestException as e:
-                                print(f"Error processing Lidarr rename job {job['id']}: {e}")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                        
-                        else:
-                            # Process Sonarr rename job (default)
-                            host = settings.get('sonarr_host', {}).get('setting_value')
-                            api_key = settings.get('sonarr_api_key', {}).get('setting_value')
-                            
-                            if not host or not api_key:
-                                print(f"Sonarr is not configured. Skipping job {job['id']}.")
-                                continue
+                        if not file_id or not parent_id:
+                            print(f"Failing job {job['id']}: Missing '{file_key}' or '{parent_key}' in metadata.")
+                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                            continue
 
-                            file_id = metadata.get('episodeFileId')
-                            series_id = metadata.get('seriesId')
+                        # Commit lock release before performing blocking HTTP call
+                        cur.execute("UPDATE jobs SET status = 'processing', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        conn.commit()
 
-                            if not file_id or not series_id:
-                                print(f"Failing job {job['id']}: Missing 'episodeFileId' or 'seriesId' in metadata.")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-                                continue
-                            
-                            try:
-                                base_url = host.rstrip('/')
-                                headers = {'X-Api-Key': api_key}
-                                print(f"Processing Sonarr rename for job {job['id']} (File ID: {file_id})")
-                                payload = {"name": "RenameFiles", "seriesId": series_id, "files": [file_id]}
-                                res = requests.post(f"{base_url}/api/v3/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
-                                res.raise_for_status()
-                                
-                                # Mark job as completed
-                                print(f"Sonarr rename job {job['id']} completed successfully.")
-                                cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
-
-                            except requests.exceptions.RequestException as e:
-                                print(f"Error processing Sonarr rename job {job['id']}: {e}")
-                                cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        try:
+                            base_url = host.rstrip('/')
+                            headers = {'X-Api-Key': api_key}
+                            print(f"Processing {label} rename for job {job['id']} (File ID: {file_id})")
+                            payload = {"name": "RenameFiles", parent_key: parent_id, "files": [file_id]}
+                            res = requests.post(f"{base_url}/api/{api_ver}/command", headers=headers, json=payload, timeout=20, verify=get_arr_ssl_verify())
+                            res.raise_for_status()
+                            print(f"{label} rename job {job['id']} completed successfully.")
+                            cur.execute("UPDATE jobs SET status = 'completed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
+                        except requests.exceptions.RequestException as e:
+                            print(f"Error processing {label} rename job {job['id']}: {e}")
+                            cur.execute("UPDATE jobs SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = %s", (job['id'],))
                 
                 conn.commit()
                 cur.close()
@@ -4752,98 +4959,63 @@ def perform_database_backup():
         # Create backup directory if it doesn't exist
         os.makedirs(backup_dir, exist_ok=True)
         
-        # Generate backup filename with new format: YYYYMMDD.HHMMSS.tar.gz
+        # Generate backup filename: YYYYMMDD.HHMMSS.sql.gz
         timestamp = datetime.now().strftime('%Y%m%d.%H%M%S')
-        backup_file = os.path.join(backup_dir, f'{timestamp}.tar.gz')
+        backup_file = os.path.join(backup_dir, f'{timestamp}.sql.gz')
         
         print(f"[{datetime.now()}] Starting database backup to: {backup_file}")
         
-        # Use pg_dump to create backup
         # Get database credentials from environment
-        db_host = os.environ.get('DB_HOST', 'localhost')
+        db_host = os.environ.get('DB_HOST', 'db')
         db_port = os.environ.get('DB_PORT', '5432')
         db_name = os.environ.get('DB_NAME', 'librarrarian')
         db_user = os.environ.get('DB_USER', 'transcode')
         db_password = os.environ.get('DB_PASSWORD', '')
         
-        # Set PGPASSWORD environment variable for pg_dump
         env = os.environ.copy()
         env['PGPASSWORD'] = db_password
         
-        # Run pg_dump and pipe through gzip (note: .tar.gz extension for consistency, but this is a gzipped SQL dump)
+        # Use pg_dump's native gzip compression (-Z 9 -f) to avoid 2-process pipe deadlocks
         pg_dump_cmd = [
             'pg_dump',
             '-h', db_host,
             '-p', db_port,
             '-U', db_user,
             '-d', db_name,
-            '--no-password'
+            '--no-password',
+            '-Z', '9',
+            '-f', backup_file
         ]
         
-        # Execute pg_dump and gzip
-        with open(backup_file, 'wb') as f:
-            pg_dump_process = subprocess.Popen(
-                pg_dump_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                env=env
-            )
-            gzip_process = subprocess.Popen(
-                ['gzip'],
-                stdin=pg_dump_process.stdout,
-                stdout=f,
-                stderr=subprocess.PIPE
-            )
-            
-            pg_dump_process.stdout.close()
-            gzip_stderr = gzip_process.communicate()[1]
-            pg_dump_process.wait()  # Wait for pg_dump to finish
-            pg_dump_stderr = pg_dump_process.stderr.read()
-            
-            # Check both processes for errors
-            if pg_dump_process.returncode != 0:
-                error_msg = f"Database backup failed: pg_dump returned {pg_dump_process.returncode}"
-                if pg_dump_stderr:
-                    error_msg += f" - {pg_dump_stderr.decode()}"
-                print(f"[{datetime.now()}] {error_msg}")
-                # Remove incomplete backup file
-                if os.path.exists(backup_file):
-                    os.remove(backup_file)
-                return (False, error_msg, None)
-            
-            if gzip_process.returncode == 0:
-                # Get file size for log
-                file_size = os.path.getsize(backup_file)
-                file_size_mb = file_size / (1024 * 1024)
-                message = f"Database backup completed successfully. Size: {file_size_mb:.2f} MB"
-                print(f"[{datetime.now()}] {message}")
-                
-                # Clean up old backups based on retention policy
-                # Include both new (.tar.gz) and old (.sql.gz) formats during transition
-                if os.path.exists(backup_dir):
-                    backup_files = [f for f in os.listdir(backup_dir) 
-                                    if f.endswith('.tar.gz') or (f.startswith('librarrarian_backup_') and f.endswith('.sql.gz'))]
-                    backup_files.sort(reverse=True)
-                    
-                    # Keep only the most recent backups based on retention setting
-                    for old_backup in backup_files[retention_days:]:
-                        old_backup_path = os.path.join(backup_dir, old_backup)
-                        try:
+        result = subprocess.run(pg_dump_cmd, capture_output=True, text=True, env=env, timeout=600)
+        if result.returncode != 0:
+            error_msg = f"Database backup failed: pg_dump returned {result.returncode}"
+            if result.stderr:
+                error_msg += f" - {result.stderr.strip()}"
+            print(f"[{datetime.now()}] {error_msg}")
+            if os.path.exists(backup_file):
+                os.remove(backup_file)
+            return (False, error_msg, None)
+
+        file_size = os.path.getsize(backup_file)
+        file_size_mb = file_size / (1024 * 1024)
+        message = f"Database backup completed successfully. Size: {file_size_mb:.2f} MB"
+        print(f"[{datetime.now()}] {message}")
+        
+        # Clean up old backups based on actual file age (retention_days * 86400s), not lexicographic filename slice
+        if os.path.exists(backup_dir):
+            cutoff_ts = time.time() - (retention_days * 86400)
+            for fname in os.listdir(backup_dir):
+                if BACKUP_FILENAME_RE.match(fname):
+                    old_backup_path = os.path.join(backup_dir, fname)
+                    try:
+                        if os.path.getmtime(old_backup_path) < cutoff_ts:
                             os.remove(old_backup_path)
-                            print(f"[{datetime.now()}] Removed old backup: {old_backup}")
-                        except Exception as e:
-                            print(f"[{datetime.now()}] Failed to remove old backup {old_backup}: {e}")
-                
-                return (True, message, backup_file)
-            else:
-                error_msg = f"Database backup failed: gzip returned {gzip_process.returncode}"
-                if gzip_stderr:
-                    error_msg += f" - {gzip_stderr.decode()}"
-                print(f"[{datetime.now()}] {error_msg}")
-                # Remove incomplete backup file
-                if os.path.exists(backup_file):
-                    os.remove(backup_file)
-                return (False, error_msg, None)
+                            print(f"[{datetime.now()}] Removed old backup: {fname}")
+                    except Exception as e:
+                        print(f"[{datetime.now()}] Failed to remove old backup {fname}: {e}")
+        
+        return (True, message, backup_file)
         
     except Exception as e:
         error_msg = f"Error performing database backup: {e}"
@@ -4866,10 +5038,12 @@ def database_backup_thread():
                 backup_enabled = settings.get('backup_enabled', {}).get('setting_value', 'true') == 'true'
                 backup_time_str = settings.get('backup_time', {}).get('setting_value', '02:00')
                 
-                # Parse the backup time (HH:MM format)
+                # Parse and validate the backup time (HH:MM format)
                 try:
                     backup_hour, backup_minute = map(int, backup_time_str.split(':'))
-                except:
+                    if not (0 <= backup_hour <= 23 and 0 <= backup_minute <= 59):
+                        raise ValueError("Out of range")
+                except (ValueError, AttributeError):
                     backup_hour, backup_minute = 2, 0  # Default to 2:00 AM
                 
                 # Calculate time until next backup
@@ -4905,30 +5079,27 @@ def database_backup_thread():
             # Continue running even if backup fails
             time.sleep(3600)  # Wait 1 hour before retrying on error
 
-# Start the background threads when the app is initialized by Gunicorn.
-scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
-scanner_thread.start()
-arr_background_scanner = threading.Thread(target=arr_background_thread, daemon=True)
-arr_background_scanner.start()
-cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
-cleanup_thread.start()
-arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
-arr_job_processor.start()
-backup_thread = threading.Thread(target=database_backup_thread, daemon=True)
-backup_thread.start()
+# Start background threads and initialize DB unless running under unit tests.
+if not os.environ.get('LIBRARRARIAN_TESTING'):
+    scanner_thread = threading.Thread(target=plex_scanner_thread, daemon=True)
+    scanner_thread.start()
+    arr_background_scanner = threading.Thread(target=arr_background_thread, daemon=True)
+    arr_background_scanner.start()
+    cleanup_thread = threading.Thread(target=cleanup_scanner_thread, daemon=True)
+    cleanup_thread.start()
+    arr_job_processor = threading.Thread(target=arr_job_processor_thread, daemon=True)
+    arr_job_processor.start()
+    backup_thread = threading.Thread(target=database_backup_thread, daemon=True)
+    backup_thread.start()
+    post_transcode_thread = threading.Thread(target=post_transcode_worker_thread, daemon=True)
+    post_transcode_thread.start()
 
-if __name__ == '__main__':
-    # For local development, run migrations then start the app
-    initialize_database_if_needed()
-    run_migrations()
-    db_ready_event.set() # Signal to all threads that the DB is ready
-    # Use host='0.0.0.0' to make the app accessible on your network
-    # WARNING: debug=True should NEVER be used in production. In production,
-    # the app is run with Gunicorn which doesn't use Flask's debug mode.
-    app.run(debug=True, host='0.0.0.0', port=5000)
-else:
-    # When run by Gunicorn in production, run migrations first, then signal ready.
-    # Gunicorn will then start the Flask app.
-    initialize_database_if_needed()
-    run_migrations()
-    db_ready_event.set()
+    if __name__ == '__main__':
+        initialize_database_if_needed()
+        run_migrations()
+        db_ready_event.set()
+        app.run(debug=True, host='0.0.0.0', port=5000)
+    else:
+        initialize_database_if_needed()
+        run_migrations()
+        db_ready_event.set()

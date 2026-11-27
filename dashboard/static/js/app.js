@@ -5,9 +5,12 @@
  * @returns {string} The escaped text
  */
 function escapeHtml(text) {
-    const div = document.createElement('div');
-    div.textContent = text;
-    return div.innerHTML;
+    return String(text ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 // --- Sonarr Tools Logic (Corrected and placed in index.html) ---
@@ -441,7 +444,6 @@ function resumeScanUI(scanType, scanSource) {
 
 // Function to create an HTML element for a single node
 function createNodeCard(node) {
-    const isIdle = node.status === 'idle' || node.percent === 0;
     const isPaused = node.command === 'paused';
     const pauseButtonIcon = isPaused ? 'play' : 'pause';
     const pauseButtonText = isPaused ? 'Resume' : 'Pause';
@@ -450,48 +452,60 @@ function createNodeCard(node) {
     const startDisabled = (node.status !== 'offline' && node.command !== 'idle') ? 'disabled' : '';
     const stopDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
     const pauseDisabled = (node.command === 'idle' || node.status === 'offline') ? 'disabled' : '';
+
+    const safeHostname = escapeHtml(node.hostname);
+    const safeCommand = escapeHtml(node.command);
+    const safeVersion = escapeHtml(node.version || 'N/A');
+    const safeFile = escapeHtml(node.current_file || 'N/A');
+    const safePercent = Math.min(100, Math.max(0, Number(node.percent) || 0));
+    const safeUptime = escapeHtml(node.uptime_str || 'N/A');
+    const safeFps = escapeHtml(node.fps || 'N/A');
+    const safeSpeed = escapeHtml(node.speed ?? '0');
+    const safeCodec = escapeHtml(node.codec || 'N/A');
+    const safeEta = escapeHtml(node.eta || 'N/A');
+    const idleLabel = node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : escapeHtml(node.current_file || 'Idle'));
     
     return `
     <div class="card mb-3">
-        <div id="node-${node.hostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
+        <div id="node-${safeHostname}" class="card-header fs-5 d-flex justify-content-between align-items-center">
             <span>
-                <span class="health-icon me-2" title="Calculating...">●</span>${node.hostname}
+                <span class="health-icon me-2" title="Calculating...">●</span>${safeHostname}
                 ${node.version_mismatch ? `<strong class="text-warning ms-3">** Version Mismatch **</strong>` : ''}
             </span>
             <div>
                 <div class="btn-group btn-group-sm me-2" role="group" style="gap: 4px;">
-                    <button class="btn btn-outline-secondary" onclick="showNodeOptions('${node.hostname}')"><span class="mdi mdi-cog"></span> Options</button>
-                    <button class="btn btn-outline-success" onclick="startNode('${node.hostname}')" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
-                    <button class="btn btn-outline-danger" onclick="stopNode('${node.hostname}')" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
-                    <button class="btn btn-outline-warning" onclick="pauseResumeNode('${node.hostname}', '${node.command}')" ${pauseDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
+                    <button class="btn btn-outline-secondary node-action-btn" data-action="options" data-hostname="${safeHostname}"><span class="mdi mdi-cog"></span> Options</button>
+                    <button class="btn btn-outline-success node-action-btn" data-action="start" data-hostname="${safeHostname}" ${startDisabled}><span class="mdi mdi-play"></span> Start</button>
+                    <button class="btn btn-outline-danger node-action-btn" data-action="stop" data-hostname="${safeHostname}" ${stopDisabled}><span class="mdi mdi-stop"></span> Stop</button>
+                    <button class="btn btn-outline-warning node-action-btn" data-action="pause-resume" data-hostname="${safeHostname}" data-command="${safeCommand}" ${pauseDisabled}><span class="mdi mdi-${pauseButtonIcon}"></span> ${pauseButtonText}</button>
                 </div>
-                <span class="badge ${node.version_mismatch ? 'badge-outline-danger' : 'badge-outline-info'}">${node.version || 'N/A'}</span>
+                <span class="badge ${node.version_mismatch ? 'badge-outline-danger' : 'badge-outline-info'}">${safeVersion}</span>
             </div>
         </div>
         <div class="card-body">
-            ${node.percent > 0 ? `
-                <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${node.current_file || 'N/A'}</p>
+            ${safePercent > 0 ? `
+                <p class="card-text text-body-secondary mb-2" style="font-family: monospace;">${safeFile}</p>
                 <div class="progress" role="progressbar">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-teal" style="width: ${node.percent}%">
-                        <b>${node.percent}%</b>
+                    <div class="progress-bar progress-bar-striped progress-bar-animated text-bg-teal" style="width: ${safePercent}%">
+                        <b>${safePercent}%</b>
                     </div>
                 </div>
             ` : `
                 <div class="text-center p-3">
-                    <h5 class="card-title text-muted">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : (node.current_file || 'Idle'))}</h5>
+                    <h5 class="card-title text-muted">${idleLabel}</h5>
                 </div>
             `}
         </div>
         <div class="card-footer d-flex justify-content-between align-items-center bg-transparent">
             <div>
-                <span class="badge badge-outline-secondary">Uptime: ${node.uptime_str || 'N/A'}</span>
+                <span class="badge badge-outline-secondary">Uptime: ${safeUptime}</span>
             </div>
             <div>
-            ${node.percent > 0 ? `
-                <span class="badge badge-outline-secondary me-2">FPS: ${node.fps || 'N/A'}</span>
-                <span class="badge badge-outline-secondary me-2">Speed: ${node.speed}x</span>
-                <span class="badge badge-outline-teal me-2">Codec: ${node.codec}</span>
-                <span class="badge badge-outline-info">ETA: ${node.eta || 'N/A'}</span>
+            ${safePercent > 0 ? `
+                <span class="badge badge-outline-secondary me-2">FPS: ${safeFps}</span>
+                <span class="badge badge-outline-secondary me-2">Speed: ${safeSpeed}x</span>
+                <span class="badge badge-outline-teal me-2">Codec: ${safeCodec}</span>
+                <span class="badge badge-outline-info">ETA: ${safeEta}</span>
             ` : `
                 <span class="badge badge-outline-secondary">${node.command === 'paused' ? 'Paused' : (node.status === 'offline' ? 'Offline' : 'Idle')}</span>
             `}
@@ -499,6 +513,18 @@ function createNodeCard(node) {
         </div>
     </div>`;
 }
+
+// Delegated event listener for node card action buttons (avoids inline onclick XSS)
+document.addEventListener('click', (e) => {
+    const btn = e.target.closest('.node-action-btn');
+    if (!btn) return;
+    const hostname = btn.dataset.hostname;
+    const action = btn.dataset.action;
+    if (action === 'options') showNodeOptions(hostname);
+    else if (action === 'start') startNode(hostname);
+    else if (action === 'stop') stopNode(hostname);
+    else if (action === 'pause-resume') pauseResumeNode(hostname, btn.dataset.command);
+});
 
 // Main function to fetch data and update the DOM
 async function updateStatus() {
@@ -525,12 +551,14 @@ async function updateStatus() {
         if (failCount > 0) {
             viewErrorsBtn.classList.add('btn-outline-danger');
             failCountBadge.classList.add('text-bg-light');
+        } else {
+            failCountBadge.classList.remove('text-bg-light');
         }
         
         // Update DB error alert
         const errorAlert = document.getElementById('db-error-alert');
         if (data.db_error) {
-            errorAlert.innerHTML = `<strong>Database Error:</strong> ${data.db_error}`;
+            errorAlert.innerHTML = `<strong>Database Error:</strong> ${escapeHtml(data.db_error)}`;
             errorAlert.classList.remove('d-none');
         } else {
             errorAlert.classList.add('d-none');
@@ -562,22 +590,24 @@ async function updateStatus() {
         }
 
         // --- NEW: Update Health Icons ---
-        data.nodes.forEach(node => {
-            const cardHeader = document.getElementById(`node-${node.hostname}`);
-            if (cardHeader) {
-                const healthIcon = cardHeader.querySelector('.health-icon');
-                if (node.age < 30) {
-                    healthIcon.style.color = 'green';
-                    healthIcon.title = `Healthy (last seen ${Math.round(node.age)}s ago)`;
-                } else if (node.age < 60) {
-                    healthIcon.style.color = 'orange';
-                    healthIcon.title = `Warning (last seen ${Math.round(node.age)}s ago)`;
-                } else {
-                    healthIcon.style.color = 'red';
-                    healthIcon.title = `Critical (last seen ${Math.round(node.age)}s ago)`;
+        if (Array.isArray(data.nodes)) {
+            data.nodes.forEach(node => {
+                const cardHeader = document.getElementById(`node-${node.hostname}`);
+                if (cardHeader) {
+                    const healthIcon = cardHeader.querySelector('.health-icon');
+                    if (node.age < 30) {
+                        healthIcon.style.color = 'green';
+                        healthIcon.title = `Healthy (last seen ${Math.round(node.age)}s ago)`;
+                    } else if (node.age < 60) {
+                        healthIcon.style.color = 'orange';
+                        healthIcon.title = `Warning (last seen ${Math.round(node.age)}s ago)`;
+                    } else {
+                        healthIcon.style.color = 'red';
+                        healthIcon.title = `Critical (last seen ${Math.round(node.age)}s ago)`;
+                    }
                 }
-            }
-        });
+            });
+        }
     } catch (error) {
         console.error("Failed to fetch status:", error);
         const errorAlert = document.getElementById('db-error-alert');
@@ -624,13 +654,13 @@ if (viewErrorsBtn) {
                     
                     return `
                         <tr>
-                            <td style="word-break: break-all;">${file.filename}</td>
-                            <td>${file.reason}</td>
-                            <td>${file.reported_at}</td>
+                            <td style="word-break: break-all;">${escapeHtml(file.filename)}</td>
+                            <td>${escapeHtml(file.reason)}</td>
+                            <td>${escapeHtml(file.reported_at)}</td>
                             <td>${actionsHtml}</td>
                         </tr>
                         <tr class="collapse" id="collapse-log-${index}">
-                            <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${file.log || 'No log available.'}</pre></td>
+                            <td colspan="4"><pre class="bg-dark text-white-50 p-3 rounded" style="max-height: 300px; overflow-y: auto;">${escapeHtml(file.log || 'No log available.')}</pre></td>
                         </tr>
                     `;
                 }).join('');
@@ -718,59 +748,27 @@ window.deleteFailedJob = async function(jobId) {
     }
 }
 
-async function pollScanProgress() {
-    if (!isPollingForScan) return;
-
-    try {
-        const response = await fetch('/api/scan/progress');
-        const data = await response.json();
-        const sonarrScanStatusDiv = document.getElementById('sonarr-scan-status');
-
-        if (data.is_running) {
-            const elapsed = Math.round((Date.now() - scanStartTime) / 1000);
-            const progressPercent = data.total_steps > 0 ? ((data.progress / data.total_steps) * 100).toFixed(1) : 0;
-            sonarrScanStatusDiv.innerHTML = `
-                <div class="progress" style="height: 20px;">
-                    <div class="progress-bar progress-bar-striped progress-bar-animated bg-teal" role="progressbar" style="width: ${progressPercent}%" aria-valuenow="${progressPercent}" aria-valuemin="0" aria-valuemax="100">${progressPercent}%</div>
-                </div>
-                <div class="mt-1">
-                    <small class="text-muted">Step ${data.progress} of ${data.total_steps}: ${data.current_step} (Elapsed: ${elapsed}s)</small>
-                </div>
-            `;
-        } else {
-            // Scan is finished
-            isPollingForScan = false;
-            const finalMessage = data.current_step || "Scan finished.";
-            sonarrScanStatusDiv.innerHTML = `<div class="alert alert-success">${finalMessage}</div>`;
-            revertActiveButton();
-            // Refresh job queue to see results of scan
-            if (document.querySelector('#jobs-tab.active')) {
-                updateJobQueue();
-            }
-        }
-    } catch (error) {
-        console.error("Error polling for scan progress:", error);
-        isPollingForScan = false;
-        revertActiveButton();
-    }
-}
-
-// Main data update loop. Fetches node status and other data.
+// Main data update loop. Fetches node status and other data without overlapping requests.
+let isMainLoopRunning = false;
 async function mainUpdateLoop() {
-    await updateStatus();
+    if (document.hidden || isMainLoopRunning) return;
+    isMainLoopRunning = true;
+    try {
+        await updateStatus();
 
-    // Check which tab is active and update its content if needed
-    if (document.querySelector('#history-stats-tab.active')) {
-        await updateHistoryAndStats();
-    }
-    if (document.querySelector('#jobs-tab.active')) {
-        await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
+        // Check which tab is active and update its content if needed
+        if (document.querySelector('#history-stats-tab.active')) {
+            await updateHistoryAndStats();
+        }
+        if (document.querySelector('#jobs-tab.active')) {
+            await updateJobQueue(jobQueueCurrentPage); // Use the current page for refresh
+        }
+    } finally {
+        isMainLoopRunning = false;
     }
 }
 
 // --- Independent, Non-Blocking Timers ---
-// This is the correct pattern to prevent UI freezes.
-
 // 1. A dedicated, lightweight timer for the clock. It does nothing else.
 setInterval(() => {
     const clockContainer = document.getElementById('clock-container');
@@ -781,14 +779,11 @@ setInterval(() => {
         hour12: !window.Librarrarian.settings.use24HourClock
     };
     const timeString = new Date().toLocaleTimeString([], timeOptions);
-    if (clockContainer) clockContainer.innerHTML = `<span class="badge badge-outline-secondary fs-6">Updated: ${timeString}</span>`;
-}, 1000); // Runs every second.
+    if (clockContainer) clockContainer.innerHTML = `<span class="badge badge-outline-secondary fs-6">Updated: ${escapeHtml(timeString)}</span>`;
+}, 1000);
 
-// 2. A separate, independent loop for polling scan progress so it doesn't block other updates.
-setInterval(() => { if (isPollingForScan) pollScanProgress(); }, 1000); // Polls every second
-
-// 3. A separate loop for polling cleanup scan progress
-setInterval(() => { if (isPollingForCleanup) pollCleanupProgress(); }, 1000); // Polls every second
+// 2. A separate loop for polling cleanup scan progress
+setInterval(() => { if (isPollingForCleanup) pollCleanupProgress(); }, 1000);
 
 // Run initial update on page load
 updateStatus();
@@ -849,18 +844,16 @@ async function loadJobQueueFilters() {
         const statusSelect = document.getElementById('job-filter-status');
         
         if (typeSelect && data.job_types) {
-            // Preserve current selection
             const currentType = typeSelect.value;
             typeSelect.innerHTML = '<option value="">All Types</option>' + 
-                data.job_types.map(t => `<option value="${t}">${t}</option>`).join('');
+                data.job_types.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
             if (currentType) typeSelect.value = currentType;
         }
         
         if (statusSelect && data.statuses) {
-            // Preserve current selection
             const currentStatus = statusSelect.value;
             statusSelect.innerHTML = '<option value="">All Statuses</option>' + 
-                data.statuses.map(s => `<option value="${s}">${s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' ')}</option>`).join('');
+                data.statuses.map(s => `<option value="${escapeHtml(s)}">${escapeHtml(s.charAt(0).toUpperCase() + s.slice(1).replace(/_/g, ' '))}</option>`).join('');
             if (currentStatus) statusSelect.value = currentStatus;
         }
     } catch (error) {
@@ -888,9 +881,32 @@ function getJobActionButtons(job) {
     return '';
 }
 
+// Bind select-all checkbox once at initialization (fixes duplicate listener leak)
+const _selectAllCleanupCheckbox = document.getElementById('select-all-cleanup');
+if (_selectAllCleanupCheckbox) {
+    _selectAllCleanupCheckbox.addEventListener('change', (e) => {
+        document.querySelectorAll('.approval-checkbox').forEach(checkbox => {
+            checkbox.checked = e.target.checked;
+        });
+    });
+}
+const _jobQueueTableBody = document.getElementById('job-queue-table-body');
+if (_jobQueueTableBody) {
+    _jobQueueTableBody.addEventListener('change', (e) => {
+        if (e.target.classList.contains('approval-checkbox') && !e.target.checked && _selectAllCleanupCheckbox) {
+            _selectAllCleanupCheckbox.checked = false;
+        }
+    });
+}
+
 async function updateJobQueue(page = 1) {
     jobQueueCurrentPage = page;
     
+    // Preserve currently checked job IDs so 5-second refreshes don't wipe user selections
+    const checkedJobIds = new Set(
+        Array.from(document.querySelectorAll('.approval-checkbox:checked')).map(cb => cb.dataset.jobId)
+    );
+
     // Build query string with filters
     let queryParams = `page=${page}`;
     if (jobQueueFilterType) queryParams += `&type=${encodeURIComponent(jobQueueFilterType)}`;
@@ -898,43 +914,46 @@ async function updateJobQueue(page = 1) {
     
     try {
         const response = await fetch(`/api/jobs?${queryParams}`);
+        if (!response.ok) throw new Error(`HTTP error ${response.status}`);
         const data = await response.json();
         const tableBody = document.getElementById('job-queue-table-body');
         tableBody.innerHTML = ''; // Clear existing rows
 
         if (data.db_error) {
-            tableBody.innerHTML = `<tr><td colspan="6" class="text-danger">Database Error: ${data.db_error}</td></tr>`;
+            tableBody.innerHTML = `<tr><td colspan="7" class="text-danger">Database Error: ${escapeHtml(data.db_error)}</td></tr>`;
             return;
         }
 
-        if (data.jobs.length === 0) {
+        if (!Array.isArray(data.jobs) || data.jobs.length === 0) {
             const filterMsg = (jobQueueFilterType || jobQueueFilterStatus) ? 'No jobs match the current filters.' : 'No jobs in the queue.';
             tableBody.innerHTML = `<tr><td colspan="7" class="text-center text-muted">${filterMsg}</td></tr>`;
             return;
         }
 
-        // Build the entire table HTML at once and set it. This is much more efficient
-        // and prevents the "ghost row" rendering bug.
         const rowsHtml = data.jobs.map(job => {
-            // Check if job has symlink metadata
-            // Parse metadata if it's a string, otherwise use it directly
-            const metadata = typeof job.metadata === 'string' ? JSON.parse(job.metadata) : job.metadata;
+            let metadata = null;
+            if (typeof job.metadata === 'string') {
+                try { metadata = JSON.parse(job.metadata); } catch (_) { metadata = null; }
+            } else {
+                metadata = job.metadata;
+            }
             const isSymlink = metadata && metadata.is_symlink;
             const symlinkWarning = isSymlink ? escapeHtml(metadata.warning) : '';
+            const isChecked = checkedJobIds.has(String(job.id)) ? 'checked' : '';
             
             return `
             <tr>
                 <td>
                     ${(job.job_type === 'cleanup' || job.job_type === 'Rename Job' || isSymlink) && job.status === 'awaiting_approval' ? 
-                        `<input type="checkbox" class="form-check-input approval-checkbox" data-job-id="${job.id}">` : 
-                        job.id 
+                        `<input type="checkbox" class="form-check-input approval-checkbox" data-job-id="${escapeHtml(job.id)}" ${isChecked}>` : 
+                        escapeHtml(job.id)
                     }
                 </td>
                 <td style="word-break: break-all;">
-                    ${job.filepath}
+                    ${escapeHtml(job.filepath)}
                     ${isSymlink ? `<br><small class="text-warning"><span class="mdi mdi-alert"></span> ${symlinkWarning}</small>` : ''}
                 </td>
-                <td><span class="badge badge-outline-info">${job.job_type}</span></td>
+                <td><span class="badge badge-outline-info">${escapeHtml(job.job_type)}</span></td>
                 <td>
                     ${job.status === 'encoding' ? 
                         `<span class="badge badge-outline-primary"><span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Encoding</span>` :
@@ -946,11 +965,11 @@ async function updateJobQueue(page = 1) {
                         `<span class="badge badge-outline-danger">Failed</span>` :
                     job.status === 'completed' ?
                         `<span class="badge badge-outline-success">Completed</span>` :
-                        `<span class="badge badge-outline-warning">${job.status}</span>`
+                        `<span class="badge badge-outline-warning">${escapeHtml(job.status)}</span>`
                     }
                 </td>
-                <td>${job.assigned_to || 'N/A'}</td>
-                <td>${new Date(job.created_at).toLocaleString()}</td>
+                <td>${escapeHtml(job.assigned_to || 'N/A')}</td>
+                <td>${escapeHtml(new Date(job.created_at).toLocaleString())}</td>
                 <td>${getJobActionButtons(job)}</td>
             </tr>
             `;
@@ -958,20 +977,9 @@ async function updateJobQueue(page = 1) {
         tableBody.innerHTML = rowsHtml;
 
         renderJobQueuePagination(data.page, Math.ceil(data.total_jobs / data.per_page));
-
-        // Add event listener for the new "select all" checkbox
-        const selectAllCheckbox = document.getElementById('select-all-cleanup');
-        selectAllCheckbox.addEventListener('change', (e) => {
-            document.querySelectorAll('.approval-checkbox').forEach(checkbox => {
-                checkbox.checked = e.target.checked;
-            });
-        });
-        // Uncheck "select all" if any individual box is unchecked
-        document.querySelectorAll('.approval-checkbox').forEach(checkbox => checkbox.addEventListener('change', () => { if (!checkbox.checked) selectAllCheckbox.checked = false; }));
-
     } catch (error) {
         console.error('Error fetching job queue:', error);
-        document.getElementById('job-queue-table-body').innerHTML = `<tr><td colspan="6" class="text-danger">Failed to fetch job queue.</td></tr>`;
+        document.getElementById('job-queue-table-body').innerHTML = `<tr><td colspan="7" class="text-danger">Failed to fetch job queue.</td></tr>`;
     }
 }
 
@@ -1166,18 +1174,18 @@ function renderHistoryTable() {
     if (paginatedData.length > 0) {
         historyBody.innerHTML = paginatedData.map(item => `
             <tr>
-                <td>${item.id}</td>
-                <td style="word-break: break-all;">${item.filename}</td>
-                <td>${item.hostname}</td>
-                <td><span class="badge badge-outline-secondary">${item.codec}</span></td>
+                <td>${escapeHtml(item.id)}</td>
+                <td style="word-break: break-all;">${escapeHtml(item.filename)}</td>
+                <td>${escapeHtml(item.hostname)}</td>
+                <td><span class="badge badge-outline-secondary">${escapeHtml(item.codec)}</span></td>
                 ${item.status === 'encoding' ? `
                     <td colspan="2" class="text-center"><span class="badge badge-outline-primary">In Progress</span></td>
                 ` : `
-                    <td>${item.original_size_gb} → ${item.new_size_gb}</td>
-                    <td><span class="badge badge-outline-success">${item.reduction_percent}%</span></td>
+                    <td>${escapeHtml(item.original_size_gb)} → ${escapeHtml(item.new_size_gb)}</td>
+                    <td><span class="badge badge-outline-success">${escapeHtml(item.reduction_percent)}%</span></td>
                 `}
-                <td>${item.encoded_at}</td>
-                <td><button class="btn btn-xs btn-outline-danger" title="Delete this entry">&times;</button></td>
+                <td>${escapeHtml(item.encoded_at)}</td>
+                <td><button class="btn btn-xs btn-outline-danger delete-history-btn" data-entry-id="${escapeHtml(item.id)}" title="Delete this entry">&times;</button></td>
             </tr>
         `).join('');
     } else {
@@ -2778,19 +2786,21 @@ document.addEventListener('DOMContentLoaded', () => {
         const currentPaths = window.Librarrarian.settings.internalScanPaths;
 
         if (data.folders && data.folders.length > 0) {
-            container.innerHTML = data.folders.map(item => `
+            container.innerHTML = data.folders.map(item => {
+                const safeName = escapeHtml(item.name);
+                return `
                 <div class="d-flex align-items-center mb-2 media-source-item">
                     <div class="form-check">
-                        <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${item.name}" id="folder-${item.name}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
-                        <label class="form-check-label" for="folder-${item.name}">${item.name}</label>
+                        <input class="form-check-input" type="checkbox" name="internal_scan_paths" value="${safeName}" id="folder-${safeName}" ${currentPaths.includes(item.name) ? 'checked' : ''}>
+                        <label class="form-check-label" for="folder-${safeName}">${safeName}</label>
                     </div>
                     <div class="ms-auto d-flex align-items-center me-2">
-                        ${createDropdown(`type_internal_${item.name}`, item.type)}
+                        ${createDropdown(`type_internal_${safeName}`, item.type)}
                     </div>
                 </div>
-            `).join('');
+            `}).join('');
         } else {
-            container.innerHTML = `<p class="text-muted">${data.error || 'No subdirectories found in /media.'}</p>`;
+            container.innerHTML = `<p class="text-muted">${escapeHtml(data.error || 'No subdirectories found in /media.')}</p>`;
         }
 
         // Apply the initial visibility based on the toggle's state
@@ -3237,17 +3247,10 @@ document.addEventListener('DOMContentLoaded', () => {
     
     if (manageBackupsBtn) {
         manageBackupsBtn.addEventListener('click', () => {
-            const backupModal = new bootstrap.Modal(document.getElementById('backupModal'));
+            const backupModal = bootstrap.Modal.getOrCreateInstance(document.getElementById('backupModal'));
             loadBackupFiles();
             backupModal.show();
         });
-    }
-    
-    // Helper function to escape HTML to prevent XSS
-    function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
     }
     
     // Function to load backup files into the modal
@@ -3277,10 +3280,10 @@ document.addEventListener('DOMContentLoaded', () => {
                             <td>${safeCreated}</td>
                             <td>
                                 <div class="btn-group btn-group-sm" role="group">
-                                    <button class="btn btn-outline-primary" onclick="downloadBackup('${safeFilename}')" title="Download backup">
+                                    <button class="btn btn-outline-primary backup-action-btn" data-action="download" data-filename="${safeFilename}" title="Download backup">
                                         <span class="mdi mdi-download"></span> Download
                                     </button>
-                                    <button class="btn btn-outline-danger" onclick="deleteBackup('${safeFilename}')" title="Delete backup">
+                                    <button class="btn btn-outline-danger backup-action-btn" data-action="delete" data-filename="${safeFilename}" title="Delete backup">
                                         <span class="mdi mdi-delete"></span> Delete
                                     </button>
                                 </div>
@@ -3301,6 +3304,28 @@ document.addEventListener('DOMContentLoaded', () => {
             tableBody.innerHTML = '<tr><td colspan="4" class="text-center text-danger">Failed to load backup files.</td></tr>';
         }
     }
+
+    // Delegated click handler for backup download/delete and history delete buttons
+    document.addEventListener('click', async (e) => {
+        const backupBtn = e.target.closest('.backup-action-btn');
+        if (backupBtn) {
+            const filename = backupBtn.dataset.filename;
+            if (backupBtn.dataset.action === 'download') downloadBackup(filename);
+            else if (backupBtn.dataset.action === 'delete') deleteBackup(filename);
+            return;
+        }
+        const historyDelBtn = e.target.closest('.delete-history-btn');
+        if (historyDelBtn) {
+            const entryId = historyDelBtn.dataset.entryId;
+            if (!confirm('Delete this history entry?')) return;
+            try {
+                const res = await fetch(`/api/history/delete/${encodeURIComponent(entryId)}`, { method: 'POST' });
+                if (res.ok) updateHistoryAndStats();
+            } catch (err) {
+                console.error('Error deleting history entry:', err);
+            }
+        }
+    });
     
     // Function to download a backup file
     window.downloadBackup = function(filename) {
@@ -3413,7 +3438,13 @@ document.addEventListener('DOMContentLoaded', () => {
     const changelogContent = document.getElementById('changelog-content');
     const versionToggle = document.getElementById('changelog-version-toggle');
 
-    const converter = new showdown.Converter({ simplifiedAutoLink: true, openLinksInNewWindow: true });
+    let converter = null;
+    function getMarkdownConverter() {
+        if (!converter && typeof showdown !== 'undefined') {
+            converter = new showdown.Converter({ simplifiedAutoLink: true, openLinksInNewWindow: true });
+        }
+        return converter;
+    }
 
     async function determineAndLoadChangelog() {
         const internalVersion = window.Librarrarian.version;
@@ -3475,9 +3506,10 @@ document.addEventListener('DOMContentLoaded', () => {
         const pageReleases = changelogReleases.slice(startIdx, endIdx);
         const totalPages = Math.ceil(changelogReleases.length / releasesPerPage);
 
-        // Convert markdown to HTML for current page
-        const pageMarkdown = pageReleases.join('\n\n');
-        const html = converter.makeHtml(pageMarkdown);
+        // Convert markdown to HTML for current page (escape raw HTML first to prevent XSS from remote markdown)
+        const pageMarkdown = escapeHtml(pageReleases.join('\n\n'));
+        const mdConverter = getMarkdownConverter();
+        const html = mdConverter ? mdConverter.makeHtml(pageMarkdown) : `<pre>${pageMarkdown}</pre>`;
 
         // Add pagination controls
         let paginationHtml = '';

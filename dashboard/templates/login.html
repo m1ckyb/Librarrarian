@@ -19,6 +19,7 @@
 
                 {% if local_login_enabled %}
                     <form method="POST" action="{{ url_for('login') }}">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         <div class="mb-3">
                             <label for="username" class="form-label">Username</label>
                             <input type="text" class="form-control" id="username" name="username" required>
@@ -138,7 +139,10 @@ document.getElementById('passkey-login-btn').addEventListener('click', async () 
         }
     } catch (error) {
         console.error('Passkey login error:', error);
-        statusDiv.innerHTML = `<div class="alert alert-danger">Error: ${error.message}</div>`;
+        const errDiv = document.createElement('div');
+        errDiv.className = 'alert alert-danger';
+        errDiv.textContent = `Error: ${error.message}`;
+        statusDiv.replaceChildren(errDiv);
     }
 });
 </script>

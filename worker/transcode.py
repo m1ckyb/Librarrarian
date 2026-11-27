@@ -9,6 +9,7 @@ import socket
 import threading
 import json
 import secrets
+from collections import deque
 from pathlib import Path
 import re
 from datetime import datetime, timezone
@@ -26,7 +27,6 @@ except ImportError:
 # Global Settings
 # ===========================
 DASHBOARD_URL = os.environ.get('DASHBOARD_URL', 'http://localhost:5000')
-DB_HOST = os.environ.get("DB_HOST", "192.168.10.120")
 
 # Paths that should never be allowed as media directories (shared constant)
 FORBIDDEN_SYSTEM_PATHS = ['/', '/etc', '/root', '/sys', '/proc', '/dev', '/bin', '/sbin', '/usr', '/var', '/tmp']
@@ -62,11 +62,13 @@ def get_worker_version():
     """Reads the version from the VERSION.txt file."""
     try:
         # This works in Docker where VERSION.txt is in the workdir.
-        return open('VERSION.txt', 'r').read().strip()
+        with open('VERSION.txt', 'r', encoding='utf-8') as f:
+            return f.read().strip()
     except FileNotFoundError:
         # Fallback for local development where the script is in a subdirectory.
         try:
-            return open(os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt'), 'r').read().strip()
+            with open(os.path.join(os.path.dirname(__file__), '..', 'VERSION.txt'), 'r', encoding='utf-8') as f:
+                return f.read().strip()
         except FileNotFoundError:
             return "standalone"
 VERSION = get_worker_version()
@@ -81,7 +83,7 @@ SESSION_TOKEN = None
 # --- USER CONFIGURATION SECTION ---
 # Read DB config from environment variables, with fallbacks for local testing
 DB_CONFIG = {
-    "host": os.environ.get("DB_HOST", "192.168.10.120"),
+    "host": os.environ.get("DB_HOST", "db"),
     "port": int(os.environ.get("DB_PORT", "5432")),
     "user": os.environ.get("DB_USER", "transcode"),
     "password": os.environ.get("DB_PASSWORD"),
@@ -95,9 +97,28 @@ DB_CONFIG = {
 class DatabaseHandler:
     def __init__(self, conn_params):
         self.conn_params = conn_params
+        self._conn = None
+        self._lock = threading.Lock()
 
     def _get_conn(self):
-        return psycopg2.connect(**self.conn_params)
+        """Returns a live persistent connection, reconnecting if closed or broken."""
+        if self._conn is not None and self._conn.closed == 0:
+            return self._conn
+        try:
+            self._conn = psycopg2.connect(**self.conn_params)
+            return self._conn
+        except Exception as e:
+            print(f"[{datetime.now()}] Database Connection Error: {e}")
+            self._conn = None
+            return None
+
+    def _reset_conn(self):
+        if self._conn is not None:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = None
 
     def update_heartbeat(self, status, current_file=None, progress=None, fps=None, version_mismatch=False, total_duration=None, job_start_time=None):
         """
@@ -120,39 +141,48 @@ class DatabaseHandler:
             total_duration = EXCLUDED.total_duration,
             job_start_time = EXCLUDED.job_start_time;
         """
-        conn = self._get_conn()
-        if conn:
+        with self._lock:
+            conn = self._get_conn()
+            if not conn:
+                return
             try:
                 with conn.cursor() as cur:
                     cur.execute(sql, (HOSTNAME, status, VERSION, current_file, progress, fps, version_mismatch, total_duration, job_start_time))
                 conn.commit()
             except Exception as e:
                 print(f"[{datetime.now()}] Heartbeat Error: Could not update status. {e}")
-            finally:
-                conn.close()
+                self._reset_conn()
 
     def get_node_command(self, hostname):
         """Fetches the status for a specific node, which can act as a command."""
-        conn = self._get_conn()
-        if conn:
+        with self._lock:
+            conn = self._get_conn()
+            if not conn:
+                return 'idle'
             try:
                 with conn.cursor() as cur:
                     cur.execute("SELECT command FROM nodes WHERE hostname = %s", (hostname,))
                     result = cur.fetchone()
-                    return result[0] if result else 'idle'
-            finally:
-                conn.close()
-        return 'idle'
+                conn.commit()
+                return result[0] if result else 'idle'
+            except Exception as e:
+                print(f"[{datetime.now()}] Command Fetch Error: {e}")
+                self._reset_conn()
+                return 'idle'
 
     def clear_node(self):
-        conn = self._get_conn()
-        if conn:
+        with self._lock:
+            conn = self._get_conn()
+            if not conn:
+                return
             try:
                 with conn.cursor() as cur:
                     cur.execute("DELETE FROM nodes WHERE hostname = %s", (HOSTNAME,))
                 conn.commit()
+            except Exception as e:
+                print(f"[{datetime.now()}] Clear Node Error: {e}")
             finally:
-                conn.close()
+                self._reset_conn()
 
 # ===========================
 # Hardware Configuration
@@ -351,9 +381,9 @@ def validate_filepath(filepath):
         # Resolve the absolute path and normalize it
         resolved_path = os.path.realpath(os.path.abspath(filepath))
         
-        # Use configurable allowed base directories from environment
-        # Normalize all base paths once to avoid redundant computation
-        allowed_bases_raw = list(MEDIA_PATHS) + [os.path.abspath('.')]
+        # Use configurable allowed base directories from environment only
+        # (never include CWD /app so worker scripts/configs cannot be accessed)
+        allowed_bases_raw = list(MEDIA_PATHS)
         allowed_bases_normalized = []
         for base in allowed_bases_raw:
             try:
@@ -436,21 +466,23 @@ def translate_path_for_worker(filepath, settings):
     Translates a container-centric path from the dashboard to a path the worker can use.
     This is crucial for non-Docker workers or complex mount setups.
     """
-    # First validate the filepath for security
-    if not validate_filepath(filepath):
-        print(f"❌ ERROR: Refusing to process potentially malicious filepath: {filepath}")
+    if not filepath or not isinstance(filepath, str):
         return None
-    
+
     path_from = settings.get('plex_path_from')
     path_to = settings.get('plex_path_to')
 
+    translated = filepath
     # If mappings are defined and the incoming path starts with the container path (`path_to`),
     # replace it with the Plex path (`path_from`). This gives us the "real" network path.
     if path_from and path_to and filepath.startswith(path_to):
-        # This is a simple replacement for now. A more robust solution might be needed
-        # if the worker's root path isn't the project directory.
-        return filepath.replace(path_to, path_from, 1)
-    return filepath
+        translated = filepath.replace(path_to, path_from, 1)
+
+    # Always validate the final translated path to prevent traversal via path mapping
+    if not validate_filepath(translated):
+        print(f"❌ ERROR: Refusing to process potentially malicious filepath: {filepath} -> {translated}")
+        return None
+    return translated
 def process_file(filepath, db, settings):
     """Handles the full transcoding process for a given file using ffmpeg."""
     # Translate the dashboard path to the worker's local path
@@ -514,7 +546,9 @@ def process_file(filepath, db, settings):
     process = subprocess.Popen(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, universal_newlines=True, errors='replace')
     
     total_duration_seconds = 0
-    log_buffer = []
+    log_buffer = deque(maxlen=500)
+    last_heartbeat_time = 0.0
+    heartbeat_interval = 2.0  # Throttle DB heartbeats to avoid connection/write storms
 
     for line in process.stdout:
         log_buffer.append(line)
@@ -525,16 +559,21 @@ def process_file(filepath, db, settings):
                 total_duration_seconds = h * 3600 + m * 60 + s + ms / 100.0
                 # Send total duration to dashboard once we know it
                 db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=0, fps=0, total_duration=total_duration_seconds, job_start_time=job_start_time)
+                last_heartbeat_time = time.monotonic()
 
         if "frame=" in line and total_duration_seconds > 0:
+            now_mono = time.monotonic()
+            if now_mono - last_heartbeat_time < heartbeat_interval:
+                continue
             time_match = re.search(r'time=(\d{2}):(\d{2}):(\d{2})\.(\d{2})', line)
             fps_match = re.search(r'fps=\s*([\d\.]+)', line)
             if time_match:
                 h, m, s, ms = map(int, time_match.groups())
                 current_seconds = h * 3600 + m * 60 + s + ms / 100.0
-                progress = round((current_seconds / total_duration_seconds) * 100)
+                progress = min(100, max(0, round((current_seconds / total_duration_seconds) * 100)))
                 fps = float(fps_match.group(1)) if fps_match else 0
                 db.update_heartbeat('encoding', current_file=os.path.basename(local_filepath), progress=progress, fps=fps, total_duration=total_duration_seconds, job_start_time=job_start_time)
+                last_heartbeat_time = now_mono
 
     process.wait()
 
@@ -568,7 +607,12 @@ def process_file(filepath, db, settings):
                 except FileNotFoundError:
                     print(f"  -> [WARNING] Original file disappeared before backup could be made, skipping")
             else:
-                print("  -> Keeping original file (no backup directory specified).")
+                if final_output_path == original_path:
+                    preserved_original = original_path.with_name(f"{original_path.stem}.orig{original_path.suffix}")
+                    print(f"  -> Keeping original file (preserving as {preserved_original} to avoid overwrite).")
+                    os.rename(original_path, preserved_original)
+                else:
+                    print("  -> Keeping original file (no backup directory specified).")
         else:
             try:
                 print(f"  -> Deleting original file: {original_path}")
@@ -628,15 +672,17 @@ def rename_file(filepath, db, settings, metadata):
         series_title = metadata.get('seriesTitle', 'Unknown Series')
         season_number = metadata.get('seasonNumber')
         episode_number = metadata.get('episodeNumber')
+        if season_number is None or episode_number is None:
+            return False, {"reason": "Missing seasonNumber or episodeNumber in rename metadata."}
         episode_title = metadata.get('episodeTitle', 'Unknown Episode')
         quality = metadata.get('quality', 'Unknown Quality')
 
         # Sanitize components for filesystem
-        series_title = re.sub(r'[<>:"/\\|?*]', '', series_title)
-        episode_title = re.sub(r'[<>:"/\\|?*]', '', episode_title)
+        series_title = re.sub(r'[<>:"/\\|?*]', '', str(series_title))
+        episode_title = re.sub(r'[<>:"/\\|?*]', '', str(episode_title))
 
         # Construct the new filename, e.g., "Series Title - S01E01 - Episode Title [Quality].mkv"
-        new_filename = f"{series_title} - S{season_number:02d}E{episode_number:02d} - {episode_title} [{quality}]{Path(local_filepath).suffix}"
+        new_filename = f"{series_title} - S{int(season_number):02d}E{int(episode_number):02d} - {episode_title} [{quality}]{Path(local_filepath).suffix}"
         new_filepath = Path(local_filepath).parent / new_filename
 
         print(f"  -> Renaming to: {new_filepath}")
@@ -714,9 +760,15 @@ def main_loop(db):
             update_job_status(job['job_id'], 'completed' if success else 'failed', details)
         else:
             # No jobs were available, wait before asking again
-            poll_interval = int(settings.get('worker_poll_interval', 30))
+            try:
+                poll_interval = int(settings.get('worker_poll_interval', 30))
+            except (ValueError, TypeError):
+                poll_interval = 30
+            # Never busy-loop if worker_poll_interval is 0 (disabled/standby) or negative
+            if poll_interval <= 0:
+                poll_interval = 30
             print(f"[{datetime.now()}] No jobs. Waiting for {poll_interval} seconds...")
-            time.sleep(poll_interval)
+            STOP_EVENT.wait(timeout=poll_interval)
         
         first_loop = False
 

@@ -22,7 +22,9 @@ WORKDIR /app
 # Install runtime dependencies (ffmpeg for transcoding, iputils for ping, curl for healthchecks, tzdata for timezone support)
 # Add VAAPI support libraries for Intel hardware acceleration
 RUN apk add --no-cache ffmpeg iputils curl libffi tzdata \
-    libva libva-intel-driver intel-media-driver mesa-va-gallium
+    libva libva-intel-driver intel-media-driver mesa-va-gallium \
+    && adduser -D -u 1000 workeruser \
+    && chown -R workeruser:workeruser /app
 
 # Copy the virtual environment from the builder stage
 COPY --from=builder /opt/venv /opt/venv
@@ -32,10 +34,13 @@ ENV PATH="/opt/venv/bin:$PATH"
 ENV PYTHONUNBUFFERED=1
 
 # Copy the transcode worker script into the container
-COPY worker/transcode.py .
+COPY --chown=workeruser:workeruser worker/transcode.py .
 
 # Copy the centralized version file
-COPY VERSION.txt .
+COPY --chown=workeruser:workeruser VERSION.txt .
+
+# Run as non-root user
+USER workeruser
 
 # The command to run the application
 CMD ["python3", "transcode.py"]

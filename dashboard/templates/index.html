@@ -333,6 +333,7 @@
                     {% endwith %}
 
                     <form method="POST" action="/options" class="mt-4">
+                        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                         {% set primary_media_server = settings.get('primary_media_server', {}).get('setting_value', 'plex') %}
                         {% set enable_multi_server = settings.get('enable_multi_server', {}).get('setting_value', 'false') == 'true' %}
                         {% set plex_token = settings.get('plex_token', {}).get('setting_value') %}
@@ -976,20 +977,20 @@
     {% include 'modals/debug_settings_modal.html' %}
     {% endif %}
 
-    <!-- Pass server-side data to JavaScript -->
+    <!-- Pass server-side data to JavaScript (never expose raw API keys or tokens in DOM) -->
     <script>
         window.Librarrarian = {
             settings: {
                 use24HourClock: {{ (settings.get('clock_24hr', {}).get('setting_value', 'true') == 'true') | tojson }},
-                plexToken: "{{ settings.get('plex_token', {}).get('setting_value', '') }}",
-                plexUrl: "{{ settings.get('plex_url', {}).get('setting_value', '') }}",
-                plexLibraries: "{{ settings.get('plex_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
-                jellyfinApiKey: "{{ settings.get('jellyfin_api_key', {}).get('setting_value', '') }}",
-                jellyfinHost: "{{ settings.get('jellyfin_host', {}).get('setting_value', '') }}",
-                jellyfinLibraries: "{{ settings.get('jellyfin_libraries', {}).get('setting_value', '') }}".split(',').filter(Boolean),
-                internalScanPaths: "{{ settings.get('internal_scan_paths', {}).get('setting_value', '') }}".split(',').filter(Boolean)
+                plexToken: {{ (settings.get('plex_token', {}).get('setting_value', '') != '') | tojson }},
+                plexUrl: {{ settings.get('plex_url', {}).get('setting_value', '') | tojson }},
+                plexLibraries: {{ settings.get('plex_libraries', {}).get('setting_value', '').split(',') | select | list | tojson }},
+                jellyfinApiKey: {{ (settings.get('jellyfin_api_key', {}).get('setting_value', '') != '') | tojson }},
+                jellyfinHost: {{ settings.get('jellyfin_host', {}).get('setting_value', '') | tojson }},
+                jellyfinLibraries: {{ settings.get('jellyfin_libraries', {}).get('setting_value', '').split(',') | select | list | tojson }},
+                internalScanPaths: {{ settings.get('internal_scan_paths', {}).get('setting_value', '').split(',') | select | list | tojson }}
             },
-            version: "{{ version }}"
+            version: {{ version | tojson }}
         };
     </script>
 

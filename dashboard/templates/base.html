@@ -2,8 +2,36 @@
 <!-- The data-bs-theme attribute will be set by the script below -->
 <html lang="en"> 
 <head>
-    <meta charset="utf-8">    <title>Librarrarian Dashboard</title>
+    <meta charset="utf-8">
+    <meta name="csrf-token" content="{{ csrf_token() }}">
+    <title>Librarrarian Dashboard</title>
     <link rel="icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
+    <!-- Automatically attach CSRF token to all same-origin state-changing fetch() requests -->
+    <script>
+        (function() {
+            const origFetch = window.fetch;
+            window.fetch = function(input, init) {
+                init = init ? { ...init } : {};
+                const method = (init.method || 'GET').toUpperCase();
+                if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+                    const urlStr = typeof input === 'string' ? input : (input && input.url ? input.url : '');
+                    const isSameOrigin = !urlStr.startsWith('http://') && !urlStr.startsWith('https://') || urlStr.startsWith(window.location.origin);
+                    if (isSameOrigin) {
+                        const meta = document.querySelector('meta[name="csrf-token"]');
+                        if (meta) {
+                            const headers = new Headers(init.headers || {});
+                            if (!headers.has('X-CSRFToken')) {
+                                headers.set('X-CSRFToken', meta.getAttribute('content'));
+                            }
+                            init.headers = headers;
+                        }
+                    }
+                }
+                return origFetch.call(this, input, init);
+            };
+        })();
+    </script>
 
     <!-- This script must run before the body to prevent a flash of the wrong theme -->
     <script>
@@ -224,7 +252,7 @@
                 <a href="#" class="text-decoration-none me-3" data-bs-toggle="modal" data-bs-target="#changelogModal">
                     <span class="mdi mdi-format-list-bulleted"></span> Changelog
                 </a>
-                <a href="https://github.com/m1ckyb/Librarrarian" target="_blank" class="text-decoration-none ms-3">
+                <a href="https://github.com/m1ckyb/Librarrarian" target="_blank" rel="noopener noreferrer" class="text-decoration-none ms-3">
                     <span class="mdi mdi-github"></span> GitHub
                 </a>
             </div>
@@ -267,7 +295,9 @@
 
                     // Use localeCompare with numeric option for proper version comparison
                     if (latestStableVersion.localeCompare(internalVersion, undefined, { numeric: true }) > 0) {
-                        notificationSpan.innerHTML = `<strong>(Update Available: v${latestStableVersion})</strong>`;
+                        const strong = document.createElement('strong');
+                        strong.textContent = `(Update Available: v${latestStableVersion})`;
+                        notificationSpan.replaceChildren(strong);
                     }
                 } catch (error) {
                     console.error("Update check failed:", error); // Log error but don't bother the user

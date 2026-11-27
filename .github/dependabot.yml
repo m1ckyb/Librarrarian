@@ -1,0 +1,77 @@
+version: 2
+updates:
+  # Dashboard Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependencies"
+      - "dashboard"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Worker Python dependencies
+  - package-ecosystem: "pip"
+    directory: "/worker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependencies"
+      - "worker"
+      - "python"
+    commit-message:
+      prefix: "chore(deps)"
+
+  # Dashboard Docker base image
+  - package-ecosystem: "docker"
+    directory: "/dashboard"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependencies"
+      - "dashboard"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # Worker Docker base image
+  - package-ecosystem: "docker"
+    directory: "/worker"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependencies"
+      - "worker"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # Docker Compose images (e.g., PostgreSQL)
+  - package-ecosystem: "docker-compose"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependencies"
+      - "docker"
+    commit-message:
+      prefix: "chore(docker)"
+
+  # GitHub Actions workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 20
+    labels:
+      - "dependencies"
+      - "ci"
+    commit-message:
+      prefix: "chore(ci)"

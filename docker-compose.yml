@@ -20,6 +20,7 @@ services:
       # --- Authentication ---
       - API_KEY=${API_KEY} # For worker authentication
       - FLASK_SECRET_KEY=${FLASK_SECRET_KEY} # Add a secret key for sessions
+      - SESSION_COOKIE_SECURE=${SESSION_COOKIE_SECURE:-false} # Set to true when serving over HTTPS
       # --- Master Authentication Switch ---
       - AUTH_ENABLED=${AUTH_ENABLED:-false}
       # --- OIDC Authentication Settings (Optional) ---

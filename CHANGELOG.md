@@ -1,3 +1,23 @@
+## [0.13.5-dev] - 2026-11-28 - Dev Release
+
+### Added
+- **Dependabot Configuration**: Added `.github/dependabot.yml` for automated weekly dependency updates across dashboard/worker Python (`pip`), Dockerfiles (`docker`), Docker Compose (`docker-compose`), and GitHub Actions (`github-actions`).
+- **Automated Test Suite**: Added `pytest` unit tests in `tests/test_security_and_logic.py` covering worker path validation, SSRF protection, backup filename sanitization, CSRF enforcement, worker API key scoping, secret redaction, and `HealthCheckFilter`.
+- **CSRF Protection & Session Hardening**: Added per-session CSRF tokens (`X-CSRFToken` header + hidden form inputs), `HttpOnly` / `SameSite=Lax` / configurable `SESSION_COOKIE_SECURE` defaults, and session regeneration on login.
+- **Database Migration v19**: Converted naive timestamp columns (`nodes.last_heartbeat`, `failed_files.failed_at`, `encoded_files.encoded_at`) to `TIMESTAMPTZ` and added composite indexes on `jobs`, `encoded_files`, and `nodes`.
+
+### Changed
+- **Gunicorn Concurrency**: Updated `dashboard/Dockerfile` to run Gunicorn with `--workers 1 --worker-class gthread --threads 8 --timeout 120`, installed `ffmpeg` for internal scanner `ffprobe`, and configured both dashboard and worker containers to run as non-root users.
+- **Database Connection Pooling & Worker Heartbeats**: Added `ThreadedConnectionPool` to the dashboard, persistent DB connection reuse + 2-second heartbeat throttling + bounded `deque(maxlen=500)` FFmpeg log buffer to the worker, and advisory locking around DB migrations.
+- **Asynchronous Post-Transcode Hooks**: Moved Plex/Jellyfin library refreshes and Sonarr/Radarr rescan/rename hooks out of the `/api/update_job` DB transaction into a dedicated background queue thread.
+
+### Fixed
+- **Gunicorn Worker Timeout**: Fixed critical issue where the Arr Job Processor thread would cause Gunicorn worker timeouts by using blocking `time.sleep()` calls. Replaced all `time.sleep()` with interruptible `event.wait(timeout)` pattern to prevent the background thread from blocking the Gunicorn worker process during the configurable delay between rename job processing.
+- **Original `.mkv` Overwrite Bug**: Fixed `worker/transcode.py` silently overwriting `.mkv` source files when `keep_original=true` and no `backup_directory` is set.
+- **Plex TV Show Scanning**: Fixed `run_plex_scan()` skipping TV show libraries (`library.all()` returns `Show` objects without `.media`; now uses `library.searchEpisodes()` for show libraries and avoids N+1 `video.reload()` calls).
+- **Critical Security Hardening**: Removed hardcoded `FLASK_SECRET_KEY` fallback when auth is enabled, restricted worker `X-API-Key` to worker-only endpoints, redacted API keys/tokens from `/api/settings`, `/api/export`, and HTML templates, blocked stored Jellyfin API key exfiltration and SSRF on test endpoints, fixed path traversal in internal scanner, worker path mapping, and backup download/delete, and fixed stored XSS across `app.js`, `base.html`, and `login.html`.
+- **Scanner, Backup & Frontend Bugs**: Fixed scanner lock/progress clobbering, `pg_dump | gzip` pipe deadlock and broken backup retention sorting, `datetime` naive/aware crash in `/api/failures`, `HealthCheckFilter` `KeyError` on Gunicorn logs, legacy `pollScanProgress()` crash, `#select-all-cleanup` listener leak, non-functional history delete button, symlink job release mismatch, and dev compose DB healthcheck variable mismatch.
+
 ## [0.13.4] - 2025-12-11 - Patch Release
 
 ### Added
